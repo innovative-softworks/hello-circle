@@ -4,7 +4,7 @@ import { becomeProvider, fetchManageWorkspaces, switchWorkspace } from "../api";
 import { useAuth } from "../AuthContext";
 import { CheckboxField } from "./AuthForms";
 import { AwardIcon } from "./icons";
-import { Button, inputStyle, labelStyle } from "./ui";
+import { Button, Modal, inputStyle, labelStyle } from "./ui";
 import { colors, fonts, radius } from "../theme";
 import type { HostStatus } from "../types";
 import type { ManageWorkspaces } from "../api/manage";
@@ -30,7 +30,8 @@ const WHAT_YOU_GET = [
   "Take payments through Stripe, with bookings and attendance in one dashboard",
 ];
 
-export function BecomeProviderPanel({ hostStatus }: { hostStatus: HostStatus }) {
+/** `bare` (account redesign): no card frame or title — the page section supplies them. */
+export function BecomeProviderPanel({ hostStatus, bare }: { hostStatus: HostStatus; bare?: boolean }) {
   const navigate = useNavigate();
   const { refresh } = useAuth();
   const [workspaces, setWorkspaces] = useState<ManageWorkspaces | null>(null);
@@ -101,11 +102,13 @@ export function BecomeProviderPanel({ hostStatus }: { hostStatus: HostStatus }) 
   const vendor = workspaces?.vendor;
 
   return (
-    <div style={{ background: "#fff", border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "18px 20px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-        <AwardIcon size={16} style={{ color: colors.greenText }} />
-        <span style={{ fontFamily: fonts.display, fontSize: 15, fontWeight: 700 }}>Host as a provider</span>
-      </div>
+    <div style={bare ? undefined : { background: "#fff", border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "18px 20px" }}>
+      {!bare && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+          <AwardIcon size={16} style={{ color: colors.greenText }} />
+          <span style={{ fontFamily: fonts.display, fontSize: 15, fontWeight: 700 }}>Host as a provider</span>
+        </div>
+      )}
 
       {vendor ? (
         vendor.status === "approved" ? (
@@ -121,7 +124,7 @@ export function BecomeProviderPanel({ hostStatus }: { hostStatus: HostStatus }) 
             Your Host account is unaffected in the meantime.
           </p>
         )
-      ) : !open ? (
+      ) : (
         <>
           <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "8px 0 12px" }}>
             You're a Verified Host, so you can open a provider account to take this further — it stays linked to
@@ -133,10 +136,15 @@ export function BecomeProviderPanel({ hostStatus }: { hostStatus: HostStatus }) 
             ))}
           </ul>
           <Button onClick={() => setOpen(true)}>Open a provider account</Button>
-        </>
-      ) : (
-        <>
-          <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "8px 0 12px" }}>
+          {/* Owner 2026-10-24: forms open in a centred popup, not inline. */}
+          <Modal
+            open={open}
+            onClose={() => { if (!submitting) { setOpen(false); setError(null); } }}
+            title="Open a provider account"
+            size="wide"
+            confirmClose={businessName || address || description || password ? { title: "Discard this application?", message: "What you've entered here hasn't been sent." } : undefined}
+          >
+          <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 12px" }}>
             An admin reviews this before anything goes live — the same check every provider goes through.
           </p>
 
@@ -203,6 +211,7 @@ export function BecomeProviderPanel({ hostStatus }: { hostStatus: HostStatus }) 
               Cancel
             </Button>
           </div>
+          </Modal>
         </>
       )}
     </div>

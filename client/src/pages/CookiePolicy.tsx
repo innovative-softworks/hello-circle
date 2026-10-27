@@ -86,7 +86,7 @@ export function CookiePolicy() {
   }, []);
 
   return (
-    <div style={{ animation: "fadeUp .3s ease backwards" }}>
+    <div className="fade-panel">
       <section className="section-pad" style={{ maxWidth: 760, margin: "0 auto", padding: "36px 24px 90px" }}>
         <button
           onClick={() => navigate(-1)}

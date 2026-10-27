@@ -1,3 +1,4 @@
+import { AdminCategoriesPage } from "../components/admin/AdminCategories";
 import { AdminPrivacyPage } from "../components/admin/AdminPrivacy";
 import { useCallback, useEffect, useState } from "react";
 import { AdminMfaGate, AdminMfaReauthHost } from "../components/admin/AdminMfa";
@@ -223,6 +224,8 @@ export function AdminDashboard() {
         return <AdminPolicyTab />;
       case "organisations":
         return <AdminOrganisationsPage onOpenVendor={openVendorAccount} />;
+      case "categories":
+        return <AdminCategoriesPage />;
       case "demand":
       case "marketplaceHealth":
         return <AdminInsightsPage initial={tab === "demand" ? "demand" : "health"} onOpenSettings={() => go("settings")} />;

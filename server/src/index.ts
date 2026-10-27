@@ -15,7 +15,7 @@ import "express-async-errors";
 import { MembershipChangedError } from "./orgStatus.js";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildSitemapXml, defaultOgMeta, generateSitemapUrls, injectOgTags, isEntityDetailRoute, resolveMarketingOgMeta, resolveOgMeta, resolveStaticDiscoveryOgMeta } from "./ogMeta.js";
+import { buildSitemapXml, defaultOgMeta, generateSitemapUrls, injectOgTags, isEntityDetailRoute, resolveCategoryOgMeta, resolveMarketingOgMeta, resolveOgMeta, resolveStaticDiscoveryOgMeta } from "./ogMeta.js";
 import { CLIENT_URL } from "./stripe.js";
 import { attachUser } from "./auth.js";
 import { dataDir } from "./dataDir.js";
@@ -34,7 +34,10 @@ import { chatRouter } from "./routes/chat.js";
 import { makeItHappenRouter } from "./routes/makeItHappen.js";
 import { centresRouter } from "./routes/centres.js";
 import { providersRouter } from "./routes/providers.js";
+import { categoriesRouter } from "./routes/categories.js";
 import { circlesRouter } from "./routes/circles.js";
+import { circleExperienceRouter } from "./routes/circleExperience.js";
+import { circleLinksRouter } from "./routes/circleLinks.js";
 import { clubSessionsRouter } from "./routes/clubSessions.js";
 import { clubsRouter } from "./routes/clubs.js";
 import { couponsRouter } from "./routes/coupons.js";
@@ -50,6 +53,10 @@ import { hostSplitsRouter, vendorSplitsRouter } from "./routes/venueSplits.js";
 import { hostPlanRouter, residentCreditsRouter, vendorPlanRouter } from "./routes/partnerPlan.js";
 import { discoverRouter } from "./routes/discover.js";
 import { experiencesRouter } from "./routes/experiences.js";
+import { spotAlertsRouter, sweepSpotAlerts } from "./spotAlerts.js";
+import { myLifeRouter, sweepMyLifeAlerts } from "./myLife.js";
+import { sweepCirclePlanReminders } from "./circlePlanNotices.js";
+import { experienceHubRouter } from "./routes/experienceHub.js";
 import { favouritesRouter } from "./routes/favourites.js";
 import { feedbackRouter } from "./routes/feedback.js";
 import { nextStepsRouter } from "./routes/nextSteps.js";
@@ -129,6 +136,13 @@ setInterval(() => void sweepSubscriptions().catch((e) => console.error("[subscri
 // startup to catch up on anything that fell due while the server was down.
 void sweepPaymentReviews().catch((e) => console.error("[payments] review sweep failed:", e));
 setInterval(() => void sweepPaymentReviews().catch((e) => console.error("[payments] review sweep failed:", e)), 5 * 60 * 1000);
+// Experience 3.0 — tell people waiting on a full departure when a place opens
+// (once each, re-checked; does nothing while experience.spot_alerts is off).
+setInterval(() => void sweepSpotAlerts().catch((e) => console.error("[spot-alerts] sweep failed:", e)), 5 * 60 * 1000);
+// My Life 3.0 opt-in alerts (mylife.alerts + the resident's own setting), every 30 minutes.
+setInterval(() => void sweepMyLifeAlerts().catch((e) => console.error("[mylife-alerts] sweep failed:", e)), 30 * 60 * 1000);
+// Circles 3.0 — day-before reminders for dated Circle plans (once per plan).
+setInterval(() => void sweepCirclePlanReminders().catch((e) => console.error("[circle-plans] reminder sweep failed:", e)), 30 * 60 * 1000);
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -180,6 +194,7 @@ app.use("/api/auth/admin-invite", adminInviteRouter);
 app.use("/api/auth", authRouter);
 app.use("/api/guest", guestAuthRouter);
 app.use("/api/residents", residentsRouter);
+app.use("/api/my-life", myLifeRouter);
 app.use("/api/household", householdRouter);
 app.use("/api/manage", manageRouter);
 app.use("/api/launch-signups", launchSignupsRouter);
@@ -194,6 +209,7 @@ app.use("/api/invitations", invitationsRouter);
 app.use("/api/feedback", feedbackRouter);
 app.use("/api/next-steps", nextStepsRouter);
 app.use("/api/discover", discoverRouter);
+app.use("/api/categories", categoriesRouter);
 app.use("/api/centres", centresRouter);
 app.use("/api/providers", providersRouter);
 app.use("/api/clubs", clubsRouter);
@@ -207,9 +223,17 @@ app.use("/api/chat", chatRouter);
 app.use("/api/registrations", registrationsRouter);
 app.use("/api/games", gamesRouter);
 app.use("/api/circles", circlesRouter);
+// Circle Experience 2.0 — Pulse, free time, plan interest, memories (flagged).
+app.use("/api/circles", circleExperienceRouter);
+app.use("/api/circles", circleLinksRouter);
 app.use("/api/passes", passesRouter);
 app.use("/api/place-suggestions", placeSuggestionsRouter);
 app.use("/api/programs", programsRouter);
+// Experience 3.0 spot alerts — before experiencesRouter so /spot-alerts/mine
+// isn't read as an experience id.
+app.use("/api/experiences", spotAlertsRouter);
+// Experience 3.0 — Passport, programme journey, Plan My Day (each switch-gated).
+app.use("/api/experience", experienceHubRouter);
 app.use("/api/experiences", experiencesRouter);
 app.use("/api/vendor/org", orgRouter);
 app.use("/api/invites", publicInviteRouter);
@@ -473,7 +497,7 @@ mountClient(app, clientDist, async (req, res) => {
     // account pages, ...) still falls through to the 200 default/marketing
     // meta exactly as before — the SPA itself decides what to render there.
     if (!entityMeta && isEntityDetailRoute(req.path)) res.status(404);
-    const meta = entityMeta ?? resolveMarketingOgMeta(req.path) ?? resolveStaticDiscoveryOgMeta(req.path) ?? defaultOgMeta(req.path);
+    const meta = entityMeta ?? resolveMarketingOgMeta(req.path) ?? (await resolveCategoryOgMeta(req.path, req.query as Record<string, unknown>)) ?? resolveStaticDiscoveryOgMeta(req.path) ?? defaultOgMeta(req.path);
     res.setHeader("Content-Type", "text/html");
     return res.send(injectOgTags(readIndexHtmlTemplate(), meta));
   } catch (e) {

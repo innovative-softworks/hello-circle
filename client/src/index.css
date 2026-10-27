@@ -35,6 +35,11 @@ html {
 }
 
 :root {
+  /* Page container (Batch 2, 2026-10-22): one width and one side gutter for
+     the header, footer and every page, so content lines up with the logo and
+     the header's right edge. Keep --page-max equal to theme.ts maxWidth. */
+  --page-max: 1560px;
+  --page-gutter: 24px;
   /* Corner radii (theme.ts `radius`). Workspaces override these below. */
   /* Consumer pages: 10px fields, 16px cards, pill buttons (unchanged). The
      admin/partner/host workspaces override all of these to 8px (admin.css). */
@@ -42,6 +47,11 @@ html {
   --radius-card: 16px;
   --radius-pill: 999px;
   --radius-small: 6px;
+  /* Action buttons (owner, 2026-10-22): 4px corners, never full width — one
+     shared minimum width, growing with the label. Chips, tags and badges
+     keep --radius-pill. */
+  --radius-button: 12px; /* owner 2026-10-24: 12px (was 4px) */
+  --button-min-width: 120px;
   /* ManageCard (vendor/admin card also used on Pricing and Complaints): sharp
      2px on consumer pages, 8px inside workspaces. */
   --radius-manage-card: 2px;
@@ -105,6 +115,14 @@ html {
   --color-on-brand: #172019;
   --color-night: #172019;
   --color-on-night: #f7f4ec;
+  /* Buttons (owner, 2026-10-22): one orange for every public main action,
+     with WHITE text — a slightly deeper shade of the brand orange so white
+     reads (4.7:1; on #ff4b24 it was 3.3:1). Hover goes deeper (5.8:1). The
+     bright --color-brand stays for accents, bands and highlights. Same
+     values in dark mode. */
+  --color-cta: #d7380f;
+  --color-cta-hover: #bf300c;
+  --color-on-cta: #ffffff;
 }
 
 /* Dark mode (UI/UX plan phase 8), OS-driven by default via
@@ -293,7 +311,7 @@ body {
 body {
   background: var(--color-bg);
   color: var(--color-text);
-  font-family: "Figtree Variable", "Figtree", system-ui, sans-serif;
+  font-family: "Inter Variable", "Inter", system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 input,
@@ -395,26 +413,8 @@ textarea:focus {
 /* !important so elements with their own transition/transform rules (.btn's
    0.15s hover transition, etc.) still animate in at the reveal timing
    instead of snapping. The class is removed once the reveal finishes. */
-/* Card image -> detail hero shared-element morph (sharedElementTransition.ts) */
-[data-vt-hero] {
-  view-transition-name: hc-hero;
-}
-::view-transition-group(hc-hero) {
-  animation-duration: 600ms;
-  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
-  overflow: clip;
-  border-radius: 18px;
-}
-::view-transition-old(hc-hero),
-::view-transition-new(hc-hero) {
-  height: 100%;
-  width: 100%;
-  object-fit: cover;
-}
-::view-transition-old(root),
-::view-transition-new(root) {
-  animation-duration: 300ms;
-}
+/* Batch 2 (owner, 2026-10-22): the card→detail image morph and its
+   View Transitions styles were removed — pages load with skeletons only. */
 .reveal {
   opacity: 0 !important;
   transform: translate3d(0, 64px, 0) !important;
@@ -517,6 +517,24 @@ textarea:focus {
 }
 .btn-dark:hover:not(:disabled) {
   box-shadow: 0 8px 20px rgba(30, 36, 32, 0.25);
+}
+/* Public main action: darker orange on hover, white text kept. */
+.btn-cta:hover:not(:disabled) {
+  background: var(--color-cta-hover) !important;
+  border-color: var(--color-cta-hover) !important;
+  color: var(--color-on-cta) !important;
+  box-shadow: 0 8px 20px rgba(191, 48, 12, 0.24);
+}
+/* Public secondary: the outline fills with ink on hover (text flips). */
+.btn-outline:hover:not(:disabled) {
+  background: var(--color-text) !important;
+  border-color: var(--color-text) !important;
+  color: var(--color-bg) !important;
+}
+.btn-cta:focus-visible,
+.btn-outline:focus-visible {
+  outline: 2px solid var(--color-text);
+  outline-offset: 2px;
 }
 .btn-ghost:hover:not(:disabled) {
   background: var(--color-panel) !important;
@@ -639,8 +657,10 @@ textarea:focus {
    containing block for position:fixed descendants, so detail pages'
    .mobile-join-bar scrolled with the content instead of staying on the tab
    bar. Same visual entrance. */
+/* Batch 2 (owner, 2026-10-22): no page entrance animation — content appears
+   as soon as it's ready; skeletons cover the wait. Class kept as a hook. */
 .fade-panel {
-  animation: fadeUp 0.28s ease backwards;
+  animation: none;
 }
 .pop-in {
   animation: popIn 0.18s cubic-bezier(0.2, 0.8, 0.2, 1) both;
@@ -1127,17 +1147,12 @@ textarea:focus {
   to { opacity: 1; }
 }
 .card-surface {
-  animation: cardFadeIn 0.45s ease backwards;
+  /* Batch 2 (owner, 2026-10-22): cards appear without a fade; the skeleton
+     they replace is the only loading state. */
+  animation: none;
 }
 
-/* --- page transitions (App.tsx toggles .route-enter on <main>) ---------- */
-@keyframes routeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-.route-enter {
-  animation: routeIn 0.32s ease both;
-}
+/* --- page transitions: removed (Batch 2, owner 2026-10-22) -------------- */
 
 /* --- drawer / bottom sheet ------------------------------------------- */
 @keyframes sheetIn {
@@ -1200,7 +1215,6 @@ textarea:focus {
   .pop-in-up,
   .fade-in,
   .card-surface,
-  .route-enter,
   .sheet-in,
   .sheet-out,
   .slide-out-right,
@@ -1409,3 +1423,477 @@ main#main-content:focus { outline: none; }
   outline: 2px solid currentColor;
   outline-offset: 2px;
 }
+
+/* PUB-23 — Profile settings rows (Profile.tsx SettingsRow): on phones the
+   label/description stacks above its control instead of squeezing both onto
+   one line, so values like the email address and its verification status
+   are never clipped. Matches theme.ts's breakpoints.narrowMobile. */
+@media (max-width: 560px) {
+  .settings-row--stack {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 8px !important;
+  }
+  .settings-row--stack .settings-row-control {
+    flex: 1 1 auto !important;
+  }
+  .settings-row--stack .settings-row-end {
+    align-items: flex-start !important;
+  }
+}
+
+/* Batch 2 — ListingCard rowOnPhone: on phones a list shows a square
+   thumbnail beside the text, so 3–4 results fit per screen. Opt-in per list
+   (Home keeps its own cards). The Photo box is the card's first <div>. */
+@media (max-width: 560px) {
+  .listing-card--row {
+    flex-direction: row !important;
+    align-items: stretch;
+  }
+  .listing-card--row > div:first-of-type {
+    width: 112px;
+    flex: none;
+    aspect-ratio: 1 / 1 !important;
+    margin: 12px 0 12px 12px;
+    border-radius: 12px;
+    align-self: flex-start;
+  }
+  .listing-card--row > div:nth-of-type(2) {
+    padding: 12px 14px 12px 14px !important;
+    min-width: 0;
+  }
+  .listing-card--row .card-photo-badge { display: none; }
+  .listing-card--row .no-photo-text { padding: 10px !important; }
+  .listing-card--row .no-photo-title { font-size: 15px !important; -webkit-line-clamp: 3; }
+  .listing-card--row .no-photo-kind { font-size: 9.5px !important; }
+  .listing-card--row .no-photo-line { font-size: 10px !important; }
+}
+
+/* Batch 2 — discovery headers on phones: chip rows scroll sideways instead of
+   wrapping into several lines, and Explore's category tiles become a compact
+   sideways row, so the first results appear on the first screen. */
+@media (max-width: 560px) {
+  .chips-scroll-mobile {
+    flex-wrap: nowrap !important;
+    overflow-x: auto;
+    scrollbar-width: none;
+    margin-right: -16px;
+    padding-right: 16px;
+  }
+  .chips-scroll-mobile::-webkit-scrollbar { display: none; }
+  .chips-scroll-mobile > * { flex: none; }
+  .explore-categories {
+    grid-template-columns: none !important;
+    grid-auto-flow: column;
+    grid-auto-columns: 62%;
+    overflow-x: auto;
+    scrollbar-width: none;
+    margin-right: -16px;
+    padding-right: 16px;
+    margin-bottom: 24px !important;
+  }
+  .explore-categories::-webkit-scrollbar { display: none; }
+  .explore-categories > button { padding: 14px !important; gap: 6px !important; }
+}
+
+/* Batch 2 — Activities category chips: on phones the row scrolls sideways,
+   which would clip the "More" dropdown, so the overflow categories show as
+   plain chips instead (the dropdown is .hide-mobile, same 640px breakpoint). */
+.show-mobile-contents { display: none; }
+@media (max-width: 640px) { .show-mobile-contents { display: contents; } }
+
+/* Batch 2 load check — PageSpinner waits 250ms before fading in, so quick
+   loads never flash a spinner. Reduced motion: shown straight away. */
+.page-spinner {
+  animation: fadeIn 0.2s ease 0.25s backwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .page-spinner { animation: none; }
+}
+
+/* Page gutter on tablets and phones — the header already uses 16px from
+   860px down; pages used 24px until 640px, so they sat 8px inside the logo
+   on tablets. One value now (Batch 2, 2026-10-22). */
+@media (max-width: 860px) {
+  :root { --page-gutter: 16px; }
+  .section-pad {
+    padding-left: var(--page-gutter) !important;
+    padding-right: var(--page-gutter) !important;
+  }
+}
+
+/* DP-11 (detail-page audit, 2026-10-22) — text links and text buttons outside
+   running prose get a 24px tap target (WCAG 2.2 SC 2.5.8) without changing how
+   they look. */
+.tap-target {
+  display: inline-flex !important;
+  align-items: center;
+  min-height: 24px;
+}
+
+/* Detail pages — "What to expect" and the "… details" facts share one even
+   grid (owner, 2026-10-22), so their columns line up instead of the details
+   splitting into two far-apart halves on wide screens. */
+.fact-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 22px 24px;
+}
+@media (max-width: 640px) {
+  .fact-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 16px; }
+}
+
+/* Detail-page redesign (master brief, 2026-10-22). Desktop: main column
+   (head + body) beside a sticky booking column, about 70/30. Phones and
+   tablets: head, then the booking column (price, date, availability, action,
+   cancellation), then the body — so the terms come before recommendations
+   and the booking summary appears once (the fixed bar is only a shortcut). */
+.detail-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 7fr) minmax(320px, 3fr);
+  grid-template-areas:
+    "head aside"
+    "body aside";
+  column-gap: 40px;
+  align-items: start;
+}
+.detail-grid > .detail-head { grid-area: head; min-width: 0; }
+.detail-grid > .detail-body { grid-area: body; min-width: 0; }
+.detail-grid > .detail-aside {
+  grid-area: aside;
+  position: sticky;
+  top: 90px;
+  min-width: 0;
+  /* Booking + Hosted by + Where (owner, 2026-10-22): when that is taller than
+     the window, the column scrolls on its own so the booking action is never
+     out of reach. */
+  max-height: calc(100vh - 110px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  padding-bottom: 8px;
+}
+/* Desktop: the booking box is as tall as the cover photo beside it (owner
+   2026-10-27). Places and who's going stay at the top; the price, the main
+   button and the Share / Invite / Calendar icons sit at the bottom, level
+   with the photo's bottom edge. --cover-h comes from PhotoGallery. */
+@media (min-width: 901px) {
+  .detail-grid > .detail-aside > :first-child {
+    min-height: var(--cover-h, auto);
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+  }
+  .detail-grid > .detail-aside > :first-child > .booking-facts {
+    margin-top: auto;
+  }
+}
+@media (max-width: 900px) {
+  .detail-grid {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "head"
+      "aside"
+      "body";
+  }
+  .detail-grid > .detail-aside { position: static; max-height: none; overflow: visible; margin: 24px 0 8px; }
+}
+
+/* Requirements rows: label beside value on wide screens, stacked on phones. */
+.requirement-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 180px) minmax(0, 1fr);
+  gap: 12px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+@media (max-width: 640px) {
+  .requirement-row { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+}
+
+/* Category system (2026-10-22) — screen-reader-only status text and the
+   related-category links in category empty states. */
+.visually-hidden {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+.hc-related-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 6px 14px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 13.5px;
+  font-weight: 600;
+  text-decoration: none;
+}
+.hc-related-chip:hover { border-color: var(--color-text); }
+
+/* A step or form's main action (Button size="lg"): 48px tall; on phones it
+   takes the row's remaining width (next to Back) so it's an easy tap. */
+@media (max-width: 640px) {
+  .btn-lg { flex: 1 1 auto; }
+}
+
+/* Booking card facts (components/BookingFacts.tsx, 2026-10-22). */
+.booking-facts { margin: 0 0 16px; }
+.booking-facts-list { display: grid; gap: 14px; margin: 0; }
+.booking-fact { display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 12px; align-items: start; }
+.booking-fact-icon {
+  width: 40px; height: 40px; display: inline-flex; align-items: center; justify-content: center;
+  border-radius: var(--radius-control); background: var(--color-green-bg); color: var(--color-green-text);
+}
+.booking-fact-text { min-width: 0; display: grid; gap: 2px; padding-top: 1px; }
+.booking-fact-value { margin: 0; font-size: 15.5px; font-weight: 700; color: var(--color-text); line-height: 1.3; overflow-wrap: anywhere; }
+.booking-fact-sub { margin: 0; font-size: 13px; color: var(--color-muted); line-height: 1.4; }
+.booking-fact-sub a { color: var(--color-text); font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
+.booking-fact--price .booking-fact-value { font-size: 20px; font-weight: 800; }
+.booking-fact--free .booking-fact-value { font-size: 20px; font-weight: 800; color: var(--color-green-text); }
+/* D1 (owner 2026-10-27): the price large, with the same unit as the card */
+.booking-price { display: inline-flex; align-items: baseline; flex-wrap: wrap; gap: 4px 8px; }
+.booking-price b { font-family: "Bricolage Grotesque Variable", "Bricolage Grotesque", system-ui, sans-serif; font-size: 30px; font-weight: 800; line-height: 1; letter-spacing: -0.01em; color: var(--color-text); }
+.booking-price span { font-size: 14.5px; font-weight: 600; color: var(--color-muted); }
+.booking-price.is-free b { color: var(--color-green-text); }
+.booking-facts-footnote { margin: 12px 0 0; font-size: 13px; color: var(--color-muted); }
+
+/* Explore rows: a line between each (Explore cleanup, owner 2026-10-27). */
+.ex-row {
+  padding-block: 32px;
+  border-top: 1px solid var(--color-border);
+}
+.ex-row:first-child {
+  border-top: 0;
+  padding-top: 8px;
+}
+
+/* Detail pages: when and where, once, under the title (owner 2026-10-27,
+   booking box option 2). */
+.detail-when-where {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+  font-size: 15px;
+  color: var(--color-muted);
+}
+.detail-when-where > span {
+  display: block;
+  padding-left: 24px;
+  position: relative;
+}
+.detail-when-where svg {
+  position: absolute;
+  left: 0;
+  top: 3px;
+  color: var(--color-text);
+}
+.detail-when-where b {
+  color: var(--color-text);
+  font-weight: 700;
+}
+.detail-when-where a {
+  color: var(--color-text);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+/* Share / Invite / Calendar / Directions / Group chat under the main button:
+   round icons with a short label under each (owner 2026-10-27). */
+.booking-actions {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 6px 4px;
+}
+.booking-icon {
+  display: grid;
+  justify-items: center;
+  gap: 5px;
+  width: 64px;
+  padding: 0;
+  background: none;
+  border: 0;
+  color: var(--color-muted);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+}
+.booking-icon-dot {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid var(--color-border-strong, var(--color-border));
+  background: var(--color-surface);
+  color: var(--color-text);
+  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+.booking-icon:hover .booking-icon-dot {
+  background: var(--color-text);
+  border-color: var(--color-text);
+  color: var(--color-bg);
+}
+.booking-icon.is-done .booking-icon-dot {
+  background: var(--color-green-bg);
+  border-color: transparent;
+  color: var(--color-green-text);
+}
+.booking-icon:focus-visible {
+  outline: none;
+}
+.booking-icon:focus-visible .booking-icon-dot {
+  outline: 2px solid var(--color-text);
+  outline-offset: 2px;
+}
+/* "At a glance" between who's going and the price (owner 2026-10-27). */
+.booking-glance {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+  font-size: 13.5px;
+  line-height: 1.45;
+}
+.booking-glance li {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+.booking-glance-icon {
+  display: grid;
+  place-items: center;
+  margin-top: 1px;
+  color: var(--color-muted);
+}
+.booking-glance b { font-weight: 700; }
+.booking-glance-sub { color: var(--color-muted); }
+.booking-glance li > span:last-child {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+/* After booking: done / to-do checklist. */
+.booking-next {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+  font-size: 13.5px;
+}
+.booking-next li { display: flex; align-items: center; gap: 9px; }
+.booking-next-tick {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1.5px solid var(--color-border-strong, var(--color-border));
+  font-size: 11px;
+  font-weight: 800;
+}
+.booking-next li.is-done .booking-next-tick {
+  background: var(--color-green-text);
+  border-color: transparent;
+  color: #fff;
+}
+.booking-next li.is-done { color: var(--color-muted); }
+/* The booked summary. */
+.booking-ticket {
+  display: grid;
+  gap: 3px;
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border: 1px dashed var(--color-border-strong, var(--color-border));
+  border-radius: 12px;
+  font-size: 13.5px;
+  color: var(--color-muted);
+}
+.booking-ticket b { color: var(--color-text); font-size: 15px; }
+/* Leave / withdraw / cancel: a quiet link, never a big button. */
+.booking-quiet { text-align: center; margin-top: 12px; }
+.booking-quiet button {
+  min-height: 32px;
+  padding: 4px 6px;
+  background: none;
+  border: 0;
+  font: inherit;
+  font-size: 13px;
+  color: var(--color-muted);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.booking-quiet button:hover { color: var(--color-text); }
+.booking-quiet button:disabled { opacity: 0.6; cursor: default; }
+.booking-undo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 0 14px;
+  padding: 8px 8px 8px 12px;
+  border-radius: 10px;
+  background: var(--color-green-bg);
+  color: var(--color-green-text);
+  font-size: 13px;
+  font-weight: 700;
+}
+.booking-undo button {
+  min-height: 32px;
+  padding: 4px 10px;
+  background: none;
+  border: 0;
+  font: inherit;
+  font-weight: 700;
+  color: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.booking-sub-line { margin: 4px 0 0; font-size: 13.5px; color: var(--color-muted-light, var(--color-muted)); }
+
+/* "No dates yet" in the booking box (owner 2026-10-27): the CTA form's
+   "when suits you" as a small week of chips, then the main button. */
+.intent-box { display: grid; gap: 10px; }
+.intent-box-head { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 700; color: var(--color-text); }
+.intent-box-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.intent-box-times { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
+.intent-box-day {
+  min-height: 40px;
+  padding: 0 2px;
+  border: 1px solid var(--color-border-strong, var(--color-border));
+  border-radius: 8px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.intent-box-day[aria-pressed="true"] { background: var(--color-text); border-color: var(--color-text); color: var(--color-bg); }
+.intent-box-day:focus-visible { outline: 2px solid var(--color-text); outline-offset: 2px; }
+.intent-box-social { margin: 0; font-size: 13px; font-weight: 600; color: var(--color-orange-dark, #b8320f); }
+.intent-box-note { margin: 0; font-size: 12px; text-align: center; color: var(--color-muted); }
+.intent-box-done { display: grid; gap: 4px; padding: 12px 14px; border-radius: 12px; background: var(--color-green-bg); }
+.intent-box-done-title { margin: 0; font-weight: 800; font-size: 15px; color: var(--color-green-text); }
+.intent-box-done p { margin: 0; font-size: 13.5px; line-height: 1.45; color: var(--color-text); }
+.intent-box-undo { justify-self: start; min-height: 32px; padding: 0; background: none; border: 0; font: inherit; font-size: 13px; color: var(--color-muted); text-decoration: underline; cursor: pointer; }

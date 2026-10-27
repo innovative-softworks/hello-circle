@@ -20,8 +20,8 @@ const PHOTO = {
 
 export function FoundingVenueSection({ onCta }: { onCta: () => void }) {
   return (
-    <section className="section-pad" style={{ borderTop: `1px solid ${colors.border}`, borderBottom: `1px solid ${colors.border}` }}>
-      <div className="grid-responsive" style={{ maxWidth: FV_MAX_WIDTH, margin: "0 auto", padding: "64px 24px", display: "grid", gridTemplateColumns: "1.1fr 1fr", gap: 48, alignItems: "start" }}>
+    <section style={{ borderTop: `1px solid ${colors.border}`, borderBottom: `1px solid ${colors.border}` }}>
+      <div className="grid-responsive section-pad" style={{ maxWidth: FV_MAX_WIDTH, margin: "0 auto", padding: "64px 24px", display: "grid", gridTemplateColumns: "1.1fr 1fr", gap: 48, alignItems: "start" }}>
         <div>
           <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: 0, textTransform: "uppercase", color: FV_ACCENT_DARK, marginBottom: 10 }}>
             <span aria-hidden="true">/</span> Founding venues
@@ -41,7 +41,7 @@ export function FoundingVenueSection({ onCta }: { onCta: () => void }) {
               </div>
             ))}
           </div>
-          <Button variant="orange" onClick={onCta} style={{ background: FV_ACCENT }}>
+          <Button variant="orange" onClick={onCta}>
             Become an early venue partner
           </Button>
         </div>

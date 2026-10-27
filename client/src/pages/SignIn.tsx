@@ -128,7 +128,9 @@ export function SignIn() {
   const resetToken = searchParams.get("resetToken");
   const destination = safeReturnTo(searchParams.get("returnTo"));
   const intentContext = readAuthIntentContext(searchParams);
-  const [forgotMode, setForgotMode] = useState(false);
+  // PUB-35 — /signin?forgot=1 opens the resident password reset directly
+  // (linked from the business-only /forgot-password page).
+  const [forgotMode, setForgotMode] = useState(searchParams.get("forgot") === "1");
 
   // ownSuccessRef makes handleSuccess the single source of truth for "just
   // signed in on this page": it's set before refresh() runs, so the re-render
@@ -187,6 +189,11 @@ export function SignIn() {
           <p style={{ margin: "10px 0 0", fontSize: 14 }}>
             Prefer not to use a password?{" "}
             <Link to={`/signin/email-link${siblingSearch}`} style={{ color: colors.text, fontWeight: 700, textDecoration: "none" }}>Email me a sign-in link →</Link>
+          </p>
+          {/* PUB-35 — residents and businesses sign in at different doors. */}
+          <p style={{ margin: "10px 0 0", fontSize: 14, color: colors.muted }}>
+            Manage a venue, club or experience?{" "}
+            <Link to="/login" style={{ color: colors.text, fontWeight: 700, textDecoration: "none" }}>Business log in →</Link>
           </p>
         </>
       )}

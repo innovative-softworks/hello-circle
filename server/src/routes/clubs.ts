@@ -1,3 +1,4 @@
+import { taxonomyFields } from "../taxonomy.js";
 import { unavailableListing } from "../orgStatus.js";
 import { Router } from "express";
 import { logView } from "../analytics.js";
@@ -27,7 +28,7 @@ clubsRouter.get("/:id", async (req, res) => {
     return res.status(404).json({ error: "Club not found" });
   }
   logView("place_viewed", req, { kind: "club", id: club.id });
-  res.json({ ...club, participationAttributes: await getListingAttributes("club", club.id), ...(await officialCircleSummary("clubs", club.id)) });
+  res.json({ ...club, participationAttributes: await getListingAttributes("club", club.id), ...(await officialCircleSummary("clubs", club.id)), ...(await taxonomyFields("club", club.id)) });
 });
 
 // --- waitlist (MVP) --------------------------------------------------------

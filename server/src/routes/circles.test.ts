@@ -3,6 +3,7 @@ import http, { type Server } from "node:http";
 import express from "express";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { db } from "../db/index.js";
+import { circleExperienceRouter } from "./circleExperience.js";
 import { circlesRouter } from "./circles.js";
 import { gamesRouter } from "./games.js";
 
@@ -35,6 +36,7 @@ beforeAll(async () => {
     next();
   });
   app.use("/circles", circlesRouter);
+  app.use("/circles", circleExperienceRouter);
   app.use("/games", gamesRouter);
 
   server = http.createServer(app);
@@ -438,10 +440,17 @@ describe("Join modes", () => {
     expect(res.status).toBe(409);
   });
 
-  it("removing a member then rejoining an open circle works with no cooldown", async () => {
+  // Circle Experience 2.0, owner decision D5 (2026-10-23) — this used to be
+  // "rejoins with no cooldown". Removal now blocks rejoining until an
+  // organiser lifts it (POST /:id/restrictions/:residentId/lift).
+  it("a removed member can't rejoin an open circle until an organiser lifts it", async () => {
     await fetch(`${baseUrl}/circles/${openCircleId}/members/${requesterId}/remove`, { method: "POST", headers: { "X-Test-Resident-Id": openOrganiserId } });
     const gone = await db.prepare(`SELECT 1 FROM circle_members WHERE circle_id = ? AND resident_id = ?`).get(openCircleId, requesterId);
     expect(gone).toBeFalsy();
+    const blocked = await fetch(`${baseUrl}/circles/${openCircleId}/join`, { method: "POST", headers: { "X-Test-Resident-Id": requesterId } });
+    expect(blocked.status).toBe(403);
+    const lift = await fetch(`${baseUrl}/circles/${openCircleId}/restrictions/${requesterId}/lift`, { method: "POST", headers: { "X-Test-Resident-Id": openOrganiserId } });
+    expect(lift.status).toBe(200);
     const rejoin = await fetch(`${baseUrl}/circles/${openCircleId}/join`, { method: "POST", headers: { "X-Test-Resident-Id": requesterId } });
     expect(rejoin.status).toBe(201);
   });

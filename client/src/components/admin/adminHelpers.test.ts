@@ -17,7 +17,7 @@ describe("admin navigation", () => {
     expect(ADMIN_NAV.map((g) => g.label)).toEqual(["Admin", "Operations", "Marketplace", "Business", "Trust & Platform"]);
     const keys = ADMIN_ITEMS.map((i) => i.key);
     expect(new Set(keys).size).toBe(keys.length);
-    expect(keys).toHaveLength(28); // + Privacy requests (OG-29)
+    expect(keys).toHaveLength(29); // + Privacy requests (OG-29), + Categories (2026-10-22)
   });
 
   it("locks an item unless the admin holds one of its permissions (D-02)", () => {
@@ -122,7 +122,7 @@ describe("Insights merge", () => {
     expect(navItem("demand").hidden).toBe(true);
     expect(navItem("demand").aliasOf).toBe("marketplaceHealth");
     expect(navItem("marketplaceHealth").label).toBe("Insights");
-    expect(ADMIN_ITEMS.filter((i) => !i.hidden)).toHaveLength(27);
+    expect(ADMIN_ITEMS.filter((i) => !i.hidden)).toHaveLength(28);
   });
 });
 

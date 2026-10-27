@@ -1,3 +1,4 @@
+import { emptyCategoryDraft, ListingCategoryFields, saveListingCategory, useSavedClassification, type ListingCategoryDraft } from "./categories/ListingCategoryFields";
 import { useEffect, useState } from "react";
 import { useConfirm } from "./ConfirmProvider";
 import type { ExperienceKind } from "../types";
@@ -69,8 +70,10 @@ function volunteerFields(form: WizardForm) {
 }
 
 function blankForm(): WizardForm {
+  // Circles 3.1 — "Create an adventure" from a Circle opens this with ?kind=.
+  const asked = new URLSearchParams(window.location.search).get("kind");
   return {
-    kind: "experience",
+    kind: asked === "adventure" || asked === "volunteer" ? asked : "experience",
     skillsRequired: "",
     cause: "",
     minAge: "",
@@ -123,6 +126,16 @@ export function ExperienceCreationWizard({
     initialExperienceId === "new" ? { ...blankForm(), title: searchParams.get("title") ?? "", county: searchParams.get("county") ?? "" } : blankForm()
   );
   const [saving, setSaving] = useState(false);
+  // Category system — volunteer listings use the volunteering categories,
+  // everything else the experience ones; switching kind across that line
+  // clears an incompatible choice.
+  const [category, setCategoryRaw] = useState<ListingCategoryDraft>(emptyCategoryDraft);
+  const savedTaxonomy = useSavedClassification("experience", initialExperienceId === "new" ? null : initialExperienceId, (d) => setCategoryRaw(d));
+  const setCategory = (next: ListingCategoryDraft) => {
+    setCategoryRaw(next);
+    onDirtyChange?.(true);
+  };
+  const categoryFamily = (kind: ExperienceKind) => (kind === "volunteer" ? "volunteer" : "experience");
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(initialExperienceId === "new");
 
@@ -189,12 +202,21 @@ export function ExperienceCreationWizard({
     setSaving(true);
     setError(null);
     try {
+      let savedId = id;
       if (id === "new") {
         const created = await createVendorExperience({ fromDemand, title: form.title, kind: form.kind, difficulty: form.difficulty, blurb: form.blurb, description: form.description, ...volunteerFields(form) });
+        savedId = created.id;
         setId(created.id);
-        navigate(`/vendor/experiences/${created.id}`, { replace: true });
+        // Keep ?circleId / ?kind (Circles 3.1 — created from a Circle) through the draft.
+        navigate(`/vendor/experiences/${created.id}${window.location.search}`, { replace: true });
       } else {
         await updateVendorExperience(id, { title: form.title, kind: form.kind, difficulty: form.difficulty, blurb: form.blurb, description: form.description, ...volunteerFields(form) });
+      }
+      try {
+        await saveListingCategory("experience", savedId, category);
+      } catch (e) {
+        setError(`Your listing is saved, but its category wasn't: ${e instanceof Error ? e.message : "please try again"}`);
+        return;
       }
       onDirtyChange?.(false);
       goNext();
@@ -326,7 +348,16 @@ export function ExperienceCreationWizard({
           <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
             <div>
               <label htmlFor="experience-wizard-kind" style={labelStyle}>Kind</label>
-              <select id="experience-wizard-kind" value={form.kind} onChange={(e) => setForm({ kind: e.target.value as ExperienceKind })} style={inputStyle}>
+              <select
+                id="experience-wizard-kind"
+                value={form.kind}
+                onChange={(e) => {
+                  const kind = e.target.value as ExperienceKind;
+                  if (categoryFamily(kind) !== categoryFamily(form.kind) && category.category) setCategory({ ...category, category: null, categoryName: null });
+                  setForm({ kind });
+                }}
+                style={inputStyle}
+              >
                 <option value="experience">Experience</option>
                 <option value="adventure">Adventure</option>
                 <option value="volunteer">Volunteer opportunity</option>
@@ -342,6 +373,13 @@ export function ExperienceCreationWizard({
               </select>
             </div>
           </div>
+          <ListingCategoryFields
+            key={categoryFamily(form.kind)}
+            family={categoryFamily(form.kind)}
+            value={category}
+            current={savedTaxonomy}
+            onChange={setCategory}
+          />
           {form.kind === "volunteer" && (
             <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
               <div>

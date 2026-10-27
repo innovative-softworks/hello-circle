@@ -1,3 +1,4 @@
+import { VendorCategoryEditor } from "./VendorCategoryEditor";
 import { useEffect, useRef, useState } from "react";
 import { Building2 } from "lucide-react";
 import { useInWorkspace } from "./workspace/inWorkspace";
@@ -335,6 +336,7 @@ export function CentreEditor({
       <SettingsSection title="Accessibility" summary={accessibilityList.length > 0 ? accessibilityList.join(" · ") : "None added"}>
         {accessibilityField}
       </SettingsSection>
+      <VendorCategoryEditor type="centre" id={centreId} />
       <SettingsSection title="Photos" summary={`${(form.images ?? []).length} photo${(form.images ?? []).length === 1 ? "" : "s"}`}>
         {photosField}
       </SettingsSection>
@@ -370,6 +372,7 @@ export function CentreEditor({
       <SettingsSection title="Accessibility" summary={accessibilityList.length > 0 ? accessibilityList.join(" · ") : "None added"}>
         {accessibilityField}
       </SettingsSection>
+      <VendorCategoryEditor type="centre" id={centreId} />
       <SettingsSection title="Photos" summary={`${(form.images ?? []).length} photo${(form.images ?? []).length === 1 ? "" : "s"}`}>
         {photosField}
       </SettingsSection>

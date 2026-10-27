@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../clientId", () => ({ getClientId: () => "qa-client" }));
-import { ApiError, request } from "./core";
+import { ApiError, isNotFound, request } from "./core";
 
 // HC-QA-074 — concurrent identical GETs share one request; nothing is cached.
 
@@ -54,5 +54,16 @@ describe("request() GET coalescing", () => {
       expect(e.message).toBe("Nope");
     }
     expect((results[0] as PromiseRejectedResult).reason).not.toBe((results[1] as PromiseRejectedResult).reason);
+  });
+});
+
+describe("isNotFound (PUB-14)", () => {
+  it("is true only for a genuinely missing record", () => {
+    expect(isNotFound(new ApiError("gone", {}, 404))).toBe(true);
+    expect(isNotFound(new ApiError("gone", {}, 410))).toBe(true);
+    expect(isNotFound(new ApiError("server", {}, 500))).toBe(false);
+    expect(isNotFound(new ApiError("auth", {}, 401))).toBe(false);
+    expect(isNotFound(new ApiError("no status", {}))).toBe(false);
+    expect(isNotFound(new TypeError("Failed to fetch"))).toBe(false);
   });
 });

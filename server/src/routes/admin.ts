@@ -1,3 +1,5 @@
+import { adminCategoriesRouter, categoriesConfigRouter } from "./adminCategories.js";
+import { FEATURE_SWITCHES, allFeatureStates, featureOn, isFeatureKey, setFeature } from "../circleFeatures.js";
 import crypto from "node:crypto";
 import { matchExperienceSupply } from "../participationIntents.js";
 import { DEFAULT_WEIGHTS, getRecommendationWeights, setRecommendationWeights, validateWeights } from "../recommendationWeights.js";
@@ -41,6 +43,8 @@ export const adminRouter = Router();
 // is no mount-level role guard any more, so a read-only support permission
 // (e.g. finance.payment_state.view) can reach exactly the routes it names.
 adminRouter.use(requireAdmin);
+adminRouter.use("/categories", adminCategoriesRouter);
+adminRouter.use(categoriesConfigRouter);
 adminRouter.use("/commerce", adminCommerceRouter);
 adminRouter.use("/finance", adminFinanceRouter);
 adminRouter.use("/operations", adminOperationsRouter);
@@ -1780,4 +1784,29 @@ adminRouter.put("/config/maps-enabled", requireAdminPermission("platform.setting
     newValue: { enabled },
   });
   res.json({ enabled });
+});
+
+// Circle Experience 2.0 / Experience 3.0 — one runtime switch per new
+// capability (circleFeatures.ts). Same permission and audit pattern as the
+// maps switch.
+adminRouter.get("/config/feature-switches", requireAdminPermission("workspace.view"), async (_req, res) => {
+  const states = await allFeatureStates();
+  res.json({ features: FEATURE_SWITCHES.map((f) => ({ ...f, enabled: states[f.key] })) });
+});
+
+adminRouter.put("/config/feature-switches/:key", requireAdminPermission("platform.settings"), async (req, res) => {
+  const { enabled } = req.body as { enabled?: boolean };
+  if (!isFeatureKey(req.params.key)) return res.status(404).json({ error: "Unknown feature switch" });
+  if (typeof enabled !== "boolean") return res.status(400).json({ error: "enabled must be a boolean" });
+  const before = await featureOn(req.params.key);
+  await setFeature(req.params.key, enabled);
+  await writeAudit({
+    actorUserId: req.user!.id,
+    action: "config.feature_switch_changed",
+    objectType: "app_settings",
+    objectId: req.params.key,
+    previousValue: { enabled: before },
+    newValue: { enabled },
+  });
+  res.json({ key: req.params.key, enabled });
 });

@@ -173,6 +173,7 @@ export function GuidedFlow({
           onClick={continueType === "submit" ? undefined : onContinue}
           disabled={continueDisabled || continueBusy}
           variant={accent === "orange" ? "orange" : "primary"}
+          size="lg"
         >
           {continueBusy ? "Saving…" : continueLabel}
         </Button>

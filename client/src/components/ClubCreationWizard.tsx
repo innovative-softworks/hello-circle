@@ -1,3 +1,4 @@
+import { emptyCategoryDraft, ListingCategoryFields, saveListingCategory, useSavedClassification, type ListingCategoryDraft } from "./categories/ListingCategoryFields";
 import { useEffect, useState } from "react";
 import { useConfirm } from "./ConfirmProvider";
 import { useNavigate } from "react-router-dom";
@@ -12,7 +13,6 @@ import { ClubCard } from "./ClubCard";
 import { GuidedFlow } from "./GuidedFlow";
 import { MultiImageUpload } from "./VendorImageUpload";
 import { Card, labelStyle, inputStyle } from "./ui";
-import { ACTIVITY_CATEGORIES } from "../constants";
 import { colors, fonts, radius } from "../theme";
 import type { Club } from "../types";
 import { PaidClosedPriceNotice } from "./PaidClosedPriceNotice";
@@ -97,6 +97,14 @@ export function ClubCreationWizard({
   // See CentreCreationWizard.tsx's identical comment — fetches the real,
   // already-saved draft for a live ClubCard preview on the Review step.
   const [previewClub, setPreviewClub] = useState<Club | null>(null);
+  // Category system — replaces the old fixed "Category" list; the picked
+  // category's name is still written to clubs.category for older readers.
+  const [category, setCategoryRaw] = useState<ListingCategoryDraft>(emptyCategoryDraft);
+  const savedTaxonomy = useSavedClassification("club", initialClubId === "new" ? null : initialClubId, (d) => setCategoryRaw(d));
+  const setCategory = (next: ListingCategoryDraft) => {
+    setCategoryRaw(next);
+    onDirtyChange?.(true);
+  };
 
   const setForm = (patch: Partial<WizardForm>) => {
     setFormRaw((f) => ({ ...f, ...patch }));
@@ -159,12 +167,21 @@ export function ClubCreationWizard({
     setSaving(true);
     setError(null);
     try {
+      const legacyCategory = category.categoryName ?? form.category;
+      let savedId = id;
       if (id === "new") {
-        const created = await createVendorClub({ name: form.name, sport: form.sport, category: form.category, blurb: form.blurb });
+        const created = await createVendorClub({ name: form.name, sport: form.sport, category: legacyCategory, blurb: form.blurb });
+        savedId = created.id;
         setId(created.id);
         navigate(`/vendor/clubs/${created.id}`, { replace: true });
       } else {
-        await updateVendorClub(id, { name: form.name, sport: form.sport, category: form.category, blurb: form.blurb });
+        await updateVendorClub(id, { name: form.name, sport: form.sport, category: legacyCategory, blurb: form.blurb });
+      }
+      try {
+        await saveListingCategory("club", savedId, category);
+      } catch (e) {
+        setError(`Your club is saved, but its category wasn't: ${e instanceof Error ? e.message : "please try again"}`);
+        return;
       }
       onDirtyChange?.(false);
       goNext();
@@ -293,21 +310,11 @@ export function ClubCreationWizard({
             <label htmlFor="club-wizard-name" style={labelStyle}>Club name</label>
             <input id="club-wizard-name" value={form.name} onChange={(e) => setForm({ name: e.target.value })} placeholder="e.g. Riverside Under-12s Football" style={inputStyle} autoFocus />
           </div>
-          <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-            <div>
-              <label htmlFor="club-wizard-sport" style={labelStyle}>Sport</label>
-              <input id="club-wizard-sport" value={form.sport} onChange={(e) => setForm({ sport: e.target.value })} style={inputStyle} />
-            </div>
-            <div>
-              <label htmlFor="club-wizard-category" style={labelStyle}>Category (optional)</label>
-              <select id="club-wizard-category" value={form.category} onChange={(e) => setForm({ category: e.target.value })} style={inputStyle}>
-                <option value="">— none —</option>
-                {ACTIVITY_CATEGORIES.map((c) => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
-              </select>
-            </div>
+          <div>
+            <label htmlFor="club-wizard-sport" style={labelStyle}>Sport</label>
+            <input id="club-wizard-sport" value={form.sport} onChange={(e) => setForm({ sport: e.target.value })} placeholder="e.g. Under-12s football" style={inputStyle} />
           </div>
+          <ListingCategoryFields family="club" value={category} current={savedTaxonomy} onChange={setCategory} />
           <div>
             <label htmlFor="club-wizard-blurb" style={labelStyle}>Short description</label>
             <p id="club-wizard-blurb-hint" style={{ fontSize: 12, color: colors.mutedLight, margin: "-2px 0 8px" }}>

@@ -26,6 +26,7 @@ import {
   type ContactValue,
 } from "../components/booking";
 import { PageSpinner } from "../components/ui";
+import { Pass as PassCard } from "../components/pass/Pass";
 import { AGE_GROUPS } from "../constants";
 import { useGuest } from "../GuestContext";
 import { useMyStuff } from "../MyStuffContext";
@@ -299,9 +300,26 @@ export function RegistrationFlow() {
         <ConfirmationPanel
           variant="success"
           title={confirmed.option === "trial" ? "Free trial booked" : "You're registered"}
-          bookingRef={confirmed.ref}
           lead={lead}
-          summary={listing}
+          summary={
+            // The pass, lanyard look (owner 2026-10-27): the person it's for first.
+            <PassCard
+              look="lanyard"
+              kind="club"
+              tone="ok"
+              status={confirmed.option === "trial" ? "Free trial booked" : confirmed.payAtVenue && confirmed.totalCents > 0 ? "Registered · pay at the club" : "Registered"}
+              title={club.name}
+              whoLabel={isAdult ? "Member" : `Registered by ${draft.contact.name.trim() || "you"}`}
+              who={participant || null}
+              date={session ? sessionLabel(session) : null}
+              where={club.sport}
+              fields={[
+                ...(!isAdult && draft.team ? ([["Team", draft.team]] as [string, string][]) : []),
+                [confirmed.option === "trial" ? "Trial" : "Pay", confirmed.option === "trial" ? "1 session, free" : confirmed.option === "pass" ? "1 pass credit" : confirmed.totalCents > 0 ? `${formatCents(confirmed.totalCents)}${confirmed.payAtVenue ? " at the club" : ""}` : "Free"],
+              ]}
+              reference={confirmed.ref}
+            />
+          }
           actions={
             <>
               <BkButton variant="dark" onClick={() => navigate("/bookings")}>View my bookings</BkButton>

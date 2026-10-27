@@ -38,6 +38,6 @@ export function logShareEvent(event: ShareClientEvent, entityType: ShareEntityTy
   return request(`/share/event`, { method: "POST", body: JSON.stringify({ event, entityType, entityId, channel }) });
 }
 
-export function shareToCircle(circleId: string, entityType: ShareEntityType, entityId: string, message?: string): Promise<{ ok: boolean; notified: number }> {
-  return request(`/circles/${encodeURIComponent(circleId)}/share`, { method: "POST", body: JSON.stringify({ entityType, entityId, message }) });
+export function shareToCircle(circleId: string, entityType: ShareEntityType, entityId: string, message?: string, addAsPlan?: boolean): Promise<{ ok: boolean; notified: number; planId?: string | null }> {
+  return request(`/circles/${encodeURIComponent(circleId)}/share`, { method: "POST", body: JSON.stringify({ entityType, entityId, message, addAsPlan: addAsPlan || undefined }) });
 }

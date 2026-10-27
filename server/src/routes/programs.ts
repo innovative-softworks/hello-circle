@@ -1,3 +1,4 @@
+import { taxonomyFields, taxonomyFilter } from "../taxonomy.js";
 import { customerPaymentCase } from "../payments/paymentReview.js";
 import { Router } from "express";
 import { paymentUnderReview } from "../payments/checkoutAgreement.js";
@@ -101,7 +102,7 @@ export async function toProgramJson(row: ProgramRow) {
 // narrowed by county/category. One query with the fields a browse card
 // needs (venue, area, next session, spots left) rather than toProgramJson()
 // per row, which runs several queries each. Only approved venues.
-async function listProgramsForBrowse(county?: string, category?: string) {
+export async function listProgramsForBrowse(county?: string, category?: string, tax?: { sql: string; params: string[] } | null) {
   const today = irelandTodayIso();
   const rows = (await db
     .prepare(
@@ -121,10 +122,11 @@ async function listProgramsForBrowse(county?: string, category?: string) {
        WHERE p.status = 'published' AND ${orgActiveSql("p.vendor_id")} AND COALESCE(c.id, cl.id) IS NOT NULL
          ${county ? "AND COALESCE(c.county, cl.county) = ?" : ""}
          ${category ? "AND p.category = ?" : ""}
+         ${tax ? `AND ${tax.sql}` : ""}
        ORDER BY ns.date, ns.time
        LIMIT 200`
     )
-    .all(today, today, ...(county ? [county] : []), ...(category ? [category] : []))) as (Record<string, unknown> & { capacity: number | null; enrolled: number | string; upcomingSessions: number | string })[];
+    .all(today, today, ...(county ? [county] : []), ...(category ? [category] : []), ...(tax ? tax.params : []))) as (Record<string, unknown> & { capacity: number | null; enrolled: number | string; upcomingSessions: number | string })[];
   return rows.map((r) => {
     const enrolled = Number(r.enrolled);
     return {
@@ -143,7 +145,9 @@ programsRouter.get("/", async (req, res) => {
   const { listingType, listingId, county, category } = req.query as { listingType?: string; listingId?: string; county?: string; category?: string };
   // No venue given → the public browse list (was a 400 before the /programs page existed).
   if (!listingType || !listingId) {
-    return res.json(await listProgramsForBrowse(county && county !== "All" ? county : undefined, category && category !== "All" ? category : undefined));
+    const tax = await taxonomyFilter("program", "p.id", req.query as Record<string, unknown>);
+    if (tax === "none") return res.json([]);
+    return res.json(await listProgramsForBrowse(county && county !== "All" ? county : undefined, category && category !== "All" ? category : undefined, tax));
   }
   const rows = (await db
     .prepare(`SELECT * FROM programs WHERE listing_type = ? AND listing_id = ? AND status = 'published' AND ${orgActiveSql("vendor_id")} ORDER BY created_at DESC`)
@@ -188,6 +192,7 @@ programsRouter.get("/:id", async (req, res) => {
     vendorId: row.vendor_id,
     vendorName: host ? host.businessName || host.name : null,
     vendorVerified: host ? host.providerTier !== "standard" : false,
+    ...(await taxonomyFields("program", row.id)),
   });
 });
 

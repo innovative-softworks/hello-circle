@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { fetchCentre } from "../api";
-import { PinIcon } from "./icons";
-import { SinglePinMap } from "./SinglePinMap";
-import { colors, fonts, radius } from "../theme";
+import { colors } from "../theme";
+import { VENUE_PAGES_PUBLIC } from "../venueLaunch";
+import { DetailSection, LocationBlock } from "./detail/DetailSections";
 import type { Game } from "../types";
 
 // Location (Game Detail redesign §17/§18) — reuses SinglePinMap (already
@@ -32,31 +32,22 @@ export function GameLocationCard({ game }: { game: Game }) {
     return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
   }, [game.centreName, game.locationText]);
 
+  // Detail-page redesign — the shared location block (map opens in place).
   return (
-    <div style={{ marginBottom: 28 }}>
-      <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 18, margin: "0 0 12px" }}>Location</h2>
-      <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "16px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: centre?.lat != null && centre?.lng != null ? 12 : 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <PinIcon size={16} style={{ color: colors.mutedLight, flex: "none" }} />
-          <div>
-            <div style={{ fontWeight: 700, fontSize: 14.5 }}>{game.centreName ?? game.locationText}</div>
-            {/* `area` is already a "Town, County" composite in the seed data
-                (e.g. "Portlaoise, Laois") — showing county again would duplicate it. */}
-            {game.area && <div style={{ fontSize: 12.5, color: colors.mutedLight, marginTop: 2 }}>{game.area}</div>}
-          </div>
-        </div>
-        <div style={{ display: "flex", gap: 14, flex: "none" }}>
-          {game.centreId && (
-            <button onClick={() => navigate(`/centres/${game.centreId}`)} style={{ background: "none", border: "none", padding: 0, fontSize: 13, fontWeight: 700, color: colors.text, cursor: "pointer", textDecoration: "underline" }}>
+    <DetailSection title="Location">
+      <LocationBlock
+        name={game.centreName ?? game.locationText}
+        area={game.area}
+        directionsUrl={directionsUrl}
+        map={centre?.lat != null && centre?.lng != null ? { lat: centre.lat, lng: centre.lng, label: game.centreName ?? game.activityLabel } : null}
+        extra={
+          game.centreId && VENUE_PAGES_PUBLIC ? (
+            <button type="button" className="tap-target" onClick={() => navigate(`/centres/${game.centreId}`)} style={{ fontSize: 13.5, fontWeight: 700, color: colors.text, textDecoration: "underline", textUnderlineOffset: 3, background: "none", border: "none", padding: 0, cursor: "pointer", font: "inherit" }}>
               View venue
             </button>
-          )}
-          <a href={directionsUrl} target="_blank" rel="noreferrer" style={{ fontSize: 13, fontWeight: 700, color: colors.text, textDecoration: "underline" }}>
-            Get directions
-          </a>
-        </div>
-      </div>
-      {centre?.lat != null && centre?.lng != null && <SinglePinMap lat={centre.lat} lng={centre.lng} label={game.centreName ?? game.activityLabel} height={240} />}
-    </div>
+          ) : null
+        }
+      />
+    </DetailSection>
   );
 }

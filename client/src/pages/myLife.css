@@ -1,0 +1,2248 @@
+/* My Life — minimal photo-and-type design (owner 2026-10-25). Big type for
+   dates, photos for things you'll do, thin lines instead of boxes. Third
+   pass (owner): the first section is a horizontal row of photo cards (date
+   strip removed); 70/30 with the side modules on the right; tiles adapt to how many there are; a quiet
+   bottom half. Public tokens: cream page, --color-cta, Bricolage headings,
+   Inter body, 12px buttons. No entrance animations (owner 2026-10-22).
+   Prefix: .mlx- */
+
+.mlx {
+  --mlx-display: "Bricolage Grotesque Variable", "Bricolage Grotesque", system-ui, sans-serif;
+  max-width: var(--page-max);
+  margin: 0 auto;
+  padding: 40px var(--page-gutter) 0;
+}
+
+.mlx-label {
+  margin: 0;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-faint);
+}
+/* Section titles (owner 2026-10-26: "titles are small, I can't tell the
+   sections apart"). Every section heading is an h2/h3 with .mlx-label;
+   those become real titles. Kickers (<p class="mlx-label">) stay small. */
+h2.mlx-label {
+  font-family: var(--mlx-display);
+  font-size: clamp(22px, 2.3vw, 28px);
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  text-transform: none;
+  color: var(--color-text);
+}
+h3.mlx-label {
+  font-family: var(--mlx-display);
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  text-transform: none;
+  color: var(--color-text);
+}
+.mlx-aside h2.mlx-label {
+  font-size: 19px;
+  letter-spacing: -0.01em;
+}
+.mlx-main > section + section,
+.mlx-main > .mlx-section + .mlx-section {
+  /* a little more air now that the titles are bigger */
+  margin-top: 4px;
+}
+
+.mlx-muted {
+  margin: 0;
+  color: var(--color-muted-light);
+  font-size: 15px;
+  line-height: 1.5;
+}
+/* Every secondary action is a real button (owner 2026-10-26: "I'm not
+   able to understand which is button and text"): white, bordered, 12px
+   corners. The filled orange .mlx-btn stays for the main action. */
+.mlx-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1.5px solid var(--color-border-strong);
+  border-radius: var(--radius-button);
+  background: var(--color-surface);
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--color-text);
+  text-decoration: none;
+  cursor: pointer;
+  white-space: nowrap;
+  flex: none;
+}
+.mlx-link:hover {
+  border-color: var(--color-text);
+  background: var(--color-panel);
+}
+/* The one plain text link left: a breadcrumb inside a label. */
+.mlx-crumb {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.mlx-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 46px;
+  min-width: 120px;
+  padding: 0 22px;
+  border: 0;
+  border-radius: var(--radius-button);
+  background: var(--color-cta);
+  color: var(--color-on-cta, #fff);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  flex: none;
+}
+.mlx-btn:hover {
+  background: var(--color-cta-hover, var(--color-cta));
+}
+.mlx-link:focus-visible,
+.mlx-btn:focus-visible,
+.mlx-tile:focus-visible,
+.mlx-more button:focus-visible {
+  outline: 2px solid var(--color-text);
+  outline-offset: 3px;
+}
+
+/* --- Header ------------------------------------------------------------- */
+.mlx-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px 32px;
+  padding-bottom: 24px;
+}
+.mlx-title {
+  margin: 10px 0 0;
+  font-family: var(--mlx-display);
+  font-weight: 800;
+  font-size: clamp(34px, 4.6vw, 60px);
+  line-height: 1;
+  letter-spacing: -0.03em;
+  color: var(--color-text);
+  text-wrap: balance;
+}
+.mlx-summary {
+  margin: 10px 0 0;
+  font-size: 16px;
+  color: var(--color-muted-light);
+}
+.mlx-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: none;
+}
+.mlx-tabs {
+  margin-bottom: 4px;
+}
+
+/* --- Body rhythm ---------------------------------------------------------- */
+.mlx-body {
+  display: flex;
+  flex-direction: column;
+  gap: 48px;
+  padding: 28px 0 0;
+}
+.mlx-section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+.mlx-section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+/* Thin notice line (interests prompt, sign in, errors) */
+.mlx-note {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 20px;
+  flex-wrap: wrap;
+  padding: 14px 0;
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+}
+.mlx-note p {
+  margin: 0;
+}
+.mlx-note strong {
+  display: block;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+.mlx-note span {
+  font-size: 14px;
+  color: var(--color-muted-light);
+}
+.mlx-note-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+/* Needs you */
+.mlx-needs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.mlx-needs li {
+  display: flex;
+  align-items: center;
+  gap: 6px 20px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--color-border);
+  flex-wrap: wrap;
+}
+.mlx-needs li:first-child {
+  border-top: 1px solid var(--color-border);
+}
+.mlx-needs-main {
+  flex: 1 1 260px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.mlx-needs-main strong {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+.mlx-needs-main span {
+  font-size: 14px;
+  color: var(--color-muted-light);
+}
+.mlx-needs-when {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-muted-light);
+}
+.mlx-needs-when.is-due {
+  color: var(--color-cta);
+}
+
+/* --- First section: date strip + horizontal card row ---------------------- */
+.mlx-upcoming {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+/* Horizontal cards */
+.mlx-cards-wrap {
+  position: relative;
+  min-width: 0;
+}
+.mlx-cards-nav {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.mlx-arrow {
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 50%;
+  background: var(--color-surface);
+  font: inherit;
+  font-size: 17px;
+  color: var(--color-text);
+  cursor: pointer;
+}
+.mlx-arrow:hover {
+  border-color: var(--color-text);
+}
+.mlx-arrow:focus-visible {
+  outline: 2px solid var(--color-text);
+  outline-offset: 2px;
+}
+.mlx-cards {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 8px;
+  display: grid;
+  grid-auto-flow: column;
+  /* capped so a short row on a wide page (For Me) keeps card size */
+  grid-auto-columns: minmax(250px, min(340px, calc((100% - 2 * 20px) / 2.4)));
+  gap: 20px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: thin;
+}
+.mlx-cards > li {
+  scroll-snap-align: start;
+  min-width: 0;
+}
+.mlx-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+.mlx-card:focus-visible {
+  outline: 2px solid var(--color-text);
+  outline-offset: 3px;
+  border-radius: var(--radius-card);
+}
+.mlx-card-photo {
+  position: relative;
+  display: block;
+  aspect-ratio: 4 / 3;
+  border-radius: var(--radius-card);
+  overflow: hidden;
+  background: var(--color-green-bg);
+}
+.mlx-card-photo img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.mlx-card-photo::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(0deg, rgba(12, 14, 12, 0.66) 0%, rgba(12, 14, 12, 0) 52%);
+}
+.mlx-card-icon {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  color: var(--color-green-text);
+}
+.mlx-card-date {
+  position: absolute;
+  left: 16px;
+  bottom: 14px;
+  z-index: 1;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  color: #fff;
+}
+.mlx-card-date b {
+  font-family: var(--mlx-display);
+  font-weight: 800;
+  font-size: clamp(28px, 2.8vw, 38px);
+  line-height: 1;
+  letter-spacing: -0.03em;
+}
+.mlx-card-date span {
+  font-size: 14px;
+  font-weight: 600;
+  opacity: 0.9;
+}
+.mlx-card-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.mlx-card-text strong {
+  font-family: var(--mlx-display);
+  font-weight: 700;
+  font-size: 20px;
+  line-height: 1.2;
+  color: var(--color-text);
+}
+.mlx-card:hover .mlx-card-text strong {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+.mlx-card-text > span {
+  font-size: 14px;
+  color: var(--color-muted-light);
+}
+.mlx-kind--mine {
+  color: var(--color-cta);
+}
+
+/* Nothing booked */
+.mlx-nothing {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  padding: clamp(20px, 3vw, 36px);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+}
+.mlx-nothing-title {
+  margin: 0;
+  font-family: var(--mlx-display);
+  font-weight: 800;
+  font-size: clamp(36px, 4.6vw, 60px);
+  line-height: 0.95;
+  letter-spacing: -0.035em;
+  color: var(--color-text);
+}
+.mlx-checkin {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 0;
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+}
+
+/* --- Worth a look: tiles adapt to how many there are ---------------------- */
+.mlx-tiles {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 24px;
+}
+.mlx-tiles--2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.mlx-tiles--3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.mlx-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  color: inherit;
+  text-decoration: none;
+  border-radius: var(--radius-card);
+}
+.mlx-tile-img {
+  aspect-ratio: 4 / 3;
+  max-width: 100%;
+  border-radius: var(--radius-card);
+  overflow: hidden;
+  background: var(--color-green-bg);
+}
+.mlx-tile-img img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.mlx-tile-img.is-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-green-text);
+}
+.mlx-tile-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.mlx-tile strong {
+  font-family: var(--mlx-display);
+  font-weight: 700;
+  font-size: 20px;
+  line-height: 1.2;
+  color: var(--color-text);
+}
+.mlx-tile:hover strong {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+.mlx-tile-text > span {
+  font-size: 14px;
+  color: var(--color-muted-light);
+}
+/* One tile: a wide card, photo left, text right */
+.mlx-tiles--1 .mlx-tile {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+  gap: 28px;
+  align-items: center;
+}
+.mlx-tiles--1 .mlx-tile-img {
+  aspect-ratio: 16 / 10;
+}
+.mlx-tiles--1 .mlx-tile strong {
+  font-size: clamp(24px, 2.6vw, 32px);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+.mlx-kind {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.mlx-kind--circle {
+  color: var(--color-green);
+}
+.mlx-kind--again {
+  color: var(--color-cta);
+}
+.mlx-kind--saved {
+  color: var(--color-faint);
+}
+
+/* --- 70/30: content + "More for you" (owner 2026-10-25) ------------------ */
+.mlx-split {
+  display: grid;
+  grid-template-columns: minmax(0, 7fr) minmax(260px, 3fr);
+  gap: 56px;
+  align-items: start;
+}
+.mlx-main {
+  display: flex;
+  flex-direction: column;
+  gap: 48px;
+  min-width: 0;
+}
+.mlx-aside {
+  position: sticky;
+  top: 90px;
+  min-width: 0;
+  padding-left: 32px;
+  border-left: 1px solid var(--color-border);
+}
+@media (max-width: 1000px) {
+  .mlx-split {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 40px;
+  }
+  .mlx-aside {
+    position: static;
+    padding-left: 0;
+    border-left: 0;
+  }
+}
+
+/* --- Quiet bottom half ---------------------------------------------------- */
+.mlx-activity {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.mlx-activity-stats {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.mlx-activity-stats dt {
+  font-size: 12.5px;
+  color: var(--color-muted-light);
+}
+.mlx-activity-stats dd {
+  margin: 2px 0 0;
+  font-family: var(--mlx-display);
+  font-weight: 800;
+  font-size: 32px;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text);
+}
+.mlx-activity-stats dd small {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--color-faint);
+}
+.mlx-activity-stats > div {
+  display: flex;
+  flex-direction: column-reverse;
+  justify-content: flex-end;
+}
+.mlx-aside {
+  display: flex;
+  flex-direction: column;
+  gap: 40px;
+}
+.mlx-weeks {
+  display: flex;
+  gap: 6px;
+  max-width: 420px;
+}
+.mlx-weeks i {
+  flex: 1;
+  height: 8px;
+  border-radius: 99px;
+  background: var(--color-border);
+}
+.mlx-weeks i.on {
+  background: var(--color-green);
+}
+.mlx-more {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.mlx-more li + li {
+  border-top: 1px solid var(--color-border);
+}
+.mlx-more button {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  min-height: 44px;
+  /* Side padding pulled back with a negative margin: the text stays aligned
+     with the heading, the hover fill reaches past it. */
+  width: calc(100% + 20px);
+  margin: 0 -10px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--color-text);
+  text-align: left;
+  cursor: pointer;
+}
+.mlx-more button span {
+  color: var(--color-faint);
+}
+.mlx-more button:hover {
+  background: var(--color-panel);
+  color: var(--color-green-text);
+}
+.mlx-more button:hover span {
+  color: var(--color-green-text);
+}
+
+.mlx-closing {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 20px 40px;
+  flex-wrap: wrap;
+  margin-top: 72px;
+  padding: 40px 0 72px;
+  border-top: 1px solid var(--color-border);
+}
+.mlx-closing > div:first-child {
+  max-width: 640px;
+}
+.mlx-closing-title {
+  margin: 0 0 10px;
+  font-family: var(--mlx-display);
+  font-weight: 800;
+  font-size: clamp(30px, 4vw, 48px);
+  line-height: 1;
+  letter-spacing: -0.03em;
+  color: var(--color-text);
+  text-wrap: balance;
+}
+.mlx-closing-actions {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+/* Your preferences (side column) */
+.mlx-pref {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.mlx-pref-label {
+  font-size: 13px;
+  color: var(--color-muted-light);
+}
+.mlx-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.mlx-chip {
+  padding: 5px 12px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-pill);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+/* --- Bookings and Circles tabs (owner 2026-10-25) ------------------------- */
+.mlx-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 40px;
+  padding: 28px 0 80px;
+}
+.mlx-tab-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px 20px;
+  flex-wrap: wrap;
+}
+.mlx-months {
+  display: flex;
+  flex-direction: column;
+  gap: 40px;
+}
+.mlx-month {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.mlx-month-title {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--color-border);
+  font-family: var(--mlx-display);
+  font-weight: 800;
+  font-size: clamp(24px, 2.6vw, 32px);
+  letter-spacing: -0.02em;
+  color: var(--color-text);
+}
+.mlx-month-title span {
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-faint);
+}
+.mlx-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 28px 24px;
+}
+.mlx-grid > li {
+  min-width: 0;
+}
+a.mlx-card {
+  text-decoration: none;
+}
+.mlx-card-badge {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 1;
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+.mlx-card-next {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-green) !important;
+}
+.mlx-card-next.is-none {
+  font-weight: 500;
+  color: var(--color-faint) !important;
+}
+.mlx-card-photo.is-more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 1.5px dashed var(--color-border-strong);
+  font-family: var(--mlx-display);
+  font-size: 56px;
+  font-weight: 400;
+  color: var(--color-faint);
+}
+.mlx-card-photo.is-more::after {
+  display: none;
+}
+.mlx-card--more:hover .mlx-card-photo {
+  border-color: var(--color-text);
+  color: var(--color-text);
+}
+.mlx-past {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Recently, by day (overview) */
+.mlx-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.mlx-recent {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.mlx-recent-day {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: 20px;
+  padding: 18px 0;
+  border-top: 1px solid var(--color-border);
+}
+.mlx-recent-day:last-child {
+  border-bottom: 1px solid var(--color-border);
+}
+.mlx-recent-date b {
+  display: block;
+  font-family: var(--mlx-display);
+  font-weight: 800;
+  font-size: 40px;
+  line-height: 0.95;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text);
+}
+.mlx-recent-date span {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-faint);
+}
+.mlx-recent-items {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.mlx-recent-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  color: inherit;
+  text-decoration: none;
+  border-radius: var(--radius-control);
+}
+.mlx-recent-item.is-cancelled {
+  opacity: 0.6;
+}
+.mlx-recent-item:hover strong {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.mlx-recent-item:focus-visible {
+  outline: 2px solid var(--color-text);
+  outline-offset: 3px;
+}
+.mlx-recent-thumb {
+  flex: none;
+  width: 56px;
+  height: 56px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--color-green-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-green-text);
+}
+.mlx-recent-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.mlx-recent-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.mlx-recent-text strong {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mlx-recent-text span {
+  font-size: 14px;
+  color: var(--color-muted-light);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mlx-recent-more {
+  font-size: 13px;
+  color: var(--color-faint);
+  padding-left: 70px;
+}
+@media (max-width: 560px) {
+  .mlx-recent-day {
+    grid-template-columns: 56px minmax(0, 1fr);
+    gap: 12px;
+  }
+  .mlx-recent-date b {
+    font-size: 30px;
+  }
+  .mlx-recent-thumb {
+    width: 48px;
+    height: 48px;
+  }
+  .mlx-recent-more {
+    padding-left: 62px;
+  }
+}
+
+/* --- My Life 3.0 sections (owner 2026-10-25, docs/my-life-3/) ------------- */
+/* Hero line under the greeting */
+.mlx-hero-date {
+  margin: 0 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-faint);
+}
+.mlx-hero-msg {
+  margin: 10px 0 0;
+  font-family: var(--mlx-display);
+  font-weight: 600;
+  font-size: clamp(18px, 2vw, 22px);
+  line-height: 1.3;
+  color: var(--color-text);
+  max-width: 52ch;
+}
+.mlx-hero-msg a {
+  color: var(--color-cta);
+  text-underline-offset: 4px;
+}
+
+/* What are you up for? */
+.mlx-intent {
+  padding: clamp(20px, 3vw, 32px);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  gap: 18px;
+}
+.mlx-q {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.mlx-q-label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-muted);
+}
+.mlx-q-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.mlx-q-chips button {
+  min-height: 40px;
+  padding: 0 16px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-pill);
+  background: none;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text);
+  cursor: pointer;
+}
+.mlx-q-chips button:hover {
+  border-color: var(--color-text);
+}
+.mlx-q-chips button[aria-pressed="true"] {
+  background: var(--color-text);
+  border-color: var(--color-text);
+  color: var(--color-surface);
+}
+.mlx-q-chips button:focus-visible,
+.mlx-x:focus-visible,
+.mlx-passport-title:focus-visible {
+  outline: 2px solid var(--color-text);
+  outline-offset: 2px;
+}
+.mlx-q-date input {
+  min-height: 42px;
+  padding: 0 12px;
+  border: 1px solid var(--color-input-border, var(--color-border-strong));
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  font: inherit;
+  color: var(--color-text);
+}
+.mlx-intent-go {
+  display: flex;
+  align-items: center;
+  gap: 12px 20px;
+  flex-wrap: wrap;
+}
+
+/* Pulse */
+.mlx-pulse {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.mlx-pulse li {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr) auto;
+  gap: 6px 18px;
+  align-items: center;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+.mlx-pulse li:first-child {
+  border-top: 1px solid var(--color-border);
+}
+.mlx-pulse-source {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-faint);
+}
+.mlx-pulse li.is-critical .mlx-pulse-source {
+  color: var(--color-cta);
+}
+.mlx-pulse-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.mlx-pulse-main strong {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+.mlx-pulse-main > span {
+  font-size: 14px;
+  color: var(--color-muted-light);
+}
+.mlx-pulse-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.mlx-unread {
+  display: inline-block;
+  margin-left: 8px;
+  min-width: 20px;
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  background: var(--color-cta);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+  vertical-align: 2px;
+}
+.mlx-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: none;
+  color: var(--color-faint);
+  cursor: pointer;
+}
+.mlx-x:hover {
+  background: var(--color-panel);
+  color: var(--color-text);
+}
+@media (max-width: 560px) {
+  .mlx-pulse li {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .mlx-pulse-source {
+    grid-column: 1 / -1;
+  }
+}
+
+/* Suggestions: a "not for me" button on the photo */
+.mlx-sugg {
+  position: relative;
+}
+.mlx-sugg-x {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 2;
+  background: rgba(255, 255, 255, 0.92);
+  color: #1b1d1b;
+}
+.mlx-sugg-x:hover {
+  background: #fff;
+  color: #1b1d1b;
+}
+
+/* Mini calendar (side column) */
+.mlx-mini {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+  text-align: center;
+}
+.mlx-mini-h {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-faint);
+}
+.mlx-mini-d {
+  position: relative;
+  padding: 6px 0 9px;
+  border-radius: var(--radius-control);
+  font-size: 13.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text);
+}
+.mlx-mini-d.is-past {
+  color: var(--color-faint);
+}
+.mlx-mini-d.is-today {
+  background: var(--color-text);
+  color: var(--color-surface);
+  font-weight: 700;
+}
+.mlx-mini-d.has::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: 3px;
+  width: 5px;
+  height: 5px;
+  margin-left: -2.5px;
+  border-radius: 50%;
+  background: var(--color-cta);
+}
+
+/* Week view (My Plans) */
+.mlx-week {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.mlx-week li {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 18px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+.mlx-week li:first-child {
+  border-top: 1px solid var(--color-border);
+}
+.mlx-week-day small {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-faint);
+}
+.mlx-week-day b {
+  display: block;
+  font-family: var(--mlx-display);
+  font-weight: 800;
+  font-size: 30px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text);
+}
+.mlx-week li.is-today .mlx-week-day b {
+  color: var(--color-cta);
+}
+.mlx-week li.is-quiet .mlx-week-day b {
+  color: var(--color-faint);
+  font-weight: 600;
+}
+.mlx-week-items {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  align-self: center;
+}
+.mlx-week-none {
+  font-size: 14px;
+  color: var(--color-faint);
+}
+.mlx-week-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 0 0 0 12px;
+  border: 0;
+  border-left: 3px solid var(--color-cta);
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
+}
+.mlx-week-item--circle {
+  border-left-color: var(--color-green);
+}
+.mlx-week-item strong {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+.mlx-week-item:hover strong {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.mlx-week-item span {
+  font-size: 13px;
+  color: var(--color-muted-light);
+}
+.mlx-week-item:focus-visible {
+  outline: 2px solid var(--color-text);
+  outline-offset: 3px;
+}
+
+/* Circles pulse line + plan-together rows */
+.mlx-pulse-line {
+  margin: 0;
+  font-family: var(--mlx-display);
+  font-weight: 600;
+  font-size: clamp(18px, 2vw, 22px);
+  color: var(--color-text);
+}
+.mlx-pulse-line span {
+  color: var(--color-cta);
+}
+.mlx-plans {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.mlx-plans li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px 16px;
+  flex-wrap: wrap;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+.mlx-plans li:first-child {
+  border-top: 1px solid var(--color-border);
+}
+.mlx-plans strong {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+.mlx-plans span {
+  font-size: 14px;
+  color: var(--color-muted-light);
+}
+
+/* Passport tab */
+.mlx-firsts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 0 28px;
+}
+.mlx-firsts li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 14px 0;
+  border-top: 1px solid var(--color-border);
+}
+.mlx-firsts strong {
+  font-family: var(--mlx-display);
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--color-text);
+}
+.mlx-firsts span {
+  font-size: 13.5px;
+  color: var(--color-muted-light);
+}
+.mlx-passport-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-text);
+  text-decoration: none;
+}
+.mlx-passport-title:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* Popup form fields */
+.mlx-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.mlx-field input,
+.mlx-field select,
+.mlx-field textarea {
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-input-border, var(--color-border-strong));
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  font: inherit;
+  font-size: 15px;
+  color: var(--color-text);
+}
+.mlx-field textarea {
+  resize: vertical;
+}
+.mlx-field-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+@media (max-width: 560px) {
+  .mlx-field-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Free time prompt (For You): a highlighted panel with real buttons
+   (owner 2026-10-26: "highlight it … which is button and text"). */
+.mlx-freetime {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px 24px;
+  padding: clamp(20px, 2.6vw, 28px);
+  border-radius: var(--radius-card);
+  background: var(--color-orange-bg);
+  border: 1px solid color-mix(in srgb, var(--color-cta) 22%, transparent);
+}
+.mlx-freetime-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--color-surface);
+  color: var(--color-cta);
+}
+.mlx-freetime-text {
+  min-width: 0;
+}
+.mlx-freetime-title {
+  margin: 0 0 4px;
+  font-family: var(--mlx-display);
+  font-weight: 800;
+  font-size: clamp(22px, 2.4vw, 28px);
+  letter-spacing: -0.02em;
+  color: var(--color-text);
+}
+.mlx-freetime-text p {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--color-muted);
+  max-width: 56ch;
+}
+.mlx-freetime-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.mlx-freetime-actions .mlx-btn {
+  gap: 8px;
+}
+/* Outlined secondary button (same size and shape as .mlx-btn) */
+.mlx-btn--ghost {
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-shadow: inset 0 0 0 1.5px var(--color-text);
+}
+.mlx-btn--ghost:hover {
+  background: var(--color-panel);
+}
+@media (max-width: 900px) {
+  .mlx-freetime {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .mlx-freetime-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+  }
+}
+@media (max-width: 480px) {
+  .mlx-freetime-icon {
+    width: 44px;
+    height: 44px;
+  }
+  .mlx-freetime-actions .mlx-btn {
+    flex: 1 1 auto;
+  }
+}
+a.mlx-btn {
+  text-decoration: none;
+}
+
+/* Boxes only for Plans in your Circles and Life highlights (owner
+   2026-10-26; Recently's box removed at the owner's request). */
+.mlx-boxed {
+  padding: clamp(18px, 2.2vw, 26px);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+}
+
+/* Life highlights */
+.mlx-hl-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
+  gap: 24px 40px;
+  align-items: stretch;
+}
+.mlx-hl-num {
+  margin: 0;
+  font-family: var(--mlx-display);
+  font-weight: 800;
+  font-size: clamp(64px, 7vw, 92px);
+  line-height: 0.9;
+  letter-spacing: -0.045em;
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+}
+.mlx-hl-what {
+  margin: 8px 0 0;
+  font-family: var(--mlx-display);
+  font-weight: 600;
+  font-size: 19px;
+  color: var(--color-text);
+}
+.mlx-hl-compare {
+  display: inline-block;
+  margin: 12px 0 0;
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--color-panel);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-muted);
+}
+.mlx-hl-compare.is-up {
+  background: var(--color-green-bg);
+  color: var(--color-green-text, var(--color-green));
+}
+.mlx-hl-facts {
+  display: flex;
+  gap: 28px;
+  margin: 20px 0 0;
+  padding-top: 16px;
+  border-top: 1px solid var(--color-border);
+}
+.mlx-hl-facts > div {
+  display: flex;
+  flex-direction: column-reverse;
+}
+.mlx-hl-facts dt {
+  font-size: 13px;
+  color: var(--color-muted-light);
+}
+.mlx-hl-facts dd {
+  margin: 0;
+  font-family: var(--mlx-display);
+  font-weight: 800;
+  font-size: 28px;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text);
+}
+.mlx-hl-facts dd small {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-faint);
+}
+.mlx-hl-chart {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 16px 18px 12px;
+  border-radius: 12px;
+  background: var(--color-bg);
+}
+.mlx-hl-cap {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-faint);
+}
+.mlx-hl-bars {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 8px;
+  min-height: 150px;
+}
+.mlx-hl-bar {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  align-items: end;
+  justify-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.mlx-hl-bar i {
+  display: block;
+  width: 100%;
+  max-width: 34px;
+  border-radius: 6px 6px 2px 2px;
+  background: var(--color-green);
+  opacity: 0.55;
+  align-self: end;
+}
+.mlx-hl-bar.is-now i {
+  background: var(--color-cta);
+  opacity: 1;
+}
+.mlx-hl-bar.is-zero i {
+  background: var(--color-border-strong);
+  opacity: 1;
+}
+.mlx-hl-count {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+  min-height: 16px;
+}
+.mlx-hl-wk {
+  font-size: 11px;
+  color: var(--color-faint);
+  white-space: nowrap;
+}
+.mlx-hl-bar.is-now .mlx-hl-wk {
+  color: var(--color-cta);
+  font-weight: 700;
+}
+.mlx-hl-top {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 16px;
+  border-top: 1px solid var(--color-border);
+}
+.mlx-hl-top ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.mlx-hl-top li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--color-bg);
+  min-width: 0;
+}
+.mlx-hl-rank {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--color-muted);
+}
+.mlx-hl-top strong {
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mlx-hl-times {
+  font-family: var(--mlx-display);
+  font-weight: 800;
+  font-size: 16px;
+  color: var(--color-cta);
+  font-variant-numeric: tabular-nums;
+}
+@media (max-width: 760px) {
+  .mlx-hl-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .mlx-hl-top ol {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .mlx-hl-bars {
+    gap: 4px;
+    min-height: 120px;
+  }
+  .mlx-hl-wk {
+    font-size: 9.5px;
+  }
+}
+
+/* Activity Passport (owner 2026-10-26 redesign) */
+.mlx-pp {
+  display: flex;
+  flex-direction: column;
+  gap: 44px;
+  padding-top: 8px;
+}
+.mlx-pp-cover {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
+  gap: 20px 40px;
+  align-items: end;
+  padding: clamp(22px, 3vw, 34px);
+  border-radius: var(--radius-card);
+  background: var(--color-green-dark, #1f4d36);
+  color: #fff;
+  overflow: hidden;
+}
+.mlx-pp-cover::after {
+  content: "";
+  position: absolute;
+  right: -60px;
+  top: -60px;
+  width: 220px;
+  height: 220px;
+  border-radius: 50%;
+  border: 2px dashed rgba(255, 255, 255, 0.18);
+  pointer-events: none;
+}
+.mlx-pp-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.75);
+}
+.mlx-pp-title {
+  margin: 0;
+  font-family: var(--mlx-display, "Bricolage Grotesque", system-ui, sans-serif);
+  font-weight: 800;
+  font-size: clamp(28px, 3.4vw, 40px);
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  color: #f4e3ad;
+}
+.mlx-pp-since {
+  margin: 8px 0 0;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.75);
+}
+.mlx-pp-stats {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+.mlx-pp-stats > div {
+  display: flex;
+  flex-direction: column-reverse;
+  justify-content: flex-end;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.1);
+}
+.mlx-pp-stats dt {
+  font-size: 12.5px;
+  line-height: 1.3;
+  color: rgba(255, 255, 255, 0.78);
+}
+.mlx-pp-stats dd {
+  margin: 0 0 4px;
+  font-family: var(--mlx-display, "Bricolage Grotesque", system-ui, sans-serif);
+  font-weight: 800;
+  font-size: 32px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+}
+.mlx-pp-open {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  z-index: 1;
+}
+.mlx-pp-stamps {
+  list-style: none;
+  margin: 0;
+  padding: 18px 8px;
+  display: grid;
+  /* smaller stamps (owner 2026-10-26): all 8 in one row on desktop */
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 22px 10px;
+  border-radius: var(--radius-card);
+  /* the page of a passport: faint guilloche-like lines */
+  background:
+    repeating-linear-gradient(135deg, transparent 0 14px, color-mix(in srgb, var(--color-border) 55%, transparent) 14px 15px),
+    var(--color-surface);
+  border: 1px solid var(--color-border);
+}
+.mlx-stamp {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--ink);
+}
+.mlx-stamp-seal {
+  position: relative;
+  width: min(104px, 100%);
+  aspect-ratio: 1;
+  transform: rotate(var(--tilt));
+}
+.mlx-stamp-seal > svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.mlx-stamp-ring {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 4;
+}
+.mlx-stamp-ring2 {
+  fill: color-mix(in srgb, var(--ink) 7%, transparent);
+  stroke: var(--ink);
+  stroke-width: 1.5;
+  stroke-dasharray: 3 3;
+}
+.mlx-stamp-arc {
+  fill: var(--ink);
+  font-family: var(--mlx-display, "Bricolage Grotesque", system-ui, sans-serif);
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 2px;
+}
+.mlx-stamp-arc--small {
+  font-size: 9.5px;
+  letter-spacing: 1.5px;
+  font-weight: 700;
+}
+.mlx-stamp-core {
+  position: absolute;
+  inset: 28% 22%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  text-align: center;
+}
+.mlx-stamp-icon {
+  display: inline-flex;
+}
+.mlx-stamp-core b {
+  font-family: var(--mlx-display, "Bricolage Grotesque", system-ui, sans-serif);
+  font-weight: 800;
+  font-size: 17px;
+  line-height: 1;
+  color: var(--ink);
+}
+.mlx-stamp.is-on .mlx-stamp-seal {
+  /* a little ink texture: slightly uneven, like a real stamp */
+  filter: drop-shadow(0 0 0.4px var(--ink));
+  opacity: 0.92;
+}
+.mlx-stamp.is-off .mlx-stamp-seal {
+  opacity: 0.4;
+}
+.mlx-stamp.is-off .mlx-stamp-ring {
+  stroke-dasharray: 6 5;
+  stroke-width: 2;
+}
+.mlx-stamp.is-off .mlx-stamp-ring2 {
+  fill: none;
+}
+.mlx-stamp.is-off .mlx-stamp-core b {
+  font-family: inherit;
+  font-size: 10.5px;
+  font-weight: 600;
+}
+.mlx-stamp-tier {
+  margin-top: 2px;
+  padding: 2px 9px;
+  border-radius: var(--radius-pill);
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.mlx-stamp-tier--bronze {
+  background: #f3e2d3;
+  color: #8a4b1e;
+}
+.mlx-stamp-tier--silver {
+  background: #e6e8ea;
+  color: #4a535c;
+}
+.mlx-stamp-tier--gold {
+  background: #f8e7b0;
+  color: #7a5a05;
+}
+.mlx-stamp-tier--none {
+  background: transparent;
+  color: var(--color-faint);
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.mlx-stamp-next {
+  min-height: 16px;
+  font-size: 11.5px;
+  line-height: 1.3;
+  color: var(--color-muted-light);
+  text-align: center;
+}
+/* Your record + Circles joined */
+.mlx-pp-record {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0;
+  border-top: 1px solid var(--color-border);
+}
+.mlx-pp-record > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 14px 16px 14px 0;
+  border-bottom: 1px solid var(--color-border);
+  min-width: 0;
+}
+.mlx-pp-record dt {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-faint);
+}
+.mlx-pp-record dd {
+  margin: 2px 0 0;
+  font-family: var(--mlx-display, "Bricolage Grotesque", system-ui, sans-serif);
+  font-weight: 800;
+  font-size: 20px;
+  line-height: 1.2;
+  color: var(--color-text);
+}
+.mlx-pp-record > div > span {
+  font-size: 13.5px;
+  color: var(--color-muted-light);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mlx-pp-visas {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.mlx-pp-visas li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 14px;
+  border: 1.5px dashed color-mix(in srgb, var(--color-green) 55%, transparent);
+  border-radius: 10px;
+  background: var(--color-surface);
+}
+.mlx-pp-visas a,
+.mlx-pp-visas li > span {
+  font-weight: 600;
+  font-size: 14.5px;
+  color: var(--color-text);
+  text-decoration: none;
+}
+.mlx-pp-visas a:hover {
+  text-decoration: underline;
+}
+.mlx-pp-visas small {
+  font-family: "SFMono-Regular", ui-monospace, Menlo, monospace;
+  font-size: 11.5px;
+  color: var(--color-green);
+  letter-spacing: 0.04em;
+}
+@media (max-width: 900px) {
+  .mlx-pp-record {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Passport cover details */
+.mlx-pp-crest {
+  margin: 0 0 14px;
+  font-family: var(--mlx-display, "Bricolage Grotesque", system-ui, sans-serif);
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: #e7c873;
+}
+.mlx-pp-id {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 28px;
+  margin: 14px 0 0;
+}
+.mlx-pp-id div {
+  display: flex;
+  flex-direction: column;
+}
+.mlx-pp-id dt {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.65);
+}
+.mlx-pp-id dd {
+  margin: 0;
+  font-family: "SFMono-Regular", ui-monospace, Menlo, monospace;
+  font-size: 14px;
+  color: #fff;
+  letter-spacing: 0.04em;
+}
+.mlx-pp-firsts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+}
+.mlx-pp-firsts li {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+}
+.mlx-pp-firsts strong {
+  display: block;
+  font-size: 15.5px;
+  color: var(--color-text);
+}
+.mlx-pp-firsts li > span:last-child > span {
+  font-size: 13.5px;
+  color: var(--color-muted-light);
+}
+.mlx-pp-badge {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: var(--color-orange-bg);
+  color: var(--color-cta);
+}
+.mlx-pp-month {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.mlx-pp-month + .mlx-pp-month {
+  margin-top: 18px;
+}
+.mlx-pp-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.mlx-pp-list li {
+  border-top: 1px solid var(--color-border);
+}
+.mlx-pp-list li:last-child {
+  border-bottom: 1px solid var(--color-border);
+}
+.mlx-pp-row {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 6px;
+  color: inherit;
+  text-decoration: none;
+}
+a.mlx-pp-row:hover {
+  background: var(--color-panel);
+}
+a.mlx-pp-row:focus-visible {
+  outline: 2px solid var(--color-text);
+  outline-offset: -2px;
+}
+.mlx-pp-day b {
+  display: block;
+  font-family: var(--mlx-display, "Bricolage Grotesque", system-ui, sans-serif);
+  font-weight: 800;
+  font-size: 26px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text);
+}
+.mlx-pp-day small {
+  font-size: 11.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-faint);
+}
+.mlx-pp-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.mlx-pp-main strong {
+  font-size: 15.5px;
+  font-weight: 600;
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mlx-pp-main span {
+  font-size: 13.5px;
+  color: var(--color-muted-light);
+}
+.mlx-pp-ev {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  background: var(--color-panel);
+  color: var(--color-muted);
+}
+.mlx-pp-ev--ok {
+  background: var(--color-green-bg);
+  color: var(--color-green-text, var(--color-green));
+}
+.mlx-pp-ev--you {
+  background: var(--color-orange-bg);
+  color: var(--color-orange-dark);
+}
+.mlx-pp-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  padding: clamp(24px, 3vw, 40px);
+  border-radius: var(--radius-card);
+  border: 2px dashed var(--color-border-strong);
+}
+.mlx-pp-seal {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: var(--color-green-bg);
+  color: var(--color-green);
+}
+@media (max-width: 900px) {
+  .mlx-pp-cover {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .mlx-pp-open {
+    position: static;
+    justify-self: start;
+  }
+}
+@media (max-width: 1100px) {
+  .mlx-pp-stamps {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+@media (max-width: 560px) {
+  .mlx-pp-stamps {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 18px 6px;
+  }
+}
+@media (max-width: 560px) {
+  .mlx-pp-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .mlx-pp-row {
+    grid-template-columns: 44px minmax(0, 1fr);
+  }
+  .mlx-pp-ev {
+    grid-column: 2;
+    justify-self: start;
+  }
+}
+
+/* --- Responsive ----------------------------------------------------------- */
+@media (max-width: 1000px) {
+}
+@media (max-width: 760px) {
+  .mlx-tiles--3 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+  }
+  .mlx-tiles--3 li:nth-child(3) {
+    display: none;
+  }
+  .mlx-tiles--1 .mlx-tile {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+}
+@media (max-width: 560px) {
+  .mlx {
+    padding-top: 22px;
+  }
+  .mlx-head {
+    flex-direction: column;
+    gap: 14px;
+  }
+  .mlx-body {
+    gap: 40px;
+  }
+  .mlx-tiles--2,
+  .mlx-tiles--3 {
+    gap: 12px;
+  }
+  .mlx-tile strong {
+    font-size: 16px;
+  }
+  .mlx-cards {
+    grid-auto-columns: 78%;
+    gap: 14px;
+  }
+  .mlx-cards-nav {
+    display: none;
+  }
+  .mlx-closing-actions {
+    width: 100%;
+  }
+}
+
+/* Bookings-tab helper kept from the earlier pass */
+.ml-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  padding: clamp(18px, 2.4vw, 28px);
+  min-width: 0;
+}
+
+/* Card hover, same as the Circles cards (owner 2026-10-27): the photo
+   zooms in 4% and eases back out, the title underline fades in.
+   Mouse/trackpad only; reduced motion turns it off. */
+@media (hover: hover) {
+  .mlx-card-photo img,
+  .mlx-tile-img img {
+    transform: scale(1);
+    transition: transform 0.5s cubic-bezier(0.45, 0, 0.25, 1);
+    will-change: transform;
+  }
+  .mlx-card:hover .mlx-card-photo img,
+  .mlx-card:focus-visible .mlx-card-photo img,
+  .mlx-tile:hover .mlx-tile-img img,
+  .mlx-tile:focus-visible .mlx-tile-img img {
+    transform: scale(1.04);
+  }
+  .mlx-card .mlx-card-text strong,
+  .mlx-tile strong {
+    text-decoration: underline;
+    text-decoration-color: transparent;
+    text-underline-offset: 4px;
+    transition: text-decoration-color 0.24s ease;
+  }
+  .mlx-card:hover .mlx-card-text strong,
+  .mlx-tile:hover strong {
+    text-decoration-color: currentColor;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mlx-card-photo img,
+  .mlx-tile-img img {
+    transform: none !important;
+    transition: none !important;
+  }
+  .mlx-card .mlx-card-text strong,
+  .mlx-tile strong {
+    transition: none !important;
+  }
+}

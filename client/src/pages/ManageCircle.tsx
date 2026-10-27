@@ -1,3 +1,5 @@
+import { ListFilterBar, NoMatches, useListFilters } from "../components/workspace/ListFilters";
+import { CategoryPicker, TagPicker, type CategoryValue } from "../components/categories/CategoryPicker";
 import { ActionMenu } from "../components/ActionMenu";
 import { usePageTitle } from "../pageTitle";
 import { useEffect, useState } from "react";
@@ -11,6 +13,8 @@ import {
   fetchCircleInvitations,
   fetchCircleJoinRequests,
   fetchCircleMembers,
+  fetchCircleMembership,
+  fetchCirclePlanIdeas,
   fetchCirclePlansForManage,
   fetchGameParticipantsForManage,
   inviteToCircle,
@@ -31,7 +35,8 @@ import { signInHref } from "../authRedirect";
 import { CalendarIcon, PlusIcon, UsersIcon } from "../components/icons";
 import { WorkspaceShell } from "../components/workspace/WorkspaceShell";
 import { useUrlTab } from "../useUrlTab";
-import { ArrowLeft, CalendarDays, ExternalLink, Settings, ShieldAlert, UsersRound } from "lucide-react";
+import { ArrowLeft, CalendarDays, ExternalLink, Lightbulb, Settings, ShieldAlert, UsersRound } from "lucide-react";
+import { ManageCirclePlanning, RemovedMembersCard } from "../components/circle/ManageCircleExtras";
 import { AdminButton } from "../components/admin/adminUi";
 import { ContextActions, ContextSection, CopyValue, DetailFacts, DetailHero, DetailStats } from "../components/workspace/DetailParts";
 import { CircleModerationTab } from "../components/CircleModerationTab";
@@ -55,17 +60,18 @@ import type { Centre, Circle, ManageCircleMember, ManageCirclePlan, ManagePartic
 // both link into this page for one specific circle; this page's own
 // ManageShell nav is scoped to tabs within that one circle.
 
-type CircleTab = "plans" | "members" | "moderation" | "settings";
+type CircleTab = "plans" | "ideas" | "members" | "moderation" | "settings";
 type CircleNavKey = CircleTab | "overview";
 const I = { size: 18, strokeWidth: 1.9, "aria-hidden": true } as const;
 const NAV_OPTIONS: { key: CircleNavKey; label: string; icon: JSX.Element; group: string; summary?: string }[] = [
   { key: "plans", label: "Plans", icon: <CalendarDays {...I} />, group: "This Circle", summary: "Official plans for this Circle, and ideas members have suggested." },
-  { key: "members", label: "Members", icon: <UsersRound {...I} />, group: "This Circle", summary: "Members, join requests, invitations and organiser roles." },
+  { key: "ideas", label: "Pulse & proposals", icon: <Lightbulb {...I} />, group: "This Circle", summary: "What members want to do, and suggested plans to confirm or turn into activities." },
+  { key: "members", label: "Members", icon: <UsersRound {...I} />, group: "This Circle", summary: "Members, join requests, invitations, organiser roles and removed members." },
   { key: "moderation", label: "Moderation", icon: <ShieldAlert {...I} />, group: "This Circle", summary: "Announcements, reported messages, muted members and history." },
   { key: "settings", label: "Settings", icon: <Settings {...I} />, group: "This Circle", summary: "Name, description, cover, how people join, and closing the Circle." },
   { key: "overview", label: "Back to Host workspace", icon: <ArrowLeft {...I} />, group: "Host workspace" },
 ];
-const CIRCLE_TABS: CircleTab[] = ["plans", "members", "moderation", "settings"];
+const CIRCLE_TABS: CircleTab[] = ["plans", "ideas", "members", "moderation", "settings"];
 
 function statusBadge(status: string) {
   const map: Record<string, { bg: string; fg: string; label: string }> = {
@@ -490,6 +496,8 @@ function MembersTab({ circle }: { circle: Circle }) {
   const [members, setMembers] = useState<ManageCircleMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [removeTarget, setRemoveTarget] = useState<ManageCircleMember | null>(null);
+  const [removeReason, setRemoveReason] = useState("");
+  const [removedRefresh, setRemovedRefresh] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [roleActionId, setRoleActionId] = useState<string | null>(null);
@@ -535,9 +543,11 @@ function MembersTab({ circle }: { circle: Circle }) {
     setBusy(true);
     setError(null);
     try {
-      await removeCircleMember(circle.id, removeTarget.residentId);
+      await removeCircleMember(circle.id, removeTarget.residentId, removeReason.trim() || undefined);
       setMembers((prev) => prev.filter((m) => m.residentId !== removeTarget.residentId));
       setRemoveTarget(null);
+      setRemoveReason("");
+      setRemovedRefresh((n) => n + 1);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't remove this member");
     } finally {
@@ -587,6 +597,12 @@ function MembersTab({ circle }: { circle: Circle }) {
     }
   };
 
+  const memberFilters = useListFilters<(typeof members)[number]>({
+    param: "mq",
+    search: (m) => [m.name],
+    selects: [{ param: "mrole", label: "Role", options: [{ value: "organiser", label: "Organisers" }, { value: "member", label: "Members" }], get: (m) => (m.role === "organiser" ? "organiser" : "member") }],
+  });
+  const shownMembers = memberFilters.apply(members);
   if (loading) return <PageSpinner />;
   if (loadFailed) return <LoadErrorState title="Couldn't load the members" onRetry={reload} />;
 
@@ -598,6 +614,7 @@ function MembersTab({ circle }: { circle: Circle }) {
         <ResidentPicker onInvite={async (residentId) => { await inviteToCircle(circle.id, residentId); setInviteRefresh((n) => n + 1); }} />
       </Card>
       <PendingInvitationsCard circle={circle} refreshKey={inviteRefresh} />
+      <RemovedMembersCard circleId={circle.id} refreshKey={removedRefresh} />
       <Card>
         <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 14px" }}>Members</h2>
         {roleError && <p style={{ color: colors.danger, fontSize: 12.5, margin: "0 0 10px" }}>{roleError}</p>}
@@ -607,8 +624,10 @@ function MembersTab({ circle }: { circle: Circle }) {
         {members.length <= 1 && (
           <p style={{ margin: "0 0 14px", fontSize: 13.5, color: colors.mutedLight }}>It's just you for now. Invite a few people to get the Circle moving.</p>
         )}
+        {members.length > 8 && <ListFilterBar state={memberFilters} searchLabel="Search members" placeholder="Name" />}
+        {shownMembers.length === 0 && <NoMatches onClear={memberFilters.clear} noun="members" />}
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {members.map((m) => (
+          {shownMembers.map((m) => (
             <div key={m.residentId} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, background: colors.bg, borderRadius: radius.control, padding: "10px 14px" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <Avatar name={m.name} size={30} />
@@ -653,12 +672,16 @@ function MembersTab({ circle }: { circle: Circle }) {
       <ConfirmDialog
         open={!!removeTarget}
         title="Remove this member?"
-        message={`${removeTarget?.name ?? "This member"} will be notified and lose access to this Circle.`}
+        message={`${removeTarget?.name ?? "This member"} will be notified and lose access to this Circle. They can't rejoin or ask to join again until an organiser lifts it under Removed members.`}
         confirmLabel={busy ? "Removing…" : "Remove"}
         busy={busy}
         onConfirm={handleRemove}
         onCancel={() => setRemoveTarget(null)}
       >
+        <label htmlFor="circle-remove-reason" style={{ display: "block", fontSize: 13, fontWeight: 600, marginBottom: 6 }}>
+          Reason (optional, kept with the record — not shown to them)
+        </label>
+        <input id="circle-remove-reason" value={removeReason} onChange={(e) => setRemoveReason(e.target.value)} maxLength={500} style={inputStyle} />
         {error && <p style={{ color: colors.danger, fontSize: 13 }}>{error}</p>}
       </ConfirmDialog>
       <ConfirmDialog
@@ -699,8 +722,11 @@ function SettingsTab({ circle, onSaved }: { circle: Circle; onSaved: (c: Circle)
     whatWeDo: circle.whatWeDo ?? "",
     whoCanJoin: circle.whoCanJoin ?? "",
     values: circle.values ?? "",
+    soloWelcome: circle.soloWelcome === true ? "yes" : circle.soloWelcome === false ? "no" : "",
     // Booking UX Phase 5 — up to three questions for an approval Circle.
     joinQuestions: [...(circle.joinQuestions ?? []), "", "", ""].slice(0, 3),
+    category: (circle.taxonomy ? { categoryId: circle.taxonomy.categoryId, subcategoryId: circle.taxonomy.subcategoryId } : null) as CategoryValue | null,
+    tags: circle.tags ?? [],
   });
   // The cover photo is tracked separately from the rest of the form. For a
   // restricted Circle, `circle.imageUrl` is deliberately always null
@@ -740,8 +766,13 @@ function SettingsTab({ circle, onSaved }: { circle: Circle; onSaved: (c: Circle)
         whatWeDo: form.whatWeDo || undefined,
         whoCanJoin: form.whoCanJoin || undefined,
         values: form.values || undefined,
+        soloWelcome: form.soloWelcome === "yes" ? true : form.soloWelcome === "no" ? false : null,
         // Only an approval Circle edits its questions; otherwise they're left as they are.
         joinQuestions: form.joinMode === "approval" ? form.joinQuestions.map((q) => q.trim()).filter(Boolean) : undefined,
+        // Sent only when the detail response carried them, so an older
+        // response shape can never clear a saved category.
+        ...(circle.taxonomy !== undefined ? { categoryId: form.category?.categoryId ?? "", subcategoryId: form.category?.subcategoryId ?? null } : {}),
+        ...(circle.tags !== undefined ? { tags: form.tags } : {}),
       });
       onSaved(updated);
       setPhotoChange(undefined);
@@ -785,6 +816,12 @@ function SettingsTab({ circle, onSaved }: { circle: Circle; onSaved: (c: Circle)
             <label style={labelStyle}>Activity</label>
             <input value={form.activityLabel} onChange={(e) => setForm((f) => ({ ...f, activityLabel: e.target.value }))} style={inputStyle} />
           </div>
+          <div style={{ gridColumn: "1 / -1" }}>
+            <CategoryPicker family="circle" label="What's your Circle about?" value={form.category} current={circle.taxonomy ?? null} onChange={(next) => setForm((f) => ({ ...f, category: next }))} />
+          </div>
+          <div style={{ gridColumn: "1 / -1" }}>
+            <TagPicker value={form.tags} onChange={(next) => setForm((f) => ({ ...f, tags: next }))} />
+          </div>
           <div>
             <label style={labelStyle}>Area</label>
             <input value={form.area} onChange={(e) => setForm((f) => ({ ...f, area: e.target.value }))} style={inputStyle} />
@@ -821,6 +858,17 @@ function SettingsTab({ circle, onSaved }: { circle: Circle; onSaved: (c: Circle)
           <div style={{ gridColumn: "1 / -1" }}>
             <label style={labelStyle}>Who can join (optional)</label>
             <textarea value={form.whoCanJoin} onChange={(e) => setForm((f) => ({ ...f, whoCanJoin: e.target.value }))} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
+          </div>
+          <div style={{ gridColumn: "1 / -1" }}>
+            <label htmlFor="mc-solo" style={labelStyle}>
+              Do people often come on their own? (optional)
+            </label>
+            <select id="mc-solo" value={form.soloWelcome} onChange={(e) => setForm((f) => ({ ...f, soloWelcome: e.target.value }))} style={inputStyle}>
+              <option value="">Don't say</option>
+              <option value="yes">Yes — people often come on their own</option>
+              <option value="no">No — most come with someone</option>
+            </select>
+            <p style={{ margin: "6px 0 0", fontSize: 12, color: "var(--color-muted-light)" }}>Shown to people thinking of joining, only if you choose Yes.</p>
           </div>
           {form.joinMode === "approval" && (
             <fieldset style={{ gridColumn: "1 / -1", border: "none", margin: 0, padding: 0 }}>
@@ -929,6 +977,8 @@ export function ManageCircle() {
   // URL-synced (?tab=), so Back/Forward, refresh and shared links keep it.
   const [tab, setTab] = useUrlTab<CircleTab>(CIRCLE_TABS, "plans");
   const [restricted, setRestricted] = useState(false);
+  const [pendingRequests, setPendingRequests] = useState<number | null>(null);
+  const [activeIdeas, setActiveIdeas] = useState<number | null>(null);
 
   const loadCircle = () => {
     if (!resident || !id) return;
@@ -936,12 +986,18 @@ export function ManageCircle() {
     setCircleError(null);
     setRestricted(false);
     fetchCircle(id)
-      .then((c) => {
-        if (c.myRole !== "organiser" && c.createdByResidentId !== resident.id) {
+      .then(async (c) => {
+        // Circle Experience 2.0 — GET /circles/:id never carries myRole, so a
+        // co-organiser who didn't create the Circle used to be locked out
+        // here. Ask the membership endpoint (the server re-checks every action).
+        const role = c.createdByResidentId === resident.id ? "organiser" : (await fetchCircleMembership(c.id).catch(() => null))?.role;
+        if (role !== "organiser") {
           setRestricted(true);
           return;
         }
         setCircle(c);
+        fetchCircleJoinRequests(c.id).then((r) => setPendingRequests(r.length)).catch(() => setPendingRequests(null));
+        fetchCirclePlanIdeas(c.id).then((p) => setActiveIdeas(p.filter((x) => x.status === "idea" || x.status === "confirmed").length)).catch(() => setActiveIdeas(null));
       })
       .catch((e) => {
         const status = (e as { status?: number })?.status;
@@ -1008,7 +1064,12 @@ export function ManageCircle() {
               value: circle.nextPlan && circle.nextPlan.source === "circle" ? dateLabel(circle.nextPlan.date) : "—",
               sub: circle.nextPlan && circle.nextPlan.source === "circle" ? `${circle.nextPlan.time} · ${circle.nextPlan.joined} going` : "Nothing scheduled",
             },
-            { label: "This month", value: String(circle.plansThisMonth), sub: `${circle.activityLabel || "Activity"} plans nearby` },
+            {
+              label: "Pending requests",
+              value: pendingRequests === null ? "—" : String(pendingRequests),
+              sub: circle.joinMode === "approval" ? (pendingRequests ? "Waiting for you in Members" : "Nothing waiting") : "Only for approval Circles",
+            },
+            { label: "Active proposals", value: activeIdeas === null ? "—" : String(activeIdeas), sub: activeIdeas ? "In Pulse & proposals" : "No suggestions open" },
             { label: "Status", value: circle.status === "active" ? "Active" : "Closed", sub: circle.status === "active" ? "Listed publicly" : "Hidden from browse" },
           ]}
         />
@@ -1016,6 +1077,8 @@ export function ManageCircle() {
           <div className="wd-main wd-body">
             {tab === "plans" ? (
               <PlansTab circle={circle} />
+            ) : tab === "ideas" ? (
+              <ManageCirclePlanning circle={circle} residentId={resident.id} />
             ) : tab === "members" ? (
               <MembersTab circle={circle} />
             ) : tab === "moderation" ? (

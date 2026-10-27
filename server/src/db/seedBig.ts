@@ -1,6 +1,6 @@
 import { approximateCoords, db } from "./index.js";
 import { createUser, findUserByEmail } from "../auth.js";
-import { CLUBS, placeholderImage } from "./seed.js";
+import { CLUBS, placeholderImage, topicImage } from "./seed.js";
 
 // "Huge data" demo seed — a much larger, cross-cutting pass on top of
 // resetDemoListings()'s narrower centres/clubs-only scope. Deliberately its
@@ -32,7 +32,7 @@ function imgs(seed: string, n: number) {
  * "Five-a-side Football" card looks the same as every other one, rather
  * than each game rolling an unrelated random placeholder. */
 function activityImg(label: string): string {
-  return img(`activity-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`);
+  return topicImage(label, `halla-activity-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`, 900, 600);
 }
 
 function isoOffset(days: number): string {
@@ -439,7 +439,7 @@ async function seedCircles(residentIds: string[]) {
       about: `A regular group for ${activity.toLowerCase()} in ${county} — new members always welcome.`,
       centreId,
       creator,
-      image: img(id),
+      image: topicImage(activity, `halla-${id}`, 900, 600),
       whatWeDo: details?.whatWeDo ?? null,
       whoCanJoin: details?.whoCanJoin ?? null,
       values: details?.values ?? null,
@@ -576,7 +576,7 @@ async function seedPrograms() {
       ageRange: p.ageRange,
       price: p.price,
       capacity: p.capacity,
-      image: img(id),
+      image: topicImage(p.title, `halla-${id}`, 900, 600),
     });
     await insertSession.run(`demo-program-session-${id}-1`, id, isoOffset(offsets[0]), "16:00", 60);
     await insertSession.run(`demo-program-session-${id}-2`, id, isoOffset(offsets[1]), "10:00", 90);
@@ -594,7 +594,7 @@ async function seedPrograms() {
       ageRange: p.ageRange,
       price: p.price,
       capacity: p.capacity,
-      image: img(id),
+      image: topicImage(p.title, `halla-${id}`, 900, 600),
     });
     await insertSession.run(`demo-program-session-${id}-1`, id, isoOffset(offsets[0]), "16:30", 60);
     await insertSession.run(`demo-program-session-${id}-2`, id, isoOffset(offsets[2]), "11:00", 90);
@@ -644,7 +644,7 @@ async function seedExperiences() {
       terrainType: a.terrainType ?? "",
       price: a.price,
       capacity: a.capacity,
-      image: img(id),
+      image: topicImage(a.title, `halla-${id}`, 900, 600),
     });
     for (const [i, url] of imgs(id, 4).entries()) await insertImage.run(id, url, i);
     await insertSession.run(`demo-experience-session-${id}-1`, id, isoOffset(offsets[1]), "09:00", a.capacity);
@@ -673,7 +673,7 @@ async function seedExperiences() {
       terrainType: "",
       price: e.price,
       capacity: e.capacity,
-      image: img(id),
+      image: topicImage(e.title, `halla-${id}`, 900, 600),
     });
     for (const [i, url] of imgs(id, 4).entries()) await insertImage.run(id, url, i);
     await insertSession.run(`demo-experience-session-${id}-1`, id, isoOffset(offsets[0]), "18:00", e.capacity);

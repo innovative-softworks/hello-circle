@@ -6,6 +6,7 @@ export type MediaEntityType =
   | "resident-avatar"
   | "activity-cover"
   | "circle-cover"
+  | "circle-memory"
   | "centre-gallery"
   | "club-gallery"
   | "club-session-cover"

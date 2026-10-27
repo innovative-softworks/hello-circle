@@ -4,10 +4,7 @@ import { SaveButton, useSavedState } from "./SaveButton";
 import { Button } from "./ui";
 import { colors, placeholderStripes } from "../theme";
 import type { ExperienceSearchResult } from "../types";
-import { formatPrice } from "../formatters";
-import { centsPriceSignal } from "../priceSignal";
-import { PriceChip } from "./PriceChip";
-import { CardPrice, ListingCard, cardButtonStyle } from "./ListingCard";
+import { CardArrow, CardPrice, ListingCard } from "./ListingCard";
 
 // Adventure/experience result card — shared by Explore's Results Mode and
 // AskHelloCircle.tsx. Now the shared ListingCard shape (design-system
@@ -21,6 +18,7 @@ export function ExperienceSearchCard({ e }: { e: ExperienceSearchResult }) {
   const where = [e.area, e.county].filter(Boolean).join(", ");
   return (
     <ListingCard
+      rowOnPhone
       href={href}
       title={e.title}
       image={e.imageUrl || null}
@@ -30,11 +28,9 @@ export function ExperienceSearchCard({ e }: { e: ExperienceSearchResult }) {
       tag={e.kind === "adventure" ? "Adventure" : "Experience"}
       save={<SaveButton saved={fav} onToggle={toggleFav} />}
       details={[where ? { icon: <PinIcon size={13} />, text: where } : null]}
-      facts={centsPriceSignal(e.priceCents) ? <PriceChip signal="free" /> : <CardPrice>{formatPrice(e.priceCents)}</CardPrice>}
+      facts={<CardPrice cents={e.priceCents} unit="per person" />}
       action={
-        <Button style={cardButtonStyle} variant="dark" onClick={() => navigate(href)}>
-          {registerLabel}
-        </Button>
+        <CardArrow label={`${registerLabel}: ${e.title}`} onClick={() => navigate(href)} />
       }
     />
   );

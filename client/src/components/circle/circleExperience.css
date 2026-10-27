@@ -1,0 +1,3895 @@
+/* Circle Experience 2.0 — layout for Start a Circle, Circle Home and its
+   tabs. Colours, corners and type come from the shared tokens (owner
+   decision D2: 16px cards, 4px buttons, pill chips), so this file is only
+   structure and responsive behaviour. No animations (owner rule). */
+
+/* ---------- 70/30 page layout (form + preview, home + rail) ---------- */
+.ce-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 7fr) minmax(0, 3fr);
+  gap: 32px;
+  align-items: start;
+}
+
+.ce-aside {
+  position: sticky;
+  top: 90px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding-bottom: 36px;
+}
+
+@media (max-width: 900px) {
+  .ce-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 24px;
+  }
+  .ce-aside {
+    position: static;
+    padding-bottom: 0;
+  }
+  /* On the Create form the preview follows the form on phones. */
+  .ce-layout--form .ce-aside {
+    order: 2;
+  }
+}
+
+/* ---------- form sections ---------- */
+.ce-form-section {
+  border-top: 1px solid var(--color-border);
+  padding: 26px 0;
+}
+.ce-form-section:first-of-type {
+  border-top: 0;
+  padding-top: 8px;
+}
+.ce-form-section > h2 {
+  font-family: "Bricolage Grotesque Variable", "Bricolage Grotesque", system-ui, sans-serif;
+  font-weight: 800;
+  font-size: 19px;
+  letter-spacing: 0;
+  margin: 0 0 4px;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.ce-form-section > h2 .ce-step {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--color-muted-light);
+}
+.ce-form-section > .ce-section-hint {
+  margin: 0 0 16px;
+  font-size: 13.5px;
+  color: var(--color-muted-light);
+  line-height: 1.5;
+}
+.ce-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.ce-fields > .ce-full {
+  grid-column: 1 / -1;
+}
+@media (max-width: 640px) {
+  .ce-fields {
+    grid-template-columns: 1fr;
+  }
+}
+.ce-field-help {
+  font-size: 12px;
+  color: var(--color-muted-light);
+  margin: 6px 0 0;
+}
+
+/* Membership choice: real radio inputs styled as cards. */
+.ce-choice-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+@media (max-width: 640px) {
+  .ce-choice-list {
+    grid-template-columns: 1fr;
+  }
+}
+.ce-choice {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 14px;
+  border: 1.5px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  cursor: pointer;
+}
+.ce-choice:has(input:checked) {
+  border-color: var(--color-green);
+  background: var(--color-green-bg);
+}
+.ce-choice:has(input:focus-visible) {
+  outline: 2px solid var(--color-green);
+  outline-offset: 2px;
+}
+.ce-choice input {
+  margin: 3px 0 0;
+  accent-color: var(--color-green);
+}
+.ce-choice strong {
+  display: block;
+  font-size: 14px;
+}
+.ce-choice span {
+  display: block;
+  font-size: 12.5px;
+  color: var(--color-muted-light);
+  margin-top: 2px;
+}
+
+.ce-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  padding-top: 8px;
+}
+
+/* ---------- live preview ---------- */
+.ce-preview {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+  overflow: hidden;
+}
+.ce-preview-cover {
+  aspect-ratio: 16 / 10;
+  background: var(--color-panel);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-muted-light);
+  font-size: 12.5px;
+  text-align: center;
+  padding: 16px;
+}
+.ce-preview-body {
+  padding: 16px 18px 18px;
+}
+.ce-preview-label {
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  color: var(--color-muted-light);
+  margin: 0 0 8px;
+}
+.ce-preview-empty {
+  color: var(--color-muted-light);
+  font-style: italic;
+}
+
+/* ---------- Circle Home ---------- */
+.ce-identity {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 0 6px;
+}
+.ce-identity-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  font-size: 13.5px;
+  color: var(--color-muted);
+  align-items: center;
+}
+.ce-identity-facts > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.ce-tabs {
+  margin: 18px 0 4px;
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: 12px;
+}
+
+.ce-section {
+  border-top: 1px solid var(--color-border);
+  padding: 30px 0;
+}
+.ce-section:first-child {
+  border-top: 0;
+  padding-top: 20px;
+}
+.ce-section-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+.ce-section-head h2 {
+  font-family: "Bricolage Grotesque Variable", "Bricolage Grotesque", system-ui, sans-serif;
+  font-weight: 800;
+  font-size: clamp(20px, 2.4vw, 24px);
+  letter-spacing: 0;
+  margin: 0;
+}
+.ce-section-head p {
+  margin: 4px 0 0;
+  font-size: 13.5px;
+  color: var(--color-muted-light);
+  line-height: 1.5;
+  max-width: 560px;
+}
+
+.ce-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+/* A plain row list (pulse groups, proposals, matches). */
+.ce-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ce-row {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+  padding: 16px 18px;
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+.ce-row-main {
+  min-width: 0;
+  flex: 1 1 260px;
+}
+.ce-row-title {
+  font-weight: 700;
+  font-size: 15px;
+  margin: 0;
+}
+.ce-row-meta {
+  font-size: 13px;
+  color: var(--color-muted-light);
+  margin-top: 3px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+.ce-row-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.ce-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  font-weight: 700;
+  border-radius: var(--radius-pill);
+  padding: 3px 10px;
+  background: var(--color-panel);
+  color: var(--color-text);
+  white-space: nowrap;
+}
+.ce-pill--green {
+  background: var(--color-green-bg);
+  color: var(--color-green-text);
+}
+.ce-pill--orange {
+  background: var(--color-orange-bg);
+  color: var(--color-orange-dark);
+}
+.ce-pill--muted {
+  color: var(--color-muted-light);
+}
+
+/* Interest meter for a plan idea: n of target. */
+.ce-meter {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--color-panel);
+  overflow: hidden;
+  margin-top: 10px;
+  max-width: 280px;
+}
+.ce-meter > span {
+  display: block;
+  height: 100%;
+  background: var(--color-green);
+}
+
+/* ---------- toggle chips + day/slot grid ---------- */
+.ce-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.ce-chip {
+  min-height: 40px;
+  padding: 6px 14px;
+  border-radius: var(--radius-pill);
+  border: 1.5px solid var(--color-border-strong);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.ce-chip[aria-pressed="true"] {
+  border-color: var(--color-green);
+  background: var(--color-green-bg);
+  color: var(--color-green-text);
+}
+.ce-chip:focus-visible {
+  outline: 2px solid var(--color-green);
+  outline-offset: 2px;
+}
+
+.ce-slot-grid {
+  display: grid;
+  grid-template-columns: 96px repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  align-items: center;
+}
+.ce-slot-grid .ce-slot-head {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--color-muted-light);
+  text-transform: uppercase;
+  text-align: center;
+}
+.ce-slot-grid .ce-slot-day {
+  font-size: 13px;
+  font-weight: 700;
+}
+.ce-slot-grid .ce-chip {
+  min-height: 40px;
+  border-radius: var(--radius-control);
+  padding: 4px 6px;
+  font-size: 12.5px;
+}
+@media (max-width: 420px) {
+  .ce-slot-grid {
+    grid-template-columns: 64px repeat(3, minmax(0, 1fr));
+  }
+}
+
+.ce-week-switch {
+  display: inline-flex;
+  gap: 6px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+
+/* ---------- welcome + first-time guide ---------- */
+.ce-welcome {
+  border: 1px solid var(--color-green);
+  background: var(--color-green-bg);
+  border-radius: var(--radius-card);
+  padding: 22px 24px;
+  margin-top: 20px;
+}
+.ce-welcome h2 {
+  font-family: "Bricolage Grotesque Variable", "Bricolage Grotesque", system-ui, sans-serif;
+  font-weight: 800;
+  font-size: 22px;
+  letter-spacing: 0;
+  margin: 0 0 6px;
+}
+.ce-welcome ul {
+  margin: 12px 0 16px;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 8px;
+}
+.ce-welcome li button {
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  padding: 12px 14px;
+  font-size: 13.5px;
+  font-weight: 700;
+  cursor: pointer;
+  color: var(--color-text);
+}
+.ce-welcome li button span {
+  display: block;
+  font-weight: 400;
+  font-size: 12.5px;
+  color: var(--color-muted-light);
+  margin-top: 2px;
+}
+
+.ce-guide {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+  padding: 18px 20px;
+  margin-top: 16px;
+}
+.ce-guide dl {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 14px 24px;
+  margin: 12px 0 0;
+}
+.ce-guide dt {
+  font-size: 11.5px;
+  font-weight: 800;
+  text-transform: uppercase;
+  color: var(--color-muted-light);
+}
+.ce-guide dd {
+  margin: 4px 0 0;
+  font-size: 14px;
+  line-height: 1.5;
+  white-space: pre-line;
+}
+
+/* ---------- memories ---------- */
+.ce-memory-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px;
+}
+.ce-memory {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.ce-memory img {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  display: block;
+  background: var(--color-panel);
+}
+/* Memory photos open the full-screen viewer (owner, 2026-10-24). */
+.ce-memory-open {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: zoom-in;
+}
+.ce-memory-open:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: -2px;
+}
+.ce-memory-body {
+  padding: 12px 14px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+}
+.ce-memory blockquote {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.55;
+}
+.ce-memory-meta {
+  font-size: 12px;
+  color: var(--color-muted-light);
+  margin-top: auto;
+}
+
+/* ---------- discussions preview ---------- */
+.ce-messages {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ce-message {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+  padding: 12px 16px;
+}
+.ce-message--announcement {
+  border-color: var(--color-orange);
+  background: var(--color-orange-bg);
+}
+.ce-message-head {
+  font-size: 12px;
+  color: var(--color-muted-light);
+  margin-bottom: 4px;
+}
+.ce-message p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+/* Small text actions inside cards (Remove, Report, Plan another). */
+.ce-link {
+  background: none;
+  border: 0;
+  padding: 4px 0;
+  min-height: 32px;
+  font: inherit;
+  font-weight: 700;
+  color: var(--color-text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.ce-link:focus-visible {
+  outline: 2px solid var(--color-green);
+  outline-offset: 2px;
+}
+
+/* Circle tabs size to their labels (the shared 120px button minimum would
+   push four of six tabs off a phone screen). The row still scrolls. */
+.ce-tabs .tab-btn {
+  min-width: 0;
+}
+
+/* ======================================================================
+   Circle Home, reference layout (owner, 2026-10-23): full-width photo
+   banner with the Circle's avatar, an icon tab bar, icon-led sections in
+   the main column and a rail of small cards. Tokens only; no animations.
+   ====================================================================== */
+.ch-wrap {
+  max-width: 1560px;
+  margin: 0 auto;
+  padding: 0 24px;
+  box-sizing: border-box;
+}
+@media (max-width: 640px) {
+  .ch-wrap {
+    padding: 0 16px;
+  }
+}
+
+/* ---------- banner ---------- */
+/* The photo sits inside the page (owner, 2026-10-24): content width,
+   card corners, a gap under the header; tabs directly beneath it. */
+/* 2026-10-24: the photo and tabs take the 70% main column; the rail runs
+   beside them from the top. */
+.ch-body--top {
+  padding-top: 20px;
+}
+.ch-main {
+  padding-top: 24px;
+}
+.ch-banner {
+  position: relative;
+  border-radius: var(--radius-card);
+  color: #fff;
+  background: linear-gradient(120deg, #1d4d35 0%, #2f6b4c 55%, #a8562a 100%);
+  overflow: hidden;
+}
+.ch-banner-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.ch-banner::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, rgba(10, 12, 10, 0.74) 0%, rgba(10, 12, 10, 0.42) 55%, rgba(10, 12, 10, 0.12) 100%),
+    linear-gradient(0deg, rgba(10, 12, 10, 0.62) 0%, rgba(10, 12, 10, 0) 55%);
+}
+.ch-banner-inner {
+  position: relative;
+  z-index: 1;
+  min-height: clamp(320px, 28vw, 420px);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 20px 28px 28px;
+}
+@media (max-width: 640px) {
+  .ch-body--top {
+    padding-top: 12px;
+  }
+  .ch-banner-inner {
+    padding: 16px 16px 20px;
+  }
+}
+.ch-banner-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.ch-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: 0;
+  padding: 6px 0;
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.ch-banner-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 12px;
+}
+.ch-banner-actions > div {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.ch-glass-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: var(--radius-button);
+  background: rgba(255, 255, 255, 0.94);
+  color: #1b1d1b;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.ch-glass-btn[aria-pressed="true"] {
+  color: #b8300c;
+}
+.ch-glass-btn:focus-visible,
+.ch-back:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+.ch-status {
+  display: inline-block;
+  background: var(--color-green);
+  color: #fff;
+  border-radius: 4px;
+  padding: 6px 12px;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+.ch-status--muted {
+  background: rgba(255, 255, 255, 0.2);
+}
+.ch-identity {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+.ch-avatar {
+  width: 132px;
+  height: 132px;
+  border-radius: 50%;
+  border: 4px solid #fff;
+  overflow: hidden;
+  background: var(--color-green);
+  flex: none;
+}
+.ch-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.ch-identity h1 {
+  font-family: "Bricolage Grotesque Variable", "Bricolage Grotesque", system-ui, sans-serif;
+  font-weight: 800;
+  font-size: clamp(28px, 3.2vw, 42px);
+  line-height: 1.05;
+  letter-spacing: 0;
+  margin: 0 0 10px;
+  color: #fff;
+}
+.ch-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.92);
+  margin: 0 0 10px;
+}
+.ch-facts span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.ch-tagline {
+  margin: 0 0 12px;
+  font-size: 14.5px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.9);
+  max-width: 720px;
+}
+.ch-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ch-tags span {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 4px 12px;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.32);
+  color: #fff;
+}
+.ch-banner-members {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.ch-stack {
+  display: flex;
+}
+.ch-stack > * {
+  margin-left: -8px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px #fff;
+}
+.ch-stack > *:first-child {
+  margin-left: 0;
+}
+.ch-stack-more {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--color-panel);
+  color: var(--color-text);
+  font-size: 11.5px;
+  font-weight: 800;
+}
+@media (max-width: 760px) {
+  .ch-identity {
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 16px;
+    align-items: end;
+  }
+  .ch-avatar {
+    width: 84px;
+    height: 84px;
+    border-width: 3px;
+  }
+  .ch-banner-members {
+    grid-column: 1 / -1;
+  }
+  .ch-identity-text {
+    grid-column: 1 / -1;
+  }
+}
+
+/* ---------- tab bar ---------- */
+.ch-tabbar {
+  margin-top: 8px;
+  border-bottom: 1px solid var(--color-border);
+}
+.ch-tabbar-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.ch-tabbar [role="tablist"] {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.ch-tab-actions {
+  display: flex;
+  gap: 4px;
+  flex: none;
+}
+.ch-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-button);
+  background: none;
+  color: var(--color-text);
+  cursor: pointer;
+}
+.ch-icon-btn:hover {
+  background: var(--color-panel);
+}
+.ch-icon-btn[aria-pressed="true"] {
+  color: var(--color-orange-dark);
+}
+.ch-icon-btn:disabled {
+  color: var(--color-muted-light);
+  cursor: default;
+  background: none;
+}
+.ch-icon-btn:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+.ch-back-row {
+  margin: 0 0 10px;
+}
+.ch-back-row .ch-back {
+  color: var(--color-text);
+}
+.ch-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex: none;
+  min-height: 50px;
+  padding: 0 16px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--color-text);
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.ch-tab[aria-selected="true"] {
+  color: var(--color-orange-dark);
+  border-bottom-color: var(--color-cta);
+  font-weight: 800;
+}
+.ch-tab:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: -2px;
+}
+
+/* ---------- body: main + rail ---------- */
+.ch-body {
+  display: grid;
+  grid-template-columns: minmax(0, 7fr) minmax(300px, 3fr);
+  gap: 28px;
+  align-items: start;
+  padding-top: 28px;
+  padding-bottom: 48px;
+}
+.ch-body--single {
+  grid-template-columns: minmax(0, 1fr);
+}
+.ch-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  position: sticky;
+}
+@media (max-width: 1000px) {
+  .ch-body {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 24px;
+    padding-top: 20px;
+  }
+  .ch-rail {
+    position: static;
+  }
+}
+
+/* ---------- sections ---------- */
+.ch-section {
+  margin: 0 0 36px;
+  scroll-margin-top: 90px;
+}
+.ch-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.ch-head h2 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: "Bricolage Grotesque Variable", "Bricolage Grotesque", system-ui, sans-serif;
+  font-weight: 800;
+  font-size: 20px;
+  letter-spacing: 0;
+  margin: 0;
+}
+.ch-head-icon {
+  display: inline-flex;
+  color: var(--color-cta);
+  flex: none;
+}
+.ch-head p {
+  margin: 4px 0 0;
+  font-size: 13.5px;
+  color: var(--color-muted-light);
+  line-height: 1.5;
+}
+.ch-see-all {
+  flex: none;
+  background: none;
+  border: 0;
+  padding: 4px 0;
+  min-height: 32px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--color-orange-dark);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.ch-see-all:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+.ch-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  padding: 18px;
+  box-sizing: border-box;
+}
+.ch-card h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: "Bricolage Grotesque Variable", "Bricolage Grotesque", system-ui, sans-serif;
+  font-weight: 800;
+  font-size: 16px;
+  margin: 0 0 12px;
+  letter-spacing: 0;
+}
+
+/* Outline action in the accent colour ("I'm interested", "Join"). */
+.ch-btn-accent {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 8px 14px;
+  border: 1.5px solid var(--color-cta);
+  border-radius: var(--radius-button);
+  background: var(--color-surface);
+  color: var(--color-orange-dark);
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.ch-btn-accent[aria-pressed="true"] {
+  background: var(--color-orange-bg);
+}
+.ch-btn-accent:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.ch-btn-accent:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+.ch-btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border: 1.5px solid var(--color-border-strong);
+  border-radius: var(--radius-button);
+  background: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
+}
+.ch-btn-icon[aria-pressed="true"] {
+  color: var(--color-orange-dark);
+  border-color: var(--color-cta);
+}
+
+/* ---------- next up row ---------- */
+.ch-next {
+  display: grid;
+  grid-template-columns: 168px 64px minmax(0, 1fr) auto;
+  gap: 18px;
+  align-items: center;
+  padding: 12px;
+}
+.ch-next + .ch-next {
+  margin-top: 10px;
+}
+.ch-next-img {
+  width: 168px;
+  height: 104px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--color-panel);
+}
+.ch-next-img img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.ch-date {
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  text-align: center;
+  padding: 8px 4px;
+  line-height: 1.1;
+}
+.ch-date span {
+  display: block;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  color: var(--color-muted-light);
+}
+.ch-date strong {
+  display: block;
+  font-family: "Bricolage Grotesque Variable", "Bricolage Grotesque", system-ui, sans-serif;
+  font-size: 24px;
+  font-weight: 800;
+  margin: 2px 0;
+}
+.ch-next-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-weight: 800;
+  font-size: 15px;
+  margin: 0 0 6px;
+}
+.ch-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12.5px;
+  color: var(--color-muted);
+}
+.ch-meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.ch-next-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+@media (max-width: 640px) {
+  .ch-next {
+    grid-template-columns: 56px minmax(0, 1fr);
+    gap: 12px;
+  }
+  .ch-next-img {
+    grid-column: 1 / -1;
+    width: 100%;
+    height: auto;
+    aspect-ratio: 16 / 8;
+  }
+  .ch-next-actions {
+    grid-column: 1 / -1;
+  }
+  .ch-next-actions > :first-child {
+    flex: 1;
+  }
+}
+
+/* ---------- discussion rows ---------- */
+.ch-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.ch-list > li + li {
+  border-top: 1px solid var(--color-border);
+}
+.ch-list-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  width: 100%;
+  padding: 12px 6px;
+  background: none;
+  border: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.ch-list-row:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: -2px;
+}
+.ch-list-title {
+  font-weight: 700;
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ch-list-meta {
+  font-size: 12px;
+  color: var(--color-muted-light);
+  margin-top: 2px;
+}
+
+/* ---------- memories strip ---------- */
+.ch-strip {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+.ch-strip li {
+  position: relative;
+  aspect-ratio: 1 / 0.95;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--color-panel);
+}
+.ch-strip img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.ch-strip blockquote {
+  margin: 0;
+  padding: 12px;
+  font-size: 13px;
+  line-height: 1.45;
+  height: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
+  background: var(--color-green-bg);
+}
+.ch-strip-more {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.72);
+  border: 0;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  color: #1b1d1b;
+  cursor: pointer;
+}
+@media (max-width: 640px) {
+  .ch-strip {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .ch-strip li:nth-child(n + 4):not(:last-child) {
+    display: none;
+  }
+}
+
+/* ---------- rail ---------- */
+.ch-member-card {
+  background: var(--color-green-bg);
+  border-color: var(--color-green);
+}
+.ch-member-head {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 14px;
+}
+.ch-member-head strong {
+  display: block;
+  font-size: 16px;
+  font-weight: 800;
+}
+.ch-member-head span {
+  font-size: 12.5px;
+  color: var(--color-muted);
+}
+.ch-member-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+.ch-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--color-green);
+  color: #fff;
+}
+.ch-actions-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.ch-actions-list button,
+.ch-actions-list a {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 40px;
+  padding: 6px 0;
+  background: none;
+  border: 0;
+  font: inherit;
+  font-size: 13.5px;
+  color: var(--color-text);
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+.ch-actions-list svg {
+  color: var(--color-muted);
+  flex: none;
+}
+.ch-actions-list button:focus-visible,
+.ch-actions-list a:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+.ch-details {
+  margin: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px 14px;
+  font-size: 13px;
+}
+.ch-details dt {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--color-muted-light);
+  white-space: nowrap;
+}
+.ch-details dt svg {
+  color: var(--color-muted);
+}
+.ch-details dd {
+  margin: 0;
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+.ch-tip {
+  display: flex;
+  gap: 12px;
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--color-panel);
+  font-size: 12.5px;
+  color: var(--color-muted);
+  line-height: 1.45;
+}
+.ch-tip strong {
+  display: block;
+  color: var(--color-text);
+  font-size: 13px;
+  margin-bottom: 2px;
+}
+.ch-guidelines {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 13px;
+}
+.ch-guidelines li {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+.ch-guidelines svg {
+  color: var(--color-muted);
+  flex: none;
+  margin-top: 1px;
+}
+
+/* ---------- about tab / community grid ---------- */
+.ch-community {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 24px;
+}
+.ch-community h3 {
+  font-size: 14.5px;
+  font-weight: 800;
+  margin: 10px 0 6px;
+}
+.ch-community p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--color-muted-light);
+  white-space: pre-wrap;
+}
+.ch-community svg {
+  color: var(--color-green-text);
+}
+
+/* ======================================================================
+   Planner, design option B (owner, 2026-10-24): "What should we do next?"
+   in the main column (cp-*), charts and the poll in the right panel (cpi-*).
+   ====================================================================== */
+.cp {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+}
+.cp-head {
+  padding: 26px 30px 20px;
+  border-bottom: 1px solid var(--color-border);
+}
+.cp-eyebrow {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--color-green-text);
+}
+.cp-head h2 {
+  margin: 0 0 6px;
+  font-family: "Bricolage Grotesque Variable", "Bricolage Grotesque", system-ui, sans-serif;
+  font-weight: 800;
+  font-size: clamp(26px, 2.6vw, 32px);
+  line-height: 1.08;
+  letter-spacing: 0;
+}
+.cp-head p {
+  margin: 0;
+  font-size: 14.5px;
+  color: var(--color-muted);
+  line-height: 1.5;
+}
+.cp-add {
+  padding: 20px 30px;
+  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.cp-label {
+  font-size: 13.5px;
+  font-weight: 700;
+}
+.cp-add-row {
+  display: flex;
+  gap: 10px;
+  align-items: stretch;
+}
+.cp-add-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.cp-add-when {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  align-items: center;
+}
+.cp-seg {
+  display: inline-flex;
+  padding: 4px;
+  border-radius: 10px;
+  background: var(--color-panel);
+}
+.cp-seg button {
+  min-height: 40px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--color-muted);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.cp-seg button[aria-pressed="true"] {
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-weight: 800;
+  box-shadow: 0 1px 2px rgba(23, 32, 25, 0.12);
+}
+.cp-days {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.cp-day {
+  min-height: 40px;
+  min-width: 48px;
+  padding: 0 10px;
+  border-radius: var(--radius-pill);
+  border: 1.5px solid var(--color-border-strong);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.cp-day[aria-pressed="true"] {
+  border-color: var(--color-green);
+  background: var(--color-green-bg);
+  color: var(--color-green-text);
+}
+.cp-seg button:focus-visible,
+.cp-day:focus-visible,
+.cp-filters button:focus-visible,
+.cp-btn:focus-visible,
+.cp-link:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+.cp-link {
+  background: none;
+  border: 0;
+  padding: 4px 0;
+  min-height: 32px;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--color-orange-dark);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.cp-link--strong {
+  font-size: 14.5px;
+  font-weight: 800;
+  text-decoration: none;
+}
+.cp-error {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-danger);
+}
+.cp-note {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--color-muted-light);
+}
+.cp-list {
+  padding: 20px 30px 22px;
+}
+.cp-list-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+.cp-list-head h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 800;
+}
+.cp-filters {
+  display: flex;
+  gap: 6px;
+}
+.cp-filters button {
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: var(--radius-pill);
+  border: 1.5px solid var(--color-border-strong);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.cp-filters button[aria-pressed="true"] {
+  border-color: var(--color-text);
+  background: var(--color-text);
+  color: var(--color-surface);
+}
+.cp-timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+/* One card per row (owner, 2026-10-24): date, details and actions together;
+   the card's look says what it is. */
+.cp-row {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr) auto;
+  gap: 18px;
+  align-items: center;
+  padding: 16px 18px;
+  border-radius: 12px;
+  border: 1.5px solid var(--color-border);
+  background: var(--color-surface);
+  scroll-margin-top: 100px;
+}
+.cp-row--happening .cp-when strong {
+  color: var(--color-orange-dark);
+}
+.cp-row--hot {
+  border-color: #b7d8c4;
+  background: var(--color-green-bg);
+}
+.cp-row--hot .cp-when strong {
+  color: var(--color-green-text);
+}
+.cp-row--proposed {
+  border-style: dashed;
+  border-color: #c9b07e;
+  background: var(--color-surface-muted, var(--color-bg));
+}
+.cp-row--proposed .cp-when strong {
+  color: #7a4a08;
+}
+.cp-row--confirmed {
+  border-color: var(--color-green);
+}
+.cp-when {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  line-height: 1.25;
+}
+.cp-when strong {
+  font-family: "Bricolage Grotesque Variable", "Bricolage Grotesque", system-ui, sans-serif;
+  font-size: 15.5px;
+  font-weight: 800;
+}
+.cp-when span {
+  font-size: 13px;
+  color: var(--color-muted);
+}
+.cp-main {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.cp-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 16.5px;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+.cp-pill {
+  font-size: 12px;
+  font-weight: 800;
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--color-panel);
+  color: var(--color-muted);
+  white-space: nowrap;
+}
+.cp-pill--happening {
+  background: var(--color-orange-bg);
+  color: var(--color-orange-dark);
+}
+.cp-pill--wish {
+  background: #d5e9dc;
+  color: var(--color-green-text);
+}
+.cp-pill--proposed {
+  background: #f6ead2;
+  color: #7a4a08;
+}
+.cp-pill--ready {
+  background: var(--color-orange-bg);
+  color: var(--color-orange-dark);
+}
+.cp-meta {
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--color-muted);
+}
+.cp-progress {
+  display: block;
+  width: min(220px, 100%);
+  height: 8px;
+  border-radius: 4px;
+  background: var(--color-panel);
+  overflow: hidden;
+}
+.cp-progress > span {
+  display: block;
+  height: 100%;
+  background: var(--color-green);
+}
+.cp-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  min-width: 120px;
+}
+.cp-links {
+  display: flex;
+  gap: 14px;
+  justify-content: center;
+}
+.cp-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 44px;
+  min-width: 120px;
+  padding: 0 16px;
+  border-radius: var(--radius-button);
+  font: inherit;
+  font-size: 14.5px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.cp-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.cp-btn--outline {
+  border: 1.5px solid var(--color-text);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+.cp-btn--keen {
+  border: 1.5px solid var(--color-green);
+  background: var(--color-green-bg);
+  color: var(--color-green-text);
+}
+.cp-list-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  align-items: center;
+  margin-top: 6px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-border);
+}
+.cp-earlier {
+  margin-top: 18px;
+}
+.cp-earlier h3 {
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 800;
+}
+.cp-earlier ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13.5px;
+  color: var(--color-muted);
+}
+.cp-earlier li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.cp-foot {
+  margin: 0;
+  padding: 14px 30px;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-surface-muted, var(--color-bg));
+  font-size: 12.5px;
+  color: var(--color-muted);
+}
+@media (max-width: 640px) {
+  .cp-head,
+  .cp-add,
+  .cp-list {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+  .cp-foot {
+    padding: 12px 16px;
+  }
+  .cp-add-row {
+    flex-direction: column;
+  }
+  .cp-seg {
+    width: 100%;
+  }
+  .cp-seg button {
+    flex: 1;
+  }
+  .cp-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+    padding: 14px;
+  }
+  .cp-when {
+    flex-direction: row;
+    align-items: baseline;
+    gap: 8px;
+  }
+  .cp-actions {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+}
+
+/* right-panel cards */
+.cpi-stats {
+  background: #1f4d36;
+  border-color: #1f4d36;
+  color: #ffffff;
+}
+.cpi-stats h3 {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: #cfe2d6;
+  margin-bottom: 12px;
+}
+.cpi-stats dl {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.cpi-stats dd {
+  margin: 0;
+  font-family: "Bricolage Grotesque Variable", "Bricolage Grotesque", system-ui, sans-serif;
+  font-size: 28px;
+  font-weight: 800;
+  line-height: 1.05;
+}
+.cpi-stats dt {
+  font-size: 12.5px;
+  color: #cfe2d6;
+}
+.cpi-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.cpi-head h3 {
+  margin: 0;
+}
+.cpi-head > span {
+  font-size: 12.5px;
+  color: var(--color-muted-light);
+}
+.cpi-lead {
+  margin: 0 0 10px;
+  font-size: 13.5px;
+}
+.cpi-chart {
+  margin: 0;
+  display: grid;
+  gap: 3px;
+  align-items: end;
+}
+.cpi-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+}
+.cpi-n {
+  font-size: 10.5px;
+  font-weight: 800;
+  color: var(--color-muted);
+  min-height: 13px;
+}
+.cpi-bar {
+  display: block;
+  width: 100%;
+  border-radius: 4px 4px 2px 2px;
+}
+.cpi-bar--best {
+  background: var(--color-green);
+}
+.cpi-bar--high {
+  background: #5f9e78;
+}
+.cpi-bar--mid {
+  background: #9cc7ad;
+}
+.cpi-bar--quiet {
+  background: #e6e1d6;
+}
+.cpi-mark {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  box-sizing: border-box;
+}
+.cpi-mark--happening {
+  background: var(--color-cta);
+}
+.cpi-mark--proposed {
+  border: 1.5px dashed #9c6a12;
+}
+.cpi-day {
+  font-size: 10.5px;
+  color: var(--color-muted);
+  line-height: 1.1;
+}
+.cpi-day--best {
+  color: var(--color-green-text);
+  font-weight: 800;
+}
+.cpi-key {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  font-size: 12px;
+  color: var(--color-muted);
+}
+.cpi-key li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.cpi-sw {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  box-sizing: border-box;
+}
+.cpi-sw--free {
+  background: var(--color-green);
+}
+.cpi-sw--happening {
+  background: var(--color-cta);
+}
+.cpi-sw--proposed {
+  border: 1.5px dashed #9c6a12;
+  border-radius: 50%;
+}
+.cpi-fine {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--color-muted-light);
+  line-height: 1.45;
+}
+.cpi-wanted {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.cpi-wanted-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 5px;
+}
+.cpi-wanted-row > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cpi-track {
+  display: block;
+  height: 10px;
+  border-radius: 5px;
+  background: var(--color-panel);
+  overflow: hidden;
+}
+.cpi-fill {
+  display: block;
+  height: 100%;
+  background: var(--color-green);
+}
+.cpi-fill--plan {
+  background: var(--color-cta);
+}
+.cpi-question {
+  margin: 4px 0 10px;
+  font-size: 14.5px;
+  font-weight: 700;
+}
+.cpi-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cpi-option {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  min-height: 46px;
+  padding: 0 14px;
+  border: 1.5px solid var(--color-border);
+  border-radius: 10px;
+  color: var(--color-text);
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+.cpi-option[aria-pressed="true"] {
+  border-color: var(--color-green);
+  font-weight: 700;
+}
+.cpi-option:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+.cpi-option-n {
+  font-weight: 800;
+  font-size: 13px;
+}
+
+/* Membership as a slim line on top of Quick actions (owner, 2026-10-24). */
+.ch-status-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin: -4px 0 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--color-border);
+}
+.ch-status-text {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13.5px;
+  min-width: 0;
+}
+.ch-status-text strong {
+  font-weight: 700;
+  color: var(--color-green-text);
+}
+.ch-status-sub {
+  display: block;
+  font-size: 12px;
+  color: var(--color-muted-light);
+  margin-top: 1px;
+}
+.ch-status-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--color-green-bg);
+  color: var(--color-green-text);
+}
+
+/* "More happening near you": four across in the main column. */
+.ch-grid-4 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+@media (max-width: 1100px) {
+  .ch-grid-4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 560px) {
+  .ch-grid-4 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* "More happening near you" uses the shared photo card look (CardGrid /
+   `.lc-grid--b` in components/listingCard.css, owner 2026-10-27). */
+.ch-grid-4 {
+  gap: 48px clamp(20px, 2.4vw, 32px);
+}
+
+/* "Next up" as one card (owner, 2026-10-24, option 1). */
+.nu-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+}
+.nu-featured {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr) auto;
+  gap: 22px;
+  align-items: center;
+  padding: 16px 20px 16px 16px;
+}
+.nu-img {
+  position: relative;
+  height: 128px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--color-green-bg);
+}
+.nu-img img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.nu-img-icon {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-green-text);
+}
+.nu-date {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  min-width: 46px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  background: #ffffff;
+  text-align: center;
+  line-height: 1.1;
+  box-shadow: 0 1px 3px rgba(23, 32, 25, 0.18);
+}
+.nu-date-wd {
+  display: block;
+  font-size: 11px;
+  font-weight: 800;
+  color: #b8300c;
+}
+.nu-date-dd {
+  display: block;
+  font-family: "Bricolage Grotesque Variable", "Bricolage Grotesque", system-ui, sans-serif;
+  font-size: 22px;
+  font-weight: 800;
+  color: #172019;
+}
+.nu-date-mon {
+  display: block;
+  font-size: 11px;
+  color: #5b635c;
+}
+.nu-info {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+.nu-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 2px;
+  font-size: 19px;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+.nu-meta {
+  margin: 0;
+  font-size: 14px;
+  color: var(--color-muted);
+}
+.nu-meta--strong strong {
+  color: var(--color-text);
+}
+.nu-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.nu-guide {
+  border-top: 1px solid var(--color-border);
+  background: var(--color-surface-muted, var(--color-bg));
+  padding: 16px 22px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.nu-guide-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.nu-guide-head h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 800;
+}
+.nu-facts {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 14px 22px;
+}
+.nu-facts dt {
+  font-size: 11.5px;
+  font-weight: 800;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+.nu-facts dd {
+  margin: 4px 0 0;
+  font-size: 14px;
+  line-height: 1.5;
+  white-space: pre-line;
+}
+.nu-guide-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.nu-guide-line p {
+  margin: 0;
+  font-size: 14.5px;
+}
+.nu-guide-line p span {
+  color: var(--color-muted);
+}
+.nu-more {
+  border-top: 1px solid var(--color-border);
+  padding: 6px 20px 8px;
+}
+.nu-more-title {
+  margin: 10px 0 4px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+.nu-more ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.nu-more li {
+  display: grid;
+  grid-template-columns: 116px minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  padding: 12px 0;
+  border-top: 1px solid var(--color-border);
+}
+.nu-more-when {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+.nu-more-when strong {
+  font-family: "Bricolage Grotesque Variable", "Bricolage Grotesque", system-ui, sans-serif;
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--color-orange-dark);
+}
+.nu-more-when span,
+.nu-more-main span {
+  font-size: 13px;
+  color: var(--color-muted);
+}
+.nu-more-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.nu-more-main strong {
+  font-size: 15.5px;
+}
+@media (max-width: 640px) {
+  .nu-featured {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+    padding: 12px;
+  }
+  .nu-img {
+    height: 160px;
+  }
+  .nu-actions > :first-child {
+    flex: 1;
+  }
+  .nu-guide {
+    padding: 14px 16px 16px;
+  }
+  .nu-more {
+    padding: 4px 16px 8px;
+  }
+  .nu-more li {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .nu-more-when {
+    grid-column: 1 / -1;
+    flex-direction: row;
+    gap: 8px;
+    align-items: baseline;
+  }
+}
+.nu-guide > .cp-link {
+  align-self: flex-start;
+}
+
+/* Planning insights merged into one card (owner, 2026-10-24). */
+.cpi-merged {
+  padding: 0;
+  overflow: hidden;
+}
+.cpi-merged .cpi-stats {
+  padding: 18px 20px 16px;
+}
+.cpi-sec {
+  padding: 18px 20px;
+}
+.cpi-sec + .cpi-sec {
+  border-top: 1px solid var(--color-border);
+}
+.cpi-sec h3 {
+  margin: 0 0 8px;
+}
+
+/* ======================================================================
+   Circle visitor page (Circle Experience 4.0, owner 2026-10-24): a
+   contained, editorial welcome for people who aren't members yet.
+   ====================================================================== */
+.cv-body {
+  max-width: 1080px;
+  padding: 28px 0 48px;
+}
+.cv-section {
+  margin-bottom: 44px;
+}
+.cv-head {
+  margin-bottom: 16px;
+}
+.cv-head h2,
+.cv-community h2,
+.cv-closing h2 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  font-family: "Bricolage Grotesque Variable", "Bricolage Grotesque", system-ui, sans-serif;
+  font-weight: 800;
+  font-size: clamp(22px, 2.4vw, 28px);
+  letter-spacing: 0;
+}
+.cv-head h2 > span {
+  display: inline-flex;
+  color: var(--color-cta);
+}
+.cv-head p {
+  margin: 6px 0 0;
+  font-size: 14.5px;
+  color: var(--color-muted);
+}
+.cv-prose {
+  margin: 0;
+  font-size: 16.5px;
+  line-height: 1.65;
+  max-width: 680px;
+  white-space: pre-wrap;
+}
+.cv-empty {
+  margin: 0;
+  font-size: 15px;
+  color: var(--color-muted);
+}
+.cv-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  min-width: 140px;
+  padding: 0 22px;
+  border: 0;
+  border-radius: var(--radius-button);
+  background: var(--color-cta);
+  color: #ffffff;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.cv-btn--outline {
+  background: var(--color-surface);
+  color: var(--color-orange-dark);
+  border: 1.5px solid var(--color-cta);
+  min-width: 120px;
+  min-height: 44px;
+  font-size: 14px;
+}
+.cv-btn:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+/* What it's like — the organiser's words, fact chips, photos with their
+   captions underneath (never on top of the picture). */
+.cv-chips {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.cv-chips li {
+  padding: 7px 14px;
+  border-radius: 999px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.cv-photos {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr;
+  gap: 12px;
+  margin-top: 20px;
+}
+.cv-photos--2 {
+  grid-template-columns: 1fr 1fr;
+}
+.cv-photos--1 {
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+}
+.cv-photos figure {
+  margin: 0;
+  min-width: 0;
+}
+.cv-photos img {
+  display: block;
+  width: 100%;
+  height: 220px;
+  object-fit: cover;
+  border-radius: 12px;
+  background: var(--color-panel);
+}
+.cv-photos figcaption {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--color-muted);
+}
+@media (max-width: 640px) {
+  .cv-photos,
+  .cv-photos--2 {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .cv-photos figure:first-child {
+    grid-column: 1 / -1;
+  }
+  .cv-photos img {
+    height: 130px;
+  }
+  .cv-photos figure:first-child img {
+    height: 190px;
+  }
+}
+.cv-empty--card {
+  padding: 18px 20px;
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+}
+
+/* Come along to something (Activities tab list) */
+.cv-acts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.cv-acts li {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr) auto;
+  gap: 18px;
+  align-items: center;
+  padding: 12px 16px 12px 12px;
+  border-radius: 12px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+}
+.cv-act-img {
+  height: 84px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--color-green-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-green-text);
+}
+.cv-act-img img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.cv-act-main p {
+  margin: 0;
+}
+.cv-act-date {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--color-orange-dark);
+}
+.cv-act-title {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  font-size: 17px;
+  font-weight: 800;
+  margin: 2px 0 4px !important;
+}
+.cv-act-meta {
+  font-size: 13.5px;
+  color: var(--color-muted);
+}
+@media (max-width: 640px) {
+  .cv-acts li {
+    grid-template-columns: 88px minmax(0, 1fr);
+    gap: 12px;
+  }
+  .cv-act-img {
+    height: 72px;
+  }
+  .cv-acts li > .cv-btn {
+    grid-column: 1 / -1;
+  }
+}
+
+/* Rail: "Who you'll meet" */
+.cv-people {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.cv-people h3 {
+  margin: 0;
+}
+.cv-organiser {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+.cv-organiser p {
+  margin: 0;
+}
+.cv-organiser-name {
+  font-size: 15.5px;
+  font-weight: 800;
+}
+.cv-muted {
+  font-size: 13px;
+  color: var(--color-muted);
+}
+.cv-people-quote {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+.cv-people-line {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+.cv-people-solo {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--color-green-bg);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+.cv-people-solo > svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--color-green-text);
+}
+.cv-people .cp-link {
+  align-self: flex-start;
+}
+.cv-about dt {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+.cv-about dd {
+  margin: 4px 0 0;
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+/* Rail: the join panel */
+.cv-join {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+}
+.cv-join-head {
+  background: #17432d;
+  color: #ffffff;
+  padding: 20px 20px 18px;
+}
+.cv-join-eyebrow {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: #bfe3cc;
+}
+.cv-join-head h2 {
+  margin: 0;
+  font-family: "Bricolage Grotesque Variable", "Bricolage Grotesque", system-ui, sans-serif;
+  font-size: 21px;
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: 0;
+  overflow-wrap: anywhere;
+}
+.cv-join-stats {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+  font-size: 13.5px;
+  color: #e4f1e9;
+}
+.cv-join-faces {
+  display: flex;
+}
+.cv-join-faces > * {
+  border: 2px solid #17432d;
+  border-radius: 50%;
+}
+.cv-join-faces > * + * {
+  margin-left: -8px;
+}
+.cv-join-body {
+  padding: 18px 20px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.cv-join-next {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  width: 100%;
+  padding: 12px;
+  border: 0;
+  border-radius: 12px;
+  background: #fdf1ec;
+  color: var(--color-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.cv-join-next .nu-date {
+  position: static;
+  box-shadow: none;
+}
+/* The editorial `.ch-mlstyle .nu-date` styles are white text for dates laid
+   over a dark photo; this date sits on the light card, so keep it a white
+   tile with dark text. */
+.ch-mlstyle .cv-join-next .nu-date {
+  display: block;
+  min-width: 52px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  background: var(--color-surface);
+  text-align: center;
+  line-height: 1.1;
+}
+.ch-mlstyle .cv-join-next .nu-date-wd {
+  display: block;
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--color-orange-dark);
+}
+.ch-mlstyle .cv-join-next .nu-date-dd {
+  display: block;
+  font-size: 24px;
+  color: var(--color-text);
+}
+.cv-join-next:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+.cv-join-next-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--color-muted);
+}
+.cv-join-next-text strong {
+  font-size: 14.5px;
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+.cv-join-next-label {
+  font-size: 11.5px !important;
+  font-weight: 800;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--color-orange-dark) !important;
+}
+.cv-join-note {
+  margin: -6px 0 0;
+  font-size: 12.5px;
+  color: var(--color-muted);
+  text-align: center;
+}
+.cv-join-gets {
+  list-style: none;
+  margin: 0;
+  padding: 14px 0 0;
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 13.5px;
+}
+.cv-join-gets li {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.cv-join-gets svg {
+  flex: none;
+  color: var(--color-green-text);
+}
+.cv-join .cv-join-bare h3 {
+  margin-top: 0;
+}
+
+/* Phone: one column; the join panel comes straight after the banner, the
+   rest of the rail after the page. */
+@media (max-width: 1000px) {
+  .ch-body--visitor > .ch-visitor-main,
+  .ch-body--visitor > .ch-rail {
+    display: contents;
+  }
+  .ch-body--visitor .ch-visitor-banner {
+    order: 1;
+  }
+  .ch-body--visitor .cv-join {
+    order: 2;
+  }
+  .ch-body--visitor .ch-visitor-tabs {
+    order: 3;
+    margin-top: -24px;
+  }
+  .ch-body--visitor .ch-visitor-panel {
+    order: 4;
+    margin-top: -24px;
+  }
+  .ch-body--visitor .ch-rail > :not(.cv-join) {
+    order: 5;
+  }
+  .ch-body--visitor .cv-join-gets {
+    display: none;
+  }
+}
+
+.cv-closing {
+  padding: 32px 28px;
+  border-radius: var(--radius-card);
+  background: #1f4d36;
+  color: #ffffff;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+.cv-closing h2 {
+  color: #ffffff;
+}
+.cv-closing p {
+  margin: 0 0 6px;
+  color: #dcebe2;
+  font-size: 15.5px;
+}
+.cv-about {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  max-width: 720px;
+}
+
+/* Organiser setup checklist (new Circle) */
+.cv-setup {
+  margin-bottom: 24px;
+}
+.cv-setup h2 {
+  margin: 0 0 4px;
+  font-size: 17px;
+  font-weight: 800;
+}
+.cv-setup > p {
+  margin: 0 0 10px;
+  font-size: 13.5px;
+  color: var(--color-muted);
+}
+.cv-setup ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 22px;
+  font-size: 14px;
+}
+.cv-setup li {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+}
+.cv-setup-done {
+  color: var(--color-green-text);
+}
+/* Visitor page inside the joined-page frame (owner, 2026-10-24). */
+.ch-main .cv-body {
+  max-width: none;
+  padding: 0;
+}
+/* The tab bar's "…" menu borrows the workspace icon button; on the public
+   Circle page it follows the public button corners. */
+.ch-tab-actions .adm-btn {
+  border-radius: var(--radius-button);
+}
+
+/* =====================================================================
+   Circle page in the My Life style (owner 2026-10-26, "dont remove
+   anything, just implement"; mock: claude.ai/artifact/ShtaYUpi2nRZFSqnjsuwj2).
+   Scoped to .ch-mlstyle (member / non-visitor layout only). Same sections
+   and actions; only the look changes: big-type title + cover photo, word
+   tabs with counts, small uppercase section labels, thin lines instead of
+   boxes, plain big numbers in the side column. Visitor page unchanged.
+   ===================================================================== */
+
+/* --- top: title, facts, cover ---------------------------------------- */
+.ch-ed {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  /* Very light cream panel, a shade lighter than the page cream so the
+     header reads as one block (mixes from tokens, so dark mode follows). */
+  padding: 20px 24px 24px;
+  background: color-mix(in srgb, var(--color-surface) 70%, var(--color-bg));
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+}
+@media (max-width: 640px) {
+  .ch-ed {
+    padding: 16px;
+  }
+}
+.ch-ed-back {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-muted);
+  cursor: pointer;
+}
+.ch-ed-back:hover {
+  color: var(--color-text);
+}
+.ch-ed-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 24px;
+  align-items: center;
+}
+.ch-ed-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ch-ed-toprow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: -4px;
+}
+.ch-ed-toprow .ch-ed-label {
+  margin: 0;
+}
+/* Status badge, right of the label row. */
+.ch-ed-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: var(--color-green-bg);
+  color: var(--color-green-text);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.ch-ed-badge::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-green);
+}
+.ch-ed-badge--muted {
+  background: var(--color-panel);
+  color: var(--color-muted);
+}
+.ch-ed-badge--muted::before {
+  background: var(--color-faint);
+}
+.ch-ed-avatar {
+  width: 132px;
+  height: 132px;
+  border: 4px solid var(--color-surface);
+  box-shadow: 0 0 0 1px var(--color-border);
+  border-radius: 50%;
+  overflow: hidden;
+  flex: none;
+  background: var(--color-green);
+}
+.ch-ed-avatar img,
+.ch-ed-avatar > * {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover;
+  display: block;
+}
+.ch-ed-label {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-faint);
+}
+.ch-ed-title {
+  margin: 0;
+  font-family: "Bricolage Grotesque Variable", "Bricolage Grotesque", system-ui, sans-serif;
+  font-weight: 800;
+  font-size: clamp(32px, 4.4vw, 56px);
+  line-height: 1;
+  letter-spacing: -0.03em;
+  color: var(--color-text);
+  text-wrap: balance;
+}
+.ch-ed-next {
+  margin: 4px 0 0;
+  font-family: "Bricolage Grotesque Variable", "Bricolage Grotesque", system-ui, sans-serif;
+  font-weight: 600;
+  font-size: clamp(17px, 2vw, 21px);
+  color: var(--color-text);
+}
+.ch-ed-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--color-cta);
+  text-decoration: underline;
+  text-underline-offset: 4px;
+  cursor: pointer;
+}
+.ch-ed-facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 0;
+  margin: 0;
+  font-size: 14.5px;
+  color: var(--color-muted-light);
+}
+.ch-ed-facts > span:not(.ch-status) + span:not(.ch-status)::before {
+  content: "·";
+  margin: 0 8px;
+  color: var(--color-faint);
+}
+.ch-ed-facts .ch-status {
+  margin-left: 12px;
+}
+@media (max-width: 640px) {
+  .ch-ed-facts .ch-status {
+    margin-left: 0;
+    margin-top: 4px;
+  }
+}
+.ch-ed-tagline {
+  margin: 0;
+  max-width: 70ch;
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--color-muted);
+}
+.ch-ed-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ch-ed-tags span {
+  padding: 4px 12px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-pill);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--color-text);
+}
+.ch-ed-cover {
+  margin-top: 10px;
+  aspect-ratio: 21 / 8;
+  max-width: 100%;
+  border-radius: var(--radius-card);
+  overflow: hidden;
+  background: var(--color-green-bg);
+}
+.ch-ed-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.ch-ed-back:focus-visible,
+.ch-ed-link:focus-visible {
+  outline: 2px solid var(--color-text);
+  outline-offset: 2px;
+}
+@media (max-width: 640px) {
+  /* Phones: picture on top, text full width below it. */
+  .ch-ed-head {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+  }
+  .ch-ed-avatar {
+    width: 84px;
+    height: 84px;
+    border-width: 3px;
+  }
+  .ch-ed-cover {
+    aspect-ratio: 16 / 9;
+  }
+}
+
+/* --- tabs: words with counts, dark underline -------------------------- */
+.ch-mlstyle .ch-tabbar {
+  margin-top: 18px;
+}
+.ch-mlstyle .ch-tab svg {
+  display: none;
+}
+.ch-mlstyle .ch-tab {
+  min-height: 46px;
+  padding: 0 14px;
+  font-size: 14px;
+  color: var(--color-muted);
+}
+.ch-mlstyle .ch-tab[aria-selected="true"] {
+  color: var(--color-text);
+  border-bottom-color: var(--color-text);
+  font-weight: 700;
+}
+.ch-tab-count {
+  margin-left: 4px;
+  font-weight: 500;
+  color: var(--color-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- section heads: small uppercase label + underlined text link ------ */
+.ch-mlstyle .ch-head h2 {
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-faint);
+}
+.ch-mlstyle .ch-head-icon {
+  display: none;
+}
+.ch-mlstyle .ch-head p {
+  font-size: 14px;
+}
+.ch-mlstyle .ch-see-all {
+  min-height: 0;
+  padding: 4px 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text);
+  text-decoration: underline;
+  text-underline-offset: 4px;
+  text-decoration-color: var(--color-border-strong);
+}
+.ch-mlstyle .ch-see-all:hover {
+  text-decoration-color: currentColor;
+}
+.ch-mlstyle .ch-section {
+  margin-bottom: 48px;
+}
+
+/* --- main column: thin lines instead of boxes -------------------------- */
+.ch-mlstyle .ch-main .ch-card:not(.cv-setup) {
+  background: none;
+  border: 0;
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+  border-radius: 0;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+
+/* Next up: photo with the date in big type on it, no white date box */
+.ch-mlstyle .nu-card {
+  background: none;
+  border: 0;
+  border-radius: 0;
+}
+.ch-mlstyle .nu-featured {
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 28px;
+  padding: 0;
+}
+.ch-mlstyle .nu-img {
+  height: auto;
+  aspect-ratio: 16 / 10;
+  border-radius: var(--radius-card);
+}
+.ch-mlstyle .nu-img::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(0deg, rgba(12, 14, 12, 0.66) 0%, rgba(12, 14, 12, 0) 52%);
+}
+.ch-mlstyle .nu-date {
+  z-index: 1;
+  left: 16px;
+  bottom: 14px;
+  min-width: 0;
+  padding: 0;
+  background: none;
+  box-shadow: none;
+  text-align: left;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  color: #fff;
+}
+.ch-mlstyle .nu-date-wd,
+.ch-mlstyle .nu-date-mon {
+  display: inline;
+  font-size: 14px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.9);
+}
+.ch-mlstyle .nu-date-dd {
+  display: inline;
+  font-size: 40px;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  color: #fff;
+}
+.ch-mlstyle .nu-img {
+  grid-row: span 2;
+}
+.ch-mlstyle .nu-info {
+  align-self: end;
+}
+.ch-mlstyle .nu-actions {
+  grid-column: 2;
+  align-self: start;
+}
+@media (max-width: 640px) {
+  .ch-mlstyle .nu-featured {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ch-mlstyle .nu-img {
+    grid-row: auto;
+  }
+  .ch-mlstyle .nu-actions {
+    grid-column: 1;
+  }
+}
+
+/* --- Circle pulse ------------------------------------------------------ */
+.ch-pulse-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.ch-pulse-list li {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr) auto;
+  gap: 6px 18px;
+  align-items: baseline;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+.ch-pulse-list li:first-child {
+  border-top: 1px solid var(--color-border);
+}
+.ch-pulse-src {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-faint);
+}
+.ch-pulse-src.is-hot {
+  color: var(--color-cta);
+}
+.ch-pulse-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.ch-pulse-main strong {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+.ch-pulse-main span {
+  font-size: 14px;
+  color: var(--color-muted-light);
+}
+@media (max-width: 560px) {
+  .ch-pulse-list li {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .ch-pulse-src {
+    grid-column: 1 / -1;
+  }
+}
+
+/* --- side column: same style as the My Life side panel (owner
+   2026-10-27, see pages/myLife.css .mlx-aside). No cards: a thin line on
+   the left, Bricolage section titles, plain big numbers, thin lines between
+   rows, and the same Quick actions rows + hover as My Life. */
+.ch-mlstyle .ch-rail {
+  gap: 0;
+  padding-left: 32px;
+  border-left: 1px solid var(--color-border);
+}
+/* A thin divider between the panel's blocks, equal space either side. */
+.ch-mlstyle .ch-rail > * + * {
+  margin-top: 32px;
+  padding-top: 32px;
+  border-top: 1px solid var(--color-border);
+}
+.ch-mlstyle .ch-rail > .ch-card,
+.ch-mlstyle .ch-rail .cpi-merged {
+  background: none;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  box-shadow: none;
+}
+.ch-mlstyle .ch-rail .ch-card h3,
+.ch-mlstyle .ch-rail .cpi-head h3,
+.ch-mlstyle .ch-rail .cpi-sec h3 {
+  margin: 0 0 14px;
+  font-family: "Bricolage Grotesque Variable", "Bricolage Grotesque", system-ui, sans-serif;
+  font-size: 19px;
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+  text-transform: none;
+  color: var(--color-text);
+}
+.ch-mlstyle .ch-rail .cpi-head h3 {
+  margin: 0;
+}
+.ch-mlstyle .ch-rail .cpi-head {
+  margin-bottom: 10px;
+}
+.ch-mlstyle .ch-rail .ch-card h3 svg {
+  display: none;
+}
+/* "See all →" / "All polls →" as the My Life outline link */
+.ch-mlstyle .ch-rail .ch-see-all {
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1.5px solid var(--color-border-strong);
+  border-radius: var(--radius-button);
+  background: var(--color-surface);
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+.ch-mlstyle .ch-rail .ch-see-all:hover {
+  border-color: var(--color-text);
+  background: var(--color-panel);
+}
+
+/* Stats: plain big numbers, like My Life's activity stats */
+.ch-mlstyle .cpi-stats,
+.ch-mlstyle .cpi-merged .cpi-stats {
+  margin: 0;
+  padding: 0;
+  background: none;
+  border: 0;
+  color: var(--color-text);
+}
+.ch-mlstyle .cpi-stats dl {
+  gap: 12px;
+}
+.ch-mlstyle .cpi-stats dl > div {
+  min-width: 0;
+}
+.ch-mlstyle .cpi-stats dd {
+  font-family: "Bricolage Grotesque Variable", "Bricolage Grotesque", system-ui, sans-serif;
+  font-size: 32px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--color-text);
+}
+.ch-mlstyle .cpi-stats dt {
+  margin-top: 4px;
+  font-size: 12.5px;
+  color: var(--color-muted-light);
+}
+
+/* Sections inside the insights block: same 40px rhythm as the panel */
+.ch-mlstyle .cpi-sec {
+  padding: 0;
+  border: 0;
+}
+.ch-mlstyle .cpi-merged .cpi-sec + .cpi-sec,
+.ch-mlstyle .cpi-merged .cpi-stats + .cpi-sec {
+  margin-top: 32px;
+  padding-top: 32px;
+  border-top: 1px solid var(--color-border);
+}
+.ch-mlstyle .cpi-lead {
+  font-size: 14px;
+  color: var(--color-text);
+}
+.ch-mlstyle .cpi-question {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+/* Membership: a plain line above Quick actions */
+.ch-mlstyle .ch-status-row {
+  margin: 0 0 24px;
+  padding: 0 0 16px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+/* Quick actions: exactly the My Life .mlx-more rows */
+.ch-mlstyle .ch-actions-list {
+  margin: 0 -10px;
+}
+.ch-mlstyle .ch-actions-list li + li {
+  border-top: 1px solid var(--color-border);
+}
+.ch-mlstyle .ch-actions-list button,
+.ch-mlstyle .ch-actions-list a {
+  justify-content: space-between;
+  min-height: 44px;
+  padding: 0 10px;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 500;
+}
+.ch-mlstyle .ch-actions-list svg {
+  display: none;
+}
+.ch-mlstyle .ch-actions-list button::after,
+.ch-mlstyle .ch-actions-list a::after {
+  content: "→";
+  color: var(--color-faint);
+}
+.ch-mlstyle .ch-actions-list button:hover,
+.ch-mlstyle .ch-actions-list a:hover {
+  background: var(--color-panel);
+  color: var(--color-green-text);
+}
+.ch-mlstyle .ch-actions-list button:hover::after,
+.ch-mlstyle .ch-actions-list a:hover::after {
+  color: var(--color-green-text);
+}
+
+/* Circle details: label left, value right, a thin line between rows */
+.ch-mlstyle .ch-details {
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0 16px;
+  font-size: 14px;
+}
+.ch-mlstyle .ch-details dt,
+.ch-mlstyle .ch-details dd {
+  padding: 11px 0;
+  border-top: 1px solid var(--color-border);
+}
+.ch-mlstyle .ch-details dt:first-of-type,
+.ch-mlstyle .ch-details dd:first-of-type {
+  border-top: 0;
+  padding-top: 0;
+}
+.ch-mlstyle .ch-details dt svg {
+  display: none;
+}
+.ch-mlstyle .ch-details dd {
+  text-align: right;
+  font-weight: 600;
+}
+.ch-mlstyle .ch-details dd > span {
+  justify-content: flex-end;
+  text-align: left;
+}
+.ch-mlstyle .ch-tip {
+  margin-top: 16px;
+  font-size: 13px;
+}
+@media (max-width: 1000px) {
+  .ch-mlstyle .ch-rail {
+    padding-left: 0;
+    border-left: 0;
+  }
+}
+
+
+/* --- Visitor page in the member page's style (owner 2026-10-26: "change the
+   Circle page for people who haven't joined to the same style as the joined
+   page"). Scoped to .ch-body--visitor.ch-mlstyle. Same content and privacy
+   rules as before (visitor endpoint only); only the look changes. */
+.ch-body--visitor.ch-mlstyle .ch-visitor-banner {
+  margin: 0;
+}
+.ch-body--visitor.ch-mlstyle .cv-head h2 > span {
+  display: none;
+}
+.ch-body--visitor.ch-mlstyle .cv-head h2,
+.ch-body--visitor.ch-mlstyle .cv-section > h2 {
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-faint);
+}
+.ch-body--visitor.ch-mlstyle .cv-section {
+  margin-bottom: 48px;
+}
+/* closing "Ready to join?" — a light panel instead of a dark band */
+.ch-body--visitor.ch-mlstyle .cv-closing {
+  background: var(--color-orange-bg);
+  color: var(--color-text);
+  border: 1px solid color-mix(in srgb, var(--color-cta) 22%, transparent);
+}
+.ch-body--visitor.ch-mlstyle .cv-closing h2 {
+  font-family: "Bricolage Grotesque Variable", "Bricolage Grotesque", system-ui, sans-serif;
+  font-size: clamp(22px, 2.4vw, 28px);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  text-transform: none;
+  color: var(--color-text);
+}
+.ch-body--visitor.ch-mlstyle .cv-closing p {
+  color: var(--color-muted);
+}
+/* the join panel stays the one box in the side column, but light */
+.ch-body--visitor.ch-mlstyle .cv-join-head {
+  background: none;
+  color: var(--color-text);
+  padding: 20px 20px 4px;
+}
+.ch-body--visitor.ch-mlstyle .cv-join-eyebrow {
+  color: var(--color-green-text, var(--color-green));
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+.ch-body--visitor.ch-mlstyle .cv-join-head h2 {
+  color: var(--color-text);
+}
+.ch-body--visitor.ch-mlstyle .cv-join-head * {
+  color: inherit;
+}
+.ch-body--visitor.ch-mlstyle .cv-join-head .cv-join-eyebrow {
+  color: var(--color-green-text, var(--color-green));
+}
+.ch-body--visitor.ch-mlstyle .cv-people h3 {
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-faint);
+}
+.ch-body--visitor.ch-mlstyle .cv-people h3 svg {
+  display: none;
+}
+
+/* =====================================================================
+   C · Title on the photo (card styles, owner 2026-10-27): Next up (photo
+   beside, C1), Circle memories and the visitor page's photos. Text sits on
+   a dark fade at the bottom of the photo; fixed light colours because it is
+   always on photography (or the forest-green no-photo panel).
+   ===================================================================== */
+.nu-featured:has(.nu-img--c) {
+  grid-template-columns: minmax(220px, 300px) minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 24px;
+  padding: 16px 20px 16px 16px;
+}
+.nu-img--c {
+  height: auto;
+  aspect-ratio: 4 / 5;
+  max-width: 100%;
+  border-radius: var(--radius-card, 16px);
+}
+.nu-img--c img {
+  position: absolute;
+  inset: 0;
+  transition: transform 0.5s cubic-bezier(0.45, 0, 0.25, 1);
+}
+.nu-img--c::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(0deg, rgba(10, 12, 10, 0.84) 0%, rgba(10, 12, 10, 0.38) 42%, rgba(10, 12, 10, 0) 70%);
+  pointer-events: none;
+}
+.nu-img--c.is-empty {
+  background: linear-gradient(150deg, #2e5a3d, #172019);
+}
+.nu-img--c.is-empty::after {
+  background: none;
+}
+.nu-img--c.is-empty .nu-img-icon {
+  inset: 18px 18px auto auto;
+  color: rgba(191, 232, 207, 0.4);
+}
+.nu-chips {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.nu-chips .ce-pill {
+  background: rgba(255, 255, 255, 0.92);
+  color: #172019;
+  border-color: transparent;
+}
+.nu-on {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: 14px;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: #ffffff;
+}
+.nu-on-k {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #bfe8cf;
+}
+.nu-on strong {
+  font-family: "Bricolage Grotesque Variable", "Bricolage Grotesque", system-ui, sans-serif;
+  font-size: clamp(22px, 2vw, 26px);
+  font-weight: 800;
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.nu-on-d {
+  font-size: 13.5px;
+  font-weight: 600;
+  opacity: 0.94;
+}
+.nu-featured:has(.nu-img--c) .nu-info {
+  padding-bottom: 6px;
+}
+@media (hover: hover) {
+  .nu-featured:hover .nu-img--c img {
+    transform: scale(1.04);
+  }
+}
+@media (max-width: 640px) {
+  .nu-featured:has(.nu-img--c) {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+    padding: 12px;
+  }
+  .nu-img--c {
+    height: auto;
+    aspect-ratio: 4 / 3;
+  }
+}
+
+/* Memories: four taller tiles; caption and activity on each photo. */
+.ch-strip {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+.ch-strip li {
+  aspect-ratio: 4 / 5;
+  border-radius: var(--radius-card, 16px);
+}
+.ch-strip-photo {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  cursor: pointer;
+}
+.ch-strip-photo img {
+  transition: transform 0.5s cubic-bezier(0.45, 0, 0.25, 1);
+}
+.ch-strip-photo::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(0deg, rgba(10, 12, 10, 0.82) 0%, rgba(10, 12, 10, 0.3) 40%, rgba(10, 12, 10, 0) 65%);
+}
+.ch-strip-on {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 10px;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: #ffffff;
+  text-align: left;
+}
+.ch-strip-on strong {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.ch-strip-on span {
+  font-size: 12px;
+  opacity: 0.85;
+}
+.ch-strip blockquote {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 16px;
+  font-family: "Bricolage Grotesque Variable", "Bricolage Grotesque", system-ui, sans-serif;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--color-text);
+}
+.ch-strip blockquote small {
+  font-family: var(--font-body, inherit);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-muted-light);
+}
+/* "+N more" darkens the last tile instead of washing it out */
+.ch-strip-more {
+  z-index: 2;
+  background: rgba(10, 12, 10, 0.55);
+  color: #ffffff;
+  font-family: "Bricolage Grotesque Variable", "Bricolage Grotesque", system-ui, sans-serif;
+  font-size: 22px;
+}
+@media (hover: hover) {
+  .ch-strip-photo:hover img {
+    transform: scale(1.04);
+  }
+}
+@media (max-width: 640px) {
+  .ch-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .ch-strip li:nth-child(n + 4):not(:last-child) {
+    display: block;
+  }
+}
+
+/* Visitor photos: the caption on the photo. */
+.cv-photos figure {
+  position: relative;
+  border-radius: var(--radius-card, 12px);
+  overflow: hidden;
+}
+.cv-photos img {
+  border-radius: 0;
+}
+.cv-photos figure::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(0deg, rgba(10, 12, 10, 0.8) 0%, rgba(10, 12, 10, 0) 60%);
+  pointer-events: none;
+}
+.cv-photos figcaption {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 12px;
+  z-index: 1;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: #ffffff;
+}
+.cv-photos figcaption strong {
+  font-family: "Bricolage Grotesque Variable", "Bricolage Grotesque", system-ui, sans-serif;
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+}
+.cv-photos figcaption span {
+  font-size: 12.5px;
+  font-weight: 600;
+  opacity: 0.9;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nu-img--c img,
+  .ch-strip-photo img {
+    transition: none;
+    transform: none !important;
+  }
+}
+/* The Circle page's My Life layout (.ch-mlstyle) sets the Next up photo to
+   16:10; the C version is a taller 4:5 photo beside the details. */
+.ch-mlstyle .nu-featured:has(.nu-img--c) {
+  grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
+  gap: 28px;
+  padding: 0;
+}
+.ch-mlstyle .nu-img.nu-img--c {
+  aspect-ratio: 4 / 5;
+}
+.ch-mlstyle .nu-img.nu-img--c::after {
+  background: linear-gradient(0deg, rgba(10, 12, 10, 0.84) 0%, rgba(10, 12, 10, 0.38) 42%, rgba(10, 12, 10, 0) 70%);
+}
+.ch-mlstyle .nu-img.nu-img--c.is-empty::after {
+  background: none;
+}
+@media (max-width: 640px) {
+  .ch-mlstyle .nu-featured:has(.nu-img--c) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ch-mlstyle .nu-img.nu-img--c {
+    aspect-ratio: 4 / 3;
+  }
+}
+
+/* Circles 3.0 — the listing a plan is about (CirclePlanListing.tsx). */
+.cpl { display: grid; gap: 6px; margin: 8px 0 4px; padding: 10px 12px; border: 1px solid var(--color-border); border-radius: 10px; background: var(--color-surface); }
+.cpl--gone { background: var(--color-panel); }
+.cpl-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.cpl-kind { font-size: 11px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-muted); }
+.cpl-chip { font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 999px; }
+.cpl-chip--full { background: var(--color-orange-bg); color: var(--color-orange-dark); }
+.cpl-chip--gone { background: var(--color-danger-bg); color: var(--color-danger); }
+.cpl-chip--booked { background: var(--color-green-bg); color: var(--color-green-text); }
+.cpl-chip--keen { background: var(--color-panel); color: var(--color-text); }
+.cpl-facts { margin: 0; font-size: 13.5px; color: var(--color-text); }
+.cpl-note { margin: 0; font-size: 12.5px; color: var(--color-muted); }
+.cpl-hint { margin: 0; font-size: 12px; color: var(--color-faint); }
+.cpl-cta { justify-self: start; font-size: 14px; font-weight: 700; color: var(--color-text); text-decoration: underline; text-underline-offset: 3px; min-height: 32px; display: inline-flex; align-items: center; }
+.cp-filters--kinds { margin: 0 0 12px; flex-wrap: wrap; }
+
+/* Circles 3.0 — My Life "Plans you're in" (MyCirclePlans.tsx). */
+.mcp { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.mcp-row { display: grid; grid-template-columns: 88px minmax(0, 1fr) auto; gap: 14px; align-items: start; padding: 14px 16px; border: 1px solid var(--color-border); border-radius: 12px; background: var(--color-surface); }
+.mcp-when { display: grid; gap: 2px; font-size: 13px; color: var(--color-muted); }
+.mcp-when strong { color: var(--color-text); font-size: 14.5px; }
+.mcp-main { min-width: 0; display: grid; gap: 4px; justify-items: start; }
+.mcp-title { margin: 0; font-weight: 700; font-size: 15.5px; display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; }
+.mcp-kind { font-size: 11px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-muted); }
+.mcp-meta { margin: 0; font-size: 13px; color: var(--color-muted); }
+.mcp-state { font-size: 12px; font-weight: 700; padding: 2px 9px; border-radius: 999px; background: var(--color-panel); color: var(--color-text); }
+.mcp-state--ok { background: var(--color-green-bg); color: var(--color-green-text); }
+.mcp-state--todo { background: var(--color-orange-bg); color: var(--color-orange-dark); }
+.mcp-state--gone { background: var(--color-danger-bg); color: var(--color-danger); }
+.mcp-actions { display: grid; gap: 6px; justify-items: end; }
+@media (max-width: 640px) {
+  .mcp-row { grid-template-columns: minmax(0, 1fr); }
+  .mcp-actions { justify-items: start; grid-auto-flow: column; justify-content: start; gap: 16px; }
+}
+
+/* Circles 3.0 — "Explore with others" on listing pages (ExploreWithOthers.tsx). */
+.ewo { margin: 32px 0 0; padding-top: 24px; border-top: 1px solid var(--color-border); }
+.ewo h2 { margin: 0; font-family: "Bricolage Grotesque Variable", "Bricolage Grotesque", system-ui, sans-serif; font-size: 22px; font-weight: 800; }
+.ewo-sub { margin: 6px 0 14px; max-width: 62ch; font-size: 14px; color: var(--color-muted); }
+.ewo-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr)); gap: 12px; }
+.ewo-row { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 12px; align-items: center; padding: 10px; border: 1px solid var(--color-border); border-radius: 12px; color: inherit; text-decoration: none; background: var(--color-surface); }
+.ewo-row:hover { border-color: var(--color-text); }
+.ewo-row:focus-visible { outline: 2px solid var(--color-text); outline-offset: 2px; }
+.ewo-photo { width: 56px; height: 56px; border-radius: 10px; overflow: hidden; background: var(--color-panel); }
+.ewo-photo.is-empty { background: var(--color-green-bg); }
+.ewo-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ewo-text { display: grid; gap: 2px; min-width: 0; }
+.ewo-text strong { font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ewo-text span { font-size: 13px; color: var(--color-muted); }
+.ch-planned { margin-top: 18px; }
+.ch-planned-title { margin: 0 0 6px; font-size: 12px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-muted); }
+.cp-shared { margin: 2px 0 0; font-size: 12.5px; font-weight: 700; color: var(--color-green-text); }
+
+/* Circles 3.1 — "Creating for {Circle}" (CircleCreationBanner.tsx). */
+.ccb { display: grid; gap: 4px; margin: 0 0 18px; padding: 12px 14px; border-left: 3px solid var(--color-green-text); border-radius: 6px; background: var(--color-green-bg); font-size: 14px; }
+.ccb strong { font-size: 14.5px; }
+.ccb--warn { border-left-color: var(--color-orange-dark); background: var(--color-orange-bg); }
+.ccb-retry { justify-self: start; min-height: 32px; padding: 4px 0; background: none; border: 0; font: inherit; font-weight: 700; text-decoration: underline; cursor: pointer; color: inherit; }
+
+/* Circles 3.1 — Link existing (LinkListingDialog.tsx). */
+.lld-status { min-height: 18px; font-size: 13px; color: var(--color-muted); }
+.lld-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; max-height: 320px; overflow-y: auto; }
+.lld-row { display: grid; grid-template-columns: auto 48px minmax(0, 1fr); gap: 12px; align-items: center; padding: 8px 10px; border: 1px solid var(--color-border); border-radius: 10px; cursor: pointer; background: var(--color-surface); }
+.lld-row.is-on { border-color: var(--color-text); box-shadow: inset 0 0 0 1px var(--color-text); }
+.lld-row input { width: 18px; height: 18px; margin: 0; }
+.lld-photo { width: 48px; height: 48px; border-radius: 8px; overflow: hidden; background: var(--color-panel); }
+.lld-photo.is-empty { background: var(--color-green-bg); }
+.lld-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.lld-text { display: grid; gap: 1px; min-width: 0; }
+.lld-text small { font-size: 11px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-muted); }
+.lld-text strong { font-size: 14.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lld-text span { font-size: 12.5px; color: var(--color-muted); }
+.lld-mode { border: 0; margin: 0; padding: 0; display: grid; gap: 8px; }
+.lld-mode legend { font-weight: 700; font-size: 14px; margin-bottom: 6px; }
+.lld-mode label { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; align-items: start; padding: 10px 12px; border: 1px solid var(--color-border); border-radius: 10px; cursor: pointer; }
+.lld-mode input { width: 18px; height: 18px; margin: 2px 0 0; }
+.lld-mode label > span { display: grid; gap: 2px; font-size: 13px; color: var(--color-muted); }
+.lld-mode strong { color: var(--color-text); font-size: 14px; }
+
+/* Circles 3.1 — Linked to this Circle (CircleLinkedListings.tsx). */
+.cll { margin-top: 28px; padding-top: 22px; border-top: 1px solid var(--color-border); display: grid; gap: 10px; }
+.cll h2 { margin: 0; font-family: "Bricolage Grotesque Variable", "Bricolage Grotesque", system-ui, sans-serif; font-size: 22px; font-weight: 800; }
+.cll-top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.cll-sub { margin: 0; font-size: 13.5px; color: var(--color-muted); }
+.cll-sub-title { margin: 6px 0 0; font-size: 12px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-orange-dark); }
+.cll-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.cll-row { display: grid; gap: 4px; padding: 12px 14px; border: 1px solid var(--color-border); border-radius: 12px; background: var(--color-surface); min-width: 0; }
+.cll-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.cll-head strong { font-size: 16px; }
+.cll-rel { font-size: 12.5px; color: var(--color-muted); }
+.cll-note { margin: 0; font-size: 13.5px; }
+.cll-actions { display: flex; flex-wrap: wrap; gap: 4px 16px; }
+.cll-empty { display: grid; gap: 4px; padding: 16px; border: 1px dashed var(--color-border-strong); border-radius: 12px; }
+.cll-empty strong { font-size: 16px; }
+.cll-empty p { margin: 0; color: var(--color-muted); font-size: 14px; }
+.cll-empty-actions { display: flex; flex-wrap: wrap; gap: 4px 18px; margin-top: 6px; }
+
+/* Circles 3.1 — Create or organise (CreateOrOrganise.tsx). */
+.coo { display: grid; gap: 20px; }
+.coo h3 { margin: 0 0 8px; font-size: 12px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-muted); }
+.coo-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); gap: 8px; }
+.coo-item, .coo-list li > button { width: 100%; display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: 12px; align-items: start; padding: 12px; border: 1px solid var(--color-border); border-radius: 10px; background: var(--color-surface); color: var(--color-text); font: inherit; text-align: left; cursor: pointer; min-height: 64px; }
+.coo-item:hover, .coo-list li > button:hover { border-color: var(--color-text); }
+.coo-item:focus-visible, .coo-list li > button:focus-visible { outline: 2px solid var(--color-text); outline-offset: 2px; }
+.coo-icon { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 8px; background: var(--color-panel); }
+.coo-text { display: grid; gap: 2px; min-width: 0; }
+.coo-text strong { font-size: 14.5px; }
+.coo-text span { font-size: 12.5px; color: var(--color-muted); }
+.coo-note { margin: 8px 0 0; font-size: 13px; color: var(--color-muted); }

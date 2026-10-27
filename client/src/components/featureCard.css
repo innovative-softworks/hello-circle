@@ -1,0 +1,124 @@
+/* FeatureCard — the four large treatments from the owner's card reference
+   (2026-10-22). Shares the grid card's pills, details and actions
+   (listingCard.css). Corners stay the consumer card radius (owner). */
+
+.fc {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  height: 100%;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card, 16px);
+  overflow: hidden;
+  transition: border-color 0.18s ease;
+}
+@media (hover: hover) {
+  .fc:hover { border-color: var(--color-border-strong); }
+  .fc:hover .lc-arrow:not(.lc-arrow--filled) { background: var(--color-cta); color: var(--color-on-cta); }
+  .fc:hover .lc-arrow--filled { background: var(--color-cta-hover); border-color: var(--color-cta-hover); }
+}
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .fc img { transition: transform 0.2s ease; }
+  .fc:hover img { transform: scale(1.02); }
+}
+.fc:focus-within { border-color: var(--color-text); }
+
+.fc-media { position: relative; aspect-ratio: 16 / 10; overflow: hidden; background: var(--color-panel); container-type: inline-size; }
+.fc-body { flex: 1; display: flex; flex-direction: column; gap: 6px; padding: 16px 18px 18px; min-width: 0; }
+.fc-title {
+  margin: 0;
+  font-family: "Bricolage Grotesque Variable", "Bricolage Grotesque", system-ui, sans-serif;
+  font-size: clamp(20px, 1.6vw, 24px);
+  font-weight: 800;
+  line-height: 1.08;
+  letter-spacing: -0.01em;
+  color: var(--color-text);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.fc-meta { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13.5px; color: var(--color-muted-light); }
+.fc-meta-item { display: inline-flex; align-items: center; gap: 6px; }
+.fc-meta-item svg { color: var(--color-faint); }
+.fc-blurb { margin: 2px 0 0; font-size: 14px; line-height: 1.45; color: var(--color-muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.fc-footer { margin-top: auto; padding-top: 12px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+
+/* 01 Immersive — photo ~75% with the title over a darkened lower edge, then
+   a cream action strip. */
+.fc--immersive { background: var(--color-bg); }
+.fc--immersive .fc-media { aspect-ratio: 4 / 4.2; }
+.fc--immersive .fc-media::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(10, 14, 11, 0) 38%, rgba(10, 14, 11, 0.82) 100%);
+  pointer-events: none;
+}
+.fc-over { position: absolute; left: 18px; right: 18px; bottom: 16px; z-index: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; color: #fff; pointer-events: none; }
+.fc-tag-inline { position: static; }
+.fc-title--over { color: #fff; font-size: clamp(24px, 2.1vw, 30px); }
+.fc-over-place, .fc-over-going { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 600; color: rgba(255, 255, 255, 0.92); }
+.fc--immersive .fc-footer { margin: 0; padding: 12px 18px 14px; background: var(--color-bg); }
+
+/* 02 Editorial — a narrow vertical date panel beside the photo when the
+   card is wide enough; on narrow cards it sits as a strip under the photo. */
+.fc--editorial { display: grid; grid-template-columns: minmax(0, 1fr) 92px; grid-template-rows: auto 1fr; }
+.fc--editorial .fc-media { grid-column: 1; grid-row: 1; clip-path: polygon(0 0, 100% 0, 92% 100%, 0 100%); }
+.fc--editorial .fc-datepanel { grid-column: 2; grid-row: 1; }
+.fc--editorial .fc-body { grid-column: 1 / -1; grid-row: 2; }
+.fc-datepanel { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding: 12px 6px; text-align: center; color: var(--color-text); }
+.fc-dp-month, .fc-dp-week { font-size: 12px; font-weight: 700; letter-spacing: 0.06em; }
+.fc-dp-day { font-family: "Bricolage Grotesque Variable", "Bricolage Grotesque", system-ui, sans-serif; font-size: 40px; font-weight: 500; line-height: 1; }
+.fc-dp-time { margin-top: 10px; font-size: 12px; color: var(--color-muted-light); }
+@container (max-width: 300px) {
+  .fc--editorial { grid-template-columns: 1fr; }
+  .fc--editorial .fc-media { clip-path: none; }
+  .fc--editorial .fc-datepanel { grid-column: 1; grid-row: 2; flex-direction: row; gap: 8px; justify-content: flex-start; padding: 10px 18px 0; }
+  .fc--editorial .fc-body { grid-row: 3; }
+  .fc-dp-day { font-size: 22px; }
+  .fc-dp-time { margin: 0; }
+}
+
+/* 03 Adventure — a wider photo; date, duration and skill level in one row. */
+.fc--adventure .fc-media { aspect-ratio: 16 / 9; }
+.fc--adventure .lc-arrow { border-radius: 999px; background: var(--color-cta); color: var(--color-on-cta); width: 48px; height: 48px; }
+
+/* 04 Bold (typography) — the category set very large across the photo's
+   lower edge, over a soft dark fade so it reads on any photo while the
+   subject above stays clear. */
+.fc--bold .fc-media::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(10, 14, 11, 0) 45%, rgba(10, 14, 11, 0.55) 100%);
+  pointer-events: none;
+}
+.fc-bold-word {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -0.14em;
+  z-index: 1;
+  overflow: hidden;
+  padding: 0 12px;
+  font-family: "Bricolage Grotesque Variable", "Bricolage Grotesque", system-ui, sans-serif;
+  /* Fits the whole word across the photo whatever its length (--chars). */
+  font-size: min(120px, calc((100cqw - 24px) / (var(--chars, 6) * 0.64)));
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  /* Owner, 2026-10-23: the word 50% visible so the photo shows through. */
+  color: rgba(255, 255, 255, 0.5);
+  text-shadow: 0 2px 24px rgba(0, 0, 0, 0.18);
+  pointer-events: none;
+}
+.fc--bold .lc-arrow { border-radius: 999px; width: 48px; height: 48px; }
+
+/* Curated row / featured layout for the variants. */
+.fc-grid { container-type: inline-size; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 20px; }
+.fc-grid > * { container-type: inline-size; }

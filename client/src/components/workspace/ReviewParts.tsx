@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { MessageSquareReply, Star } from "lucide-react";
-import { AdminButton, AdminModal, Box, FormField, IconTabs } from "../admin/adminUi";
+import { AdminButton, AdminModal, Box, FormField, IconTabs, SelectField, Toolbar } from "../admin/adminUi";
 import { EmptyState, StatTile } from "../ui";
 import { useUrlParam } from "../../useUrlTab";
 import { formatDate } from "../../vendorFormat";
@@ -32,6 +32,7 @@ function Stars({ rating }: { rating: number }) {
 
 export function ReviewsView({ reviews, onReply, replyError }: { reviews: ReviewItem[]; onReply: (id: number, text: string) => Promise<void>; replyError: string }) {
   const [show, setShow] = useUrlParam<"all" | "unanswered">("rshow", "all");
+  const [rating, setRating] = useUrlParam<string>("rrating", "all");
   const [replying, setReplying] = useState<ReviewItem | null>(null);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
@@ -39,7 +40,7 @@ export function ReviewsView({ reviews, onReply, replyError }: { reviews: ReviewI
 
   const unanswered = reviews.filter((r) => !r.reply);
   const avg = reviews.length ? reviews.reduce((s, r) => s + r.rating, 0) / reviews.length : 0;
-  const rows = show === "all" ? reviews : unanswered;
+  const rows = (show === "all" ? reviews : unanswered).filter((r) => rating === "all" || r.rating === Number(rating));
 
   const close = () => {
     setReplying(null);
@@ -76,9 +77,24 @@ export function ReviewsView({ reviews, onReply, replyError }: { reviews: ReviewI
           { key: "unanswered", label: "Needs a reply", icon: MessageSquareReply, count: unanswered.length || undefined },
         ]}
       />
+      {reviews.length > 5 && (
+        <Toolbar label="Filter reviews">
+          <SelectField
+            label="Rating"
+            value={rating}
+            onChange={setRating}
+            options={[{ value: "all", label: "Any rating" }, ...[5, 4, 3, 2, 1].map((n) => ({ value: String(n), label: `${n} star${n === 1 ? "" : "s"}` }))]}
+          />
+        </Toolbar>
+      )}
       <Box flush>
         {rows.length === 0 ? (
-          <EmptyState icon={<Star size={20} />} title={reviews.length === 0 ? "No reviews yet" : "Every review has a reply"} subtitle={reviews.length === 0 ? "Reviews appear here after people take part." : undefined} />
+          <EmptyState
+            icon={<Star size={20} />}
+            title={reviews.length === 0 ? "No reviews yet" : rating !== "all" ? `No ${rating}-star reviews here` : "Every review has a reply"}
+            subtitle={reviews.length === 0 ? "Reviews appear here after people take part." : undefined}
+            action={rating !== "all" ? <AdminButton size="sm" onClick={() => setRating("all")}>Show every rating</AdminButton> : undefined}
+          />
         ) : (
           <ul className="adm-ov-list">
             {rows.map((r) => (

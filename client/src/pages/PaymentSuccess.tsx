@@ -15,7 +15,10 @@ import {
 import { useMyStuff } from "../MyStuffContext";
 import { BkButton, BookingSurface, ConfirmationPanel, ListingSummary, PolicySummary, formatCents } from "../components/booking";
 import { ShareButton } from "../components/ShareButton";
+import { Pass, passDate, type PassProps } from "../components/pass/Pass";
 import { dateLabel } from "../euro";
+import { usePageTitle } from "../pageTitle";
+import { paymentResultTitle } from "./paymentResultTitle";
 import type {
   BookingConfirmation,
   ExperienceBookingConfirmation,
@@ -131,7 +134,7 @@ function viewFor(ref: string, d: AnyConfirmation): ConfirmationView {
       venue: b.centreName,
       when: `${dateLabel(b.date)} · ${b.time}`,
       quantity: `${b.guests} guest${b.guests === 1 ? "" : "s"}`,
-      manageHref: `/bookings?ref=${b.ref}`,
+      manageHref: `/bookings/booking/${encodeURIComponent(b.ref)}`,
       shareEntity: { type: "centre", id: b.centreId },
       onAddToCalendar: () => downloadBookingIcs(b.ref),
     };
@@ -143,7 +146,7 @@ function viewFor(ref: string, d: AnyConfirmation): ConfirmationView {
       venue: r.clubName,
       when: null, // ongoing club membership — no single dated occurrence
       quantity: r.team || null,
-      manageHref: `/bookings?ref=${r.ref}`,
+      manageHref: `/bookings/registration/${encodeURIComponent(r.ref)}`,
       shareEntity: { type: "club", id: r.clubId },
       onAddToCalendar: null,
     };
@@ -155,7 +158,7 @@ function viewFor(ref: string, d: AnyConfirmation): ConfirmationView {
       venue: g.centreName ?? (g.locationText || null),
       when: `${dateLabel(g.date)} · ${g.time}`,
       quantity: null,
-      manageHref: `/games/${g.gameId}`,
+      manageHref: `/bookings/game/${encodeURIComponent(g.gameId)}`,
       shareEntity: { type: "game", id: g.gameId },
       onAddToCalendar: () => downloadGameIcs(g.gameId),
     };
@@ -167,7 +170,7 @@ function viewFor(ref: string, d: AnyConfirmation): ConfirmationView {
       venue: e.meetingPoint || null,
       when: `${dateLabel(e.date)} · ${e.time}`,
       quantity: `${e.partySize} ${e.partySize === 1 ? "person" : "people"}`,
-      manageHref: `/experiences/${e.experienceId}`,
+      manageHref: `/bookings/experience/${encodeURIComponent(e.ref)}`,
       shareEntity: { type: "experience", id: e.experienceId },
       onAddToCalendar: () => downloadExperienceBookingIcs(e.ref),
     };
@@ -179,7 +182,7 @@ function viewFor(ref: string, d: AnyConfirmation): ConfirmationView {
       venue: p.listingName,
       when: null, // one enrollment covers every session — no single date
       quantity: null,
-      manageHref: `/programs/${p.programId}`,
+      manageHref: `/bookings/program/${encodeURIComponent(p.ref)}`,
       shareEntity: { type: "program", id: p.programId },
       onAddToCalendar: null,
     };
@@ -194,6 +197,39 @@ function viewFor(ref: string, d: AnyConfirmation): ConfirmationView {
     shareEntity: p.clubId ? { type: "club", id: p.clubId } : null,
     onAddToCalendar: null,
   };
+}
+
+/** The pass for a paid order (owner 2026-10-27): ticket look; a club
+ * registration uses the lanyard look (the person it's for first). While the
+ * payment is being checked the pass says so and its code is greyed out. */
+function passFor(ref: string, d: AnyConfirmation, review: boolean): PassProps {
+  const paid = formatCents(d.totalCents);
+  const base = { look: "ticket" as const, tone: review ? ("warn" as const) : ("ok" as const), reference: ref, codeActive: !review, as: "h2" as const };
+  const status = (ok: string) => (review ? "Payment being checked" : ok);
+  const paidLabel = review ? "Received" : "Paid";
+  const note = review ? "We received your payment and are checking it. This isn't booked yet. Please don't pay again." : null;
+  if (ref.startsWith("HB-")) {
+    const b = d as BookingConfirmation;
+    return { ...base, kind: "room", status: status("Booked"), title: b.roomName ?? b.centreName, date: passDate(b.date), time: b.time, where: b.centreName, fields: [["Guests", String(b.guests)], [paidLabel, paid]], note };
+  }
+  if (ref.startsWith("CR-")) {
+    const r = d as RegistrationConfirmation;
+    return { ...base, look: "lanyard", kind: "club", status: status("Registered"), title: r.clubName, whoLabel: "Member", who: `${r.childFirst} ${r.childLast}`.trim() || null, fields: [...(r.team ? ([["Team", r.team]] as [string, string][]) : []), [paidLabel, paid]], note };
+  }
+  if (ref.startsWith("GJ-")) {
+    const g = d as GameJoinConfirmation;
+    return { ...base, kind: "activity", status: status("You're going"), title: g.activityLabel, date: passDate(g.date), time: g.time, where: g.centreName ?? g.locationText, fields: [[paidLabel, paid]], note };
+  }
+  if (ref.startsWith("EX-")) {
+    const e = d as ExperienceBookingConfirmation;
+    return { ...base, kind: "experience", status: status("Booked"), title: e.title, date: passDate(e.date), time: e.time, where: e.meetingPoint || null, fields: [["People", String(e.partySize)], [paidLabel, paid]], note };
+  }
+  if (ref.startsWith("PR-")) {
+    const p = d as ProgramEnrollmentConfirmation;
+    return { ...base, kind: "programme", status: status("Enrolled"), title: p.title, where: p.listingName, fields: [[paidLabel, paid]], note };
+  }
+  const p = d as PassConfirmation;
+  return { ...base, kind: "pass", status: status("Ready to use"), title: p.clubName ? `${p.clubName} pass` : "Session pass", where: p.clubName, fields: [["Sessions", String(p.creditsTotal)], [paidLabel, paid]], note };
 }
 
 export function PaymentSuccess() {
@@ -233,6 +269,7 @@ export function PaymentSuccess() {
           } else if (r.paymentStatus === "failed") {
             setStatus("failed");
           } else if ((r as { paymentReview?: boolean }).paymentReview) {
+            setDetails(r);
             setStatus("review");
           } else if (attempts.current < MAX_ATTEMPTS) {
             attempts.current += 1;
@@ -253,6 +290,7 @@ export function PaymentSuccess() {
   // Never says "booked" before the server does: the rich summary renders only
   // once the poll has returned paid (Booking UX Phase 3, on the booking kit).
   const view = status === "paid" && ref && details ? viewFor(ref, details) : null;
+  usePageTitle(paymentResultTitle(status, paymentCase?.state));
   const cancelDeadline = details && "cancelDeadline" in details ? details.cancelDeadline : undefined;
 
   return (
@@ -265,9 +303,9 @@ export function PaymentSuccess() {
         <ConfirmationPanel
           variant="success"
           title="You're all set!"
-          bookingRef={ref}
+          bookingRef={view ? null : ref}
           lead={details ? `Paid ${formatCents(details.totalCents)}. A receipt is on its way to your email.` : "Payment confirmed. A receipt is on its way to your email."}
-          summary={view && <ListingSummary title={view.title} when={view.when} details={[view.venue, view.quantity].filter(Boolean).join(" · ") || null} />}
+          summary={view && ref && details && <Pass {...passFor(ref, details, false)} />}
           actions={
             <>
               <BkButton variant="dark" onClick={() => navigate(view?.manageHref ?? "/bookings")}>View booking</BkButton>
@@ -299,7 +337,8 @@ export function PaymentSuccess() {
         <ConfirmationPanel
           variant="pending"
           title="Your payment needs a quick check"
-          bookingRef={ref}
+          bookingRef={details ? null : ref}
+          summary={ref && details ? <Pass {...passFor(ref, details, true)} /> : undefined}
           lead="The payment Stripe reported for this booking didn't match what was agreed at checkout, so the booking isn't confirmed yet. It's waiting for our team to check. Please don't pay again — contact us with your booking reference if you have a question."
           actions={
             <>

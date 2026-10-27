@@ -1,11 +1,9 @@
 import { useNavigate } from "react-router-dom";
 import type { Club } from "../types";
 import { colors } from "../theme";
-import { priceLabel } from "../priceLabel";
 import { clubPriceSignal } from "../priceSignal";
-import { PriceChip } from "./PriceChip";
 import { BallIcon, PinIcon, UsersIcon } from "./icons";
-import { CardPrice, ListingCard, cardButtonStyle } from "./ListingCard";
+import { CardArrow, CardPrice, ListingCard } from "./ListingCard";
 import { SaveButton, useSavedState } from "./SaveButton";
 import { Button } from "./ui";
 
@@ -20,6 +18,7 @@ export function ClubCard({ club }: { club: Club }) {
 
   return (
     <ListingCard
+      rowOnPhone
       href={href}
       title={club.name}
       image={club.image}
@@ -31,14 +30,12 @@ export function ClubCard({ club }: { club: Club }) {
       details={[club.area ? { icon: <PinIcon size={13} />, text: club.area } : null, club.ages ? { icon: <UsersIcon size={13} />, text: `Ages ${club.ages}` } : null]}
       facts={
         <>
-          {signal === "free" ? <PriceChip signal="free" /> : <CardPrice>{priceLabel(club)}</CardPrice>}
-          {signal === "free_trial" && <PriceChip signal="free_trial" />}
+          <CardPrice cents={signal === "free" ? 0 : Math.round(club.price * 100)} unit={club.unit ? (club.unit === "session" ? "per session" : `a ${club.unit}`) : undefined} />
+          {signal === "free_trial" && <span className="lc-price-note">Free first session</span>}
         </>
       }
       action={
-        <Button style={cardButtonStyle} variant="dark" onClick={open}>
-          {club.audience === "kids" ? "Register my child" : "Register"}
-        </Button>
+        <CardArrow label={`${club.audience === "kids" ? "Register my child" : "Register"}: ${club.name}`} onClick={open} />
       }
     />
   );

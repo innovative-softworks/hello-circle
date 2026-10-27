@@ -1,8 +1,9 @@
+import { taxonomyFields } from "../taxonomy.js";
 import { unavailableListing } from "../orgStatus.js";
 import { Router } from "express";
 import { logView } from "../analytics.js";
 import { db } from "../db/index.js";
-import { getApprovedCentre, listCentres } from "../db/queries.js";
+import { getApprovedCentre, listCentres, orgPoliciesForVendor } from "../db/queries.js";
 import { resolveRadiusFilter } from "../geo.js";
 
 export const centresRouter = Router();
@@ -38,10 +39,15 @@ centresRouter.get("/:id", async (req, res) => {
       : Promise.resolve(undefined),
   ]);
 
+  // DP-07 — the venue's real cancellation window (org policy), so the page
+  // never promises a different one than booking cancellation enforces.
+  const { cancellationHours } = await orgPoliciesForVendor(centre.vendorId ?? null);
   res.json({
     ...centre,
+    cancellationHours,
     followerCount: Number(followerCountRow.n),
     isFollowing: !!isFollowingRow,
     followNotificationLevel: isFollowingRow?.notificationLevel ?? "highlights",
+    ...(await taxonomyFields("centre", centre.id)),
   });
 });

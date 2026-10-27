@@ -18,7 +18,8 @@ import {
 } from "../api";
 import { AwardIcon, CalendarIcon, CheckIcon, SearchIcon } from "./icons";
 import { Avatar, Button, ConfirmDialog, EmptyState, LoadErrorState, ManageCard as Card, tableStyle, tdStyle, thStyle } from "./ui";
-import { Award, Building2, CalendarDays, List, ListChecks, X } from "lucide-react";
+import { Award, Building2, CalendarDays, List, ListChecks, QrCode, X } from "lucide-react";
+import { ScanPassModal, readPassCode, type ScanResult } from "./pass/ScanPassModal";
 import { ActionMenu } from "./ActionMenu";
 import { useToast } from "./Toast";
 import { RecordState, RecordView } from "./workspace/RecordView";
@@ -490,6 +491,7 @@ export function BookingsTab({ centreId, clubId }: { centreId?: string; clubId?: 
   const [search, setSearch] = useUrlParam<string>("bq", "");
 
   const [checkedInRefs, setCheckedInRefs] = useState<Set<string>>(new Set());
+  const [scanning, setScanning] = useState(false);
   const [noShowRefs, setNoShowRefs] = useState<Set<string>>(new Set());
   const [selectedBookings, setSelectedBookings] = useState<Set<string>>(new Set());
   const [selectedRegistrations, setSelectedRegistrations] = useState<Set<string>>(new Set());
@@ -724,6 +726,29 @@ export function BookingsTab({ centreId, clubId }: { centreId?: string; clubId?: 
     );
   };
 
+  // Scan passes (owner 2026-10-27): a room booking or club registration pass
+  // holds its reference; the check-in is the same call as the row's button.
+  const onScan = async (text: string): Promise<ScanResult> => {
+    const code = readPassCode(text);
+    if (!code) return { ok: false, message: "That isn't a HelloCircle pass." };
+    if (code.kind !== "booking" && code.kind !== "registration") return { ok: false, message: "That pass isn't for a room booking or club registration." };
+    const kind = code.kind;
+    const ref = code.ref;
+    const b = kind === "booking" ? bookings.find((x) => x.ref.toUpperCase() === ref) : undefined;
+    const r = kind === "registration" ? registrations.find((x) => x.ref.toUpperCase() === ref) : undefined;
+    const who = b ? b.name : r ? `${r.childFirst} ${r.childLast}`.trim() : ref;
+    if ((b ?? r)?.status === "cancelled") return { ok: false, message: `${who}: this ${kind} was cancelled.` };
+    const realRef = b?.ref ?? r?.ref ?? ref;
+    if (checkedInRefs.has(`${kind}:${realRef}`)) return { ok: true, message: `${who} is already checked in.` };
+    await checkInBooking(kind, realRef, "present", "qr");
+    markCheckedIn(kind, realRef);
+    return { ok: true, message: `Checked in: ${who}` };
+  };
+
+  if (scanning) {
+    return <ScanPassModal open title="Scan passes" hint="Room bookings and club registrations. Hold the code on their pass inside the square." onClose={() => setScanning(false)} onCode={onScan} />;
+  }
+
   if (openRef) {
     if (loadError.bookings && !loaded.bookings) return <RecordState state="error" backLabel="Bookings" onBack={closeRecord} onRetry={loadBookings} />;
     if (!loaded.bookings) return <RecordState state="loading" backLabel="Bookings" onBack={closeRecord} />;
@@ -735,6 +760,11 @@ export function BookingsTab({ centreId, clubId }: { centreId?: string; clubId?: 
     <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       {/* Booking UX Phase 6 — refunds and deposits still owed, across every order type (org-wide view only). */}
       {!centreId && !clubId && <VendorActionNeeded />}
+      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+        <AdminButton size="sm" onClick={() => setScanning(true)}>
+          <QrCode size={15} aria-hidden="true" /> Scan passes
+        </AdminButton>
+      </div>
       {!showAll && <BookingsFilterBar
         status={statusFilter}
         onStatus={setStatusFilter}

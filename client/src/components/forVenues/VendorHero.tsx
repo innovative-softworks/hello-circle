@@ -88,7 +88,7 @@ export function VendorHero({
 
           <div>
             <div className="stack-mobile" style={{ display: "flex", gap: 12, marginBottom: 14 }}>
-              <Button variant="orange" onClick={onPrimaryCta} style={{ padding: "13px 22px", fontSize: 15, background: FV_ACCENT }}>
+              <Button variant="orange" onClick={onPrimaryCta} style={{ padding: "13px 22px", fontSize: 15 }}>
                 List your venue
               </Button>
               <Button variant="ghost" onClick={onBecomeHostCta} style={{ padding: "13px 22px", fontSize: 15 }}>

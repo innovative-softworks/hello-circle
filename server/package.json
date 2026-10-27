@@ -10,6 +10,8 @@
     "migrate": "tsx src/scripts/migrate.ts",
     "seed-big": "tsx src/scripts/seedBig.ts",
     "seed-admin-demo": "tsx src/scripts/seedAdminDemo.ts",
+    "seed-mylife-demo": "tsx src/scripts/seedMyLifeDemo.ts",
+    "seed-card-labels": "tsx src/scripts/seedCardLabels.ts",
     "migrate-legacy-uploads": "tsx src/scripts/migrateLegacyUploads.ts",
     "media-cleanup": "tsx src/scripts/mediaCleanup.ts",
     "tester": "tsx src/scripts/tester.ts",

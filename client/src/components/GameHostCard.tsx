@@ -1,9 +1,8 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
 import { fetchHostProfile } from "../api";
-import { AwardIcon, StarIcon } from "./icons";
-import { Avatar } from "./ui";
-import { colors, fonts, radius } from "../theme";
+import { StarIcon } from "./icons";
+import { colors } from "../theme";
+import { DetailSection, HostRow } from "./detail/DetailSections";
 import type { Game, HostProfile } from "../types";
 
 // Host trust card (Game Detail redesign §15) — real stats only. gamesHostedTotal/
@@ -27,41 +26,28 @@ export function GameHostCard({ game }: { game: Game }) {
 
   if (!game.hostName) return null;
 
+  // Detail-page redesign — the shared host row (real stats only, see above).
   return (
-    <div style={{ marginBottom: 28 }}>
-      <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 18, margin: "0 0 12px" }}>Hosted by</h2>
-      <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
-        <Avatar name={game.hostName} size={44} src={game.hostAvatarUrl ?? profile?.avatarUrl} />
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-            <span style={{ fontWeight: 700, fontSize: 15 }}>{game.hostName}</span>
-            {game.hostVerified && (
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: radius.pill, padding: "2px 8px" }}>
-                <AwardIcon size={11} /> Verified Host
-              </span>
-            )}
-          </div>
-          {profile && (
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 4, fontSize: 13, color: colors.mutedLight }}>
-              <span>Hosted {profile.gamesHostedTotal} session{profile.gamesHostedTotal === 1 ? "" : "s"}</span>
+    <DetailSection title="Hosted by">
+      <HostRow
+        name={game.hostName}
+        avatarUrl={game.hostAvatarUrl ?? profile?.avatarUrl}
+        verifiedLabel={game.hostVerified ? "Verified Host" : null}
+        meta={
+          profile ? (
+            <>
+              <span>Hosted {profile.gamesHostedTotal} {profile.gamesHostedTotal === 1 ? "activity" : "activities"}</span>
               {profile.reviews > 0 && (
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
                   <StarIcon size={12} style={{ color: colors.gold }} /> {profile.rating} ({profile.reviews})
                 </span>
               )}
-            </div>
-          )}
-          {profile?.bio && <p style={{ margin: "8px 0 0", fontSize: 13.5, color: colors.textSoft, lineHeight: 1.5 }}>{profile.bio}</p>}
-          {game.hostVerified && (
-            <Link
-              to={`/host/${game.hostResidentId}`}
-              style={{ display: "inline-block", marginTop: 8, fontSize: 12.5, fontWeight: 700, color: colors.text, cursor: "pointer", textDecoration: "underline" }}
-            >
-              View profile
-            </Link>
-          )}
-        </div>
-      </div>
-    </div>
+            </>
+          ) : null
+        }
+        bio={profile?.bio}
+        href={game.hostVerified ? `/host/${game.hostResidentId}` : null}
+      />
+    </DetailSection>
   );
 }

@@ -20,6 +20,7 @@ import { notifyCancellation, notifyRefund } from "../notifications.js";
 import { notifyVendorFollowers } from "./follows.js";
 import { generateSlug } from "../slugify.js";
 import { ConflictError, invalidCoordinateReason } from "../util.js";
+import { noticeListingCancelled } from "../circlePlanNotices.js";
 
 // Adventures & Experiences — vendor-side CRUD, split out the same way
 // vendorListings.ts/vendorPrograms.ts are (see CLAUDE.md). Mounted under
@@ -353,7 +354,11 @@ vendorExperiencesRouter.post("/experiences/:id/publish", requirePlatformRole(...
 
 vendorExperiencesRouter.delete("/experiences/:id", requirePlatformRole(...EXPERIENCE_ROLES), async (req, res) => {
   if (!(await ownsExperience(req.vendorIds!, req.params.id))) return res.status(403).json({ error: "Not your listing" });
-  await db.prepare(`UPDATE experiences SET status = 'deleted' WHERE id = ?`).run(req.params.id);
+  const removed = await db.prepare(`UPDATE experiences SET status = 'deleted' WHERE id = ? AND status != 'deleted'`).run(req.params.id);
+  if (removed.changes === 1) {
+    const e = (await db.prepare(`SELECT title FROM experiences WHERE id = ?`).get(req.params.id)) as { title: string } | undefined;
+    await noticeListingCancelled("experience", req.params.id, { title: e?.title ?? "A listing", what: "this listing" });
+  }
   res.json({ ok: true });
 });
 
@@ -511,6 +516,12 @@ vendorExperiencesRouter.delete("/experiences/:id/sessions/:sessionId", requirePl
     return { session, rows };
   });
   for (const b of affected.rows) await syncOrderFromSource("experience", b.ref);
+  // Circles 3.0 — Circles that suggested this departure hear it's off
+  // (once per plan; a repeat cancel finds the session already cancelled).
+  if (affected.session && affected.session.status !== "cancelled") {
+    const e = (await db.prepare(`SELECT title FROM experiences WHERE id = ?`).get(req.params.id)) as { title: string } | undefined;
+    await noticeListingCancelled("experience", req.params.id, { sessionId: affected.session.id, title: e?.title ?? "A departure", what: "this departure" });
+  }
   let refunded = 0;
   let refundsFailed = 0;
   if (affected.session && affected.rows.length) {

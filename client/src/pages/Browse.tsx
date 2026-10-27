@@ -1,3 +1,5 @@
+import { Building2 as Building2Lucide } from "lucide-react";
+import { Users as UsersLucide } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { fetchCentres, fetchClubs } from "../api";
@@ -369,6 +371,7 @@ export function Browse() {
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   placeholder={`Search ${isClubs ? "clubs" : "centres"}…`}
+                  aria-label={`Search ${isClubs ? "clubs" : "centres"}`}
                   style={{
                     padding: "9px 12px 9px 32px",
                     border: `1px solid ${colors.inputBorder}`,
@@ -384,6 +387,7 @@ export function Browse() {
               <select
                 value={sort}
                 onChange={(e) => setSort(e.target.value as SortKey)}
+                aria-label="Sort results"
                 style={{
                   padding: "9px 12px",
                   border: `1px solid ${colors.inputBorder}`,
@@ -475,6 +479,7 @@ export function Browse() {
               className="btn btn-ghost"
               disabled={pageSafe === 1}
               onClick={() => setPage(pageSafe - 1)}
+              aria-label="Previous page"
               style={{ width: 34, height: 34, borderRadius: "50%", border: `1px solid ${colors.borderStrong}`, background: "#fff", display: "flex", alignItems: "center", justifyContent: "center", opacity: pageSafe === 1 ? 0.4 : 1 }}
             >
               <ChevronLeftIcon size={16} />
@@ -483,6 +488,8 @@ export function Browse() {
               <button
                 key={n}
                 onClick={() => setPage(n)}
+                aria-label={`Page ${n}`}
+                aria-current={n === pageSafe ? "page" : undefined}
                 className="btn"
                 style={{
                   width: 34,
@@ -502,6 +509,7 @@ export function Browse() {
               className="btn btn-ghost"
               disabled={pageSafe === totalPages}
               onClick={() => setPage(pageSafe + 1)}
+              aria-label="Next page"
               style={{ width: 34, height: 34, borderRadius: "50%", border: `1px solid ${colors.borderStrong}`, background: "#fff", display: "flex", alignItems: "center", justifyContent: "center", opacity: pageSafe === totalPages ? 0.4 : 1 }}
             >
               <ChevronRightIcon size={16} />
@@ -579,6 +587,7 @@ export function Browse() {
       {isClubs ? (
         <CtaBand
           id="browse-clubs-cta-title"
+        panel={{ title: "Start one yourself", text: "A Circle around the sport you love, open to people nearby.", icon: <UsersLucide size={20} strokeWidth={2} /> }}
           label="Join a club."
           lines={["Can't find", "your", "club?"]}
           text="Start a Circle around the sport you love and people nearby can join you."
@@ -588,6 +597,7 @@ export function Browse() {
       ) : (
         <CtaBand
           id="browse-venues-cta-title"
+        panel={{ title: "Bring people together", text: "Host an activity and let people nearby join.", icon: <Building2Lucide size={20} strokeWidth={2} /> }}
           label="Book a space."
           lines={["Bring", "people", "together."]}
           text="Book a hall for a class, a club night or a party — or host an activity and let people nearby join."

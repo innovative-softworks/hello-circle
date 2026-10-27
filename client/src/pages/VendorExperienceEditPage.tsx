@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { CircleCreationBanner } from "../components/circle/CircleCreationBanner";
 import { fetchVendorExperience, publishVendorExperience } from "../api";
 import { useAuth } from "../AuthContext";
 import { BackLink } from "../components/BackLink";
@@ -59,7 +60,7 @@ export function VendorExperienceEditPage() {
   }, [experienceId]);
 
   const onSaved = (savedId: string) => {
-    if (experienceId === "new") navigate(`/vendor/experiences/${savedId}`, { replace: true });
+    if (experienceId === "new") navigate(`/vendor/experiences/${savedId}${window.location.search}`, { replace: true });
     else fetchVendorExperience(experienceId).then(setExperience);
   };
 
@@ -91,7 +92,7 @@ export function VendorExperienceEditPage() {
       subtitle={!wizardMode && experience ? <ListingMeta status={experience.status} kind={experience.kind === "adventure" ? "Adventure" : experience.kind === "volunteer" ? "Volunteer" : "Experience"} place={[experience.area, experience.county].filter(Boolean).join(", ")} /> : undefined}
     >
       <div>
-
+        <CircleCreationBanner type="experience" listingId={experienceId === "new" ? null : experienceId} />
         {wizardMode ? (
           <ExperienceCreationWizard
             initialExperienceId={experienceId}

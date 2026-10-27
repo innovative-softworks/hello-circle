@@ -1,12 +1,15 @@
+import { Chip } from "../components/Chip";
 import { UnavailableListing, isUnavailable, type Unavailable } from "../components/UnavailableListing";
 import { usePageTitle } from "../pageTitle";
 import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { fetchProviderProfile } from "../api";
+import { fetchProviderProfile, isNotFound } from "../api";
 import { AwardIcon, CalendarIcon, ChevronRightIcon, PinIcon } from "../components/icons";
 import { FollowButton } from "../components/FollowButton";
 import { ShareButton } from "../components/ShareButton";
-import { CardPrice, ListingCard, cardButtonStyle } from "../components/ListingCard";
+import { ReportContentButton } from "../components/ReportContentButton";
+import { CardArrow, CardPrice, ListingCard } from "../components/ListingCard";
+import { CardDate, itemCardLabel } from "../components/CardDate";
 import { getMediaUrl } from "../media";
 import { PhotoGallery } from "../components/PhotoGallery";
 import { ProviderCard } from "../components/ProviderCard";
@@ -64,17 +67,16 @@ function UpcomingCard({ item, onOpen }: { item: ProviderUpcomingItem; onOpen: ()
       image={item.imageUrl}
       ph={placeholderStripes.green}
       tag={<EntityTypeLabel type={UPCOMING_KIND_TO_ENTITY[item.kind]} size={11} color="#172019" />}
-      details={[{ icon: <CalendarIcon size={13} />, text: formatSessionDate(item.date, item.time) }]}
+      dateOn={<CardDate date={item.date} time={item.time} label={itemCardLabel({ ...item, joined: item.capacity !== null && item.spotsLeft !== null ? item.capacity - item.spotsLeft : null })} />}
+      details={[{ icon: <CalendarIcon size={13} />, text: formatSessionDate(item.date, item.time), kind: "date" }]}
       facts={
         <>
-          {item.priceCents !== null && item.priceCents > 0 && <CardPrice>€{(item.priceCents / 100).toFixed(0)}</CardPrice>}
+          {item.priceCents !== null && <CardPrice cents={item.priceCents} unit={item.kind === "experience" ? "per person" : "per session"} />}
           {item.capacity !== null && <ParticipationMeter capacity={item.capacity} joinedCount={item.spotsLeft !== null ? item.capacity - item.spotsLeft : 0} />}
         </>
       }
       action={
-        <Button style={cardButtonStyle} variant="ghost" onClick={onOpen}>
-          View details
-        </Button>
+        <CardArrow label={`View details: ${item.title}`} onClick={onOpen} />
       }
     />
   );
@@ -114,6 +116,7 @@ function SectionHeading({ children }: { children: ReactNode }) {
 const sectionDividerStyle = { borderTop: `1px solid ${colors.border}`, paddingTop: 36 } as const;
 
 export function ProviderProfilePage() {
+  const [upcomingKind, setUpcomingKind] = useState<string>("all");
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [profile, setProfile] = useState<ProviderProfile | null>(null);
@@ -121,21 +124,36 @@ export function ProviderProfilePage() {
   const [notFound, setNotFound] = useState(false);
   // D-01: a provider whose organisation is suspended.
   const [unavailable, setUnavailable] = useState<Unavailable | null>(null);
+  // PUB-14: only a 404 means "not available"; other failures can be retried.
+  const [loadError, setLoadError] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
   usePageTitle(notFound ? "Provider not found" : profile?.name);
 
   useEffect(() => {
     if (!id) return;
+    setLoading(true);
+    setLoadError(false);
     fetchProviderProfile(id)
       .then((p) => (isUnavailable(p) ? setUnavailable(p) : setProfile(p)))
-      .catch(() => setNotFound(true))
+      .catch((e) => (isNotFound(e) ? setNotFound(true) : setLoadError(true)))
       .finally(() => setLoading(false));
-  }, [id]);
+  }, [id, reloadKey]);
 
   if (loading) return <PageSpinner />;
   if (unavailable) return <UnavailableListing item={unavailable} />;
+  if (loadError) {
+    return (
+      <section className="section-pad" style={{ maxWidth: 560, margin: "0 auto", padding: "80px 24px", textAlign: "center" }}>
+        <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(24px, 2.4vw, 30px)", margin: "0 0 10px" }}>We couldn't load this provider.</h1>
+        <p style={{ color: colors.mutedLight, margin: "0 0 16px" }}>Check your connection and try again.</p>
+        <Button onClick={() => setReloadKey((k) => k + 1)}>Try again</Button>
+      </section>
+    );
+  }
   if (notFound || !profile) {
     return (
       <section className="section-pad" style={{ maxWidth: 640, margin: "0 auto", padding: "60px 24px", textAlign: "center" }}>
+        <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: "clamp(24px, 2.4vw, 30px)", margin: "0 0 8px" }}>Provider not available</h1>
         <p style={{ color: colors.mutedLight }}>This provider doesn't exist, or isn't approved yet.</p>
       </section>
     );
@@ -161,6 +179,12 @@ export function ProviderProfilePage() {
 
   const isNew = profile.trust.totalListings <= 1 && profile.trust.participantCount < 5 && profile.reviewsSummary.count === 0;
 
+  // Upcoming type filter (kinds present only).
+  const KIND_NAMES: Record<string, string> = { experience: "Experiences", program_session: "Programmes", club_session: "Club sessions", venue: "Venues" };
+  const upcomingKinds = [
+    ...Object.entries(profile.upcoming.reduce<Record<string, number>>((acc, i) => ({ ...acc, [i.kind]: (acc[i.kind] ?? 0) + 1 }), {})).map(([key, count]) => ({ key, label: KIND_NAMES[key] ?? key, count })),
+    ...(profile.centres.length ? [{ key: "venue", label: KIND_NAMES.venue, count: profile.centres.length }] : []),
+  ];
   const offerings: { name: string; kind: EntityKind }[] = [
     ...profile.centres.map((c) => ({ name: c.name, kind: "place" as const })),
     ...profile.clubs.map((c) => ({ name: c.name, kind: "open-plan" as const })),
@@ -168,7 +192,7 @@ export function ProviderProfilePage() {
   ];
 
   return (
-    <div className="fade-panel" style={{ animation: "fadeUp .3s ease backwards" }}>
+    <div className="fade-panel">
       <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "24px 24px 0" }}>
         {/* Utility row — breadcrumb + Share, echoing the reference's own
             top utility strip (see VendorHero.tsx's identical pattern on
@@ -239,10 +263,11 @@ export function ProviderProfilePage() {
               {primaryCta && <Button onClick={primaryCta.action} style={{ padding: "12px 20px", fontSize: 14.5 }}>{primaryCta.label}</Button>}
               <FollowButton followedType="vendor" followedId={profile.id} initialFollowing={profile.isFollowing} initialLevel={profile.followNotificationLevel} followerCount={profile.followerCount} />
               <ShareButton entityType="provider" entityId={profile.id} />
+              <ReportContentButton targetType="provider" targetId={profile.id} what="this provider" />
             </div>
           </div>
 
-          {galleryImages.length > 0 && <PhotoGallery images={galleryImages} alt={profile.name} ph={placeholderStripes.green} height={460} sharedHero />}
+          {galleryImages.length > 0 && <PhotoGallery images={galleryImages} alt={profile.name} ph={placeholderStripes.green} />}
         </div>
 
         {/* Stat row — now a full-width band under the hero split (rather
@@ -279,17 +304,26 @@ export function ProviderProfilePage() {
                 </h2>
               </div>
               <p style={{ fontSize: 13.5, color: colors.mutedLight, margin: "0 0 16px" }}>Things you can join.</p>
+              {/* Type filter — only the kinds this provider actually has, and only when there's more than one. */}
+              {upcomingKinds.length > 1 && (
+                <div className="chips-scroll-mobile" role="group" aria-label="Filter what's coming up" style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
+                  <Chip label={`All (${profile.upcoming.length + profile.centres.length})`} active={upcomingKind === "all"} onClick={() => setUpcomingKind("all")} />
+                  {upcomingKinds.map((k) => (
+                    <Chip key={k.key} label={`${k.label} (${k.count})`} active={upcomingKind === k.key} onClick={() => setUpcomingKind(upcomingKind === k.key ? "all" : k.key)} />
+                  ))}
+                </div>
+              )}
               {profile.upcoming.length === 0 && profile.centres.length === 0 ? (
                 <div style={{ border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "28px 24px", textAlign: "center" }}>
                   <p style={{ margin: "0 0 4px", fontWeight: 700, fontSize: 15 }}>Nothing scheduled just yet</p>
                   <p style={{ margin: 0, fontSize: 13.5, color: colors.mutedLight }}>Check back soon, or explore their listings below.</p>
                 </div>
               ) : (
-                <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 14 }}>
-                  {profile.upcoming.map((item) => (
+                <div className="grid-responsive lc-grid--b" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 14 }}>
+                  {profile.upcoming.filter((item) => upcomingKind === "all" || item.kind === upcomingKind).map((item) => (
                     <UpcomingCard key={`${item.kind}-${item.id}`} item={item} onOpen={() => navigate(item.href)} />
                   ))}
-                  {profile.centres.map((c) => (
+                  {(upcomingKind === "all" || upcomingKind === "venue") && profile.centres.map((c) => (
                     <ListingCard
                       key={c.id}
                       href={`/centres/${c.slug ?? c.id}`}
@@ -298,9 +332,7 @@ export function ProviderProfilePage() {
                       ph={placeholderStripes.green}
                       tag={<EntityTypeLabel type="place" size={11} color="#172019" />}
                       action={
-                        <Button style={cardButtonStyle} variant="dark" onClick={() => navigate(`/centres/${c.slug ?? c.id}`)}>
-                          Check availability
-                        </Button>
+                        <CardArrow label={`Check availability: ${c.name}`} onClick={() => navigate(`/centres/${c.slug ?? c.id}`)} />
                       }
                     />
                   ))}
@@ -439,7 +471,8 @@ export function ProviderProfilePage() {
             {profile.similar.length > 0 && (
               <div style={sectionDividerStyle}>
                 <SectionHeading>More like this</SectionHeading>
-                <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 16 }}>
+                {/* The shared photo card (owner 2026-10-27), same as every "More like this". */}
+                <div className="grid-responsive lc-grid--b" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 16 }}>
                   {profile.similar.map((p) => (
                     <ProviderCard key={p.id} provider={p} />
                   ))}

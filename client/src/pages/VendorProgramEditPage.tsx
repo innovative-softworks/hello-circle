@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { CircleCreationBanner } from "../components/circle/CircleCreationBanner";
 import { HostChatButton } from "../components/HostChatButton";
 import { useNavigate, useParams } from "react-router-dom";
 import { fetchVendorListings, fetchVendorProgram } from "../api";
@@ -65,10 +66,11 @@ export function VendorProgramEditPage() {
       }
     >
       <div>
+        <CircleCreationBanner type="program" listingId={programId === "new" ? null : programId} />
         {loadError ? (
           <LoadErrorState title={programId === "new" ? "Couldn't load your listings." : "Couldn't load this programme."} onRetry={load} />
         ) : programId === "new" ? (
-          <ProgramCreateForm listings={listings} onCreated={(newId) => navigate(`/vendor/programs/${newId}`, { replace: true })} onDirtyChange={setDirty} />
+          <ProgramCreateForm listings={listings} onCreated={(newId) => navigate(`/vendor/programs/${newId}${window.location.search}`, { replace: true })} onDirtyChange={setDirty} />
         ) : (
           <ProgramManager programId={programId} onChanged={() => fetchVendorProgram(programId).then((p) => setTitle(p.title)).catch(() => {})} />
         )}

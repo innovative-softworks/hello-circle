@@ -1,3 +1,5 @@
+import { Plus as PlusLucide } from "lucide-react";
+import { CategoryChips, CategoryEmptyHint, CategoryTypeOptions, hasCategoryTypes, useCategoryFilter } from "../components/categories/CategoryChips";
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useToast } from "../components/Toast";
 import { createPortal } from "react-dom";
@@ -5,7 +7,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { fetchGamesPage, fetchMyGames, joinGame, joinGameWaitlist, subscribeGameNotifyMe } from "../api";
 import { openCheckout } from "../native";
 import { signInHref } from "../authRedirect";
-import { ArrowRightIcon, AwardIcon, BallIcon, CalendarIcon, ClockIcon, CloseIcon, LightbulbIcon, PinIcon, PlusIcon, SearchIcon, UsersIcon } from "../components/icons";
+import { ArrowRightIcon, AwardIcon, BallIcon, CalendarIcon, ClockIcon, CloseIcon, PinIcon, PlusIcon, SearchIcon, UsersIcon } from "../components/icons";
 import { Chip } from "../components/Chip";
 import { DropdownCheckbox, DropdownOption, FilterDropdown } from "../components/FilterDropdown";
 import { IntentCaptureForm } from "../components/IntentCaptureForm";
@@ -15,9 +17,10 @@ import { PageTitle } from "../components/PageTitle";
 import { AuthContextCard } from "../components/AuthShell";
 import { SignInPanel } from "../components/SignInPanel";
 import { SaveButton, useSavedState } from "../components/SaveButton";
-import { CardPrice, ListingCard, cardButtonStyle } from "../components/ListingCard";
+import { CardAction, CardArrow, CardAvailability, CardGrid, CardPrice, ListingCard, ListingCardSkeleton } from "../components/ListingCard";
+import { CardDate, gameCardLabel } from "../components/CardDate";
 import { dateLabel } from "../euro";
-import { formatAvailability, formatDateTime, formatPrice } from "../formatters";
+import { formatAvailability, formatDateTime, formatPrice, formatTime12h } from "../formatters";
 import { gameState, isMinAgeRefusal, primaryCtaLabel } from "../gameCta";
 import { useGuest } from "../GuestContext";
 import { colors, fonts, maxWidth, placeholderStripes, radius } from "../theme";
@@ -25,6 +28,7 @@ import { SKILL_LEVELS } from "../constants";
 import type { Game } from "../types";
 import { daysBetween, irelandDaysFromToday, irelandToday, weekdayOf } from "../irelandDate";
 import { CtaBand } from "../components/CtaBand";
+import { FeaturedPicks } from "../components/FeaturedPicks";
 
 // "Join a Game" (MVP) — the lightweight, participation-first counterpart to
 // booking a whole venue: see plan doc "Book vs Join". v1 is deliberately
@@ -76,6 +80,20 @@ function gameSignInContext(game: Game) {
   };
 }
 
+/** Card photo pill: the activity's real category (subcategory first), else "Activity". */
+function cardCategory(game: Game): string {
+  return game.taxonomy?.subcategoryName ?? game.taxonomy?.categoryName ?? "Activity";
+}
+
+/** A calm status when nothing is urgent — only from real fields: listed in
+ * the last 7 days ("New"), or marked solo friendly. */
+function quietStatus(game: Game): { label: string; tone: "new" } | null {
+  const created = game.createdAt ? Date.parse(game.createdAt) : NaN;
+  if (!Number.isNaN(created) && Date.now() - created < 7 * 24 * 3600 * 1000) return { label: "New", tone: "new" };
+  if (game.soloFriendly) return { label: "Solo friendly", tone: "new" };
+  return null;
+}
+
 export function GameCard({ game, onJoin, onLeave, joining }: { game: Game; onJoin: () => void; onLeave: () => void; joining: boolean }) {
   const navigate = useNavigate();
   const { resident } = useGuest();
@@ -104,37 +122,39 @@ export function GameCard({ game, onJoin, onLeave, joining }: { game: Game; onJoi
       headingLevel={2}
       image={game.imageUrl}
       ph={placeholderStripes.green}
+      fallbackKind="Activity"
+      fallbackLine={formatDateTime(game.date, game.time)}
+      rowOnPhone
       icon={<BallIcon size={22} />}
       iconColor={colors.orange}
-      tag={game.soloFriendly ? "Solo friendly" : "Activity"}
-      status={comingSoon ? { label: "Coming soon", tone: "calm" } : full ? { label: "Full", tone: "calm" } : headline ? { label: headline } : null}
+      tag={cardCategory(game)}
+      status={comingSoon ? { label: "Coming soon", tone: "calm" } : full ? { label: "Fully booked", tone: "calm" } : headline ? { label: headline, tone: "hot" } : quietStatus(game)}
       save={<SaveButton saved={saved} onToggle={toggleSaved} />}
       details={[
+        { icon: <CalendarIcon size={13} />, text: gameWhen12h(game) },
         { icon: <PinIcon size={13} />, text: game.centreName ?? game.locationText },
-        { icon: <CalendarIcon size={13} />, text: `${game.date} · ${game.time}` },
         game.hostVerified ? { icon: <AwardIcon size={13} />, text: "Verified host" } : null,
       ]}
+      going={game.joined}
       facts={
         <>
-          <CardPrice>{formatPrice(game.priceCents)}</CardPrice>
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-            <UsersIcon size={13} /> {game.joined}/{game.capacity} going
-          </span>
+          <CardPrice cents={game.priceCents} unit="per person" />
+          {!comingSoon && <CardAvailability spotsLeft={game.spotsLeft} />}
         </>
       }
       action={
         comingSoon ? (
-          <Button style={cardButtonStyle} variant="dark" onClick={handleNotifyMe} disabled={notifyBusy || notifySubscribed}>
-            {notifySubscribed ? "We'll let you know" : notifyBusy ? "Setting up…" : "Notify me"}
-          </Button>
+          <CardAction look="outline" onClick={handleNotifyMe} disabled={notifySubscribed} busy={notifyBusy} busyLabel="Setting up…">
+            {notifySubscribed ? "We'll let you know" : "Notify me"}
+          </CardAction>
         ) : full ? (
-          <Button style={cardButtonStyle} variant="ghost" onClick={() => (resident ? joinGameWaitlist(game.id) : navigate(signInHref(gameSignInContext(game))))}>
-            {resident ? "Join waitlist" : "Sign in to join waitlist"}
-          </Button>
+          <CardAction look="outline" onClick={() => (resident ? joinGameWaitlist(game.id) : navigate(signInHref(gameSignInContext(game))))} ariaLabel={`Join the waitlist for ${game.activityLabel}`}>
+            Join waitlist
+          </CardAction>
         ) : (
-          <Button onClick={resident ? onJoin : () => navigate(signInHref(gameSignInContext(game)))} disabled={joining} full>
-            {joining ? "Joining…" : resident ? "I'm in" : "Sign in to join"}
-          </Button>
+          <CardAction look={(game.priceCents ?? 0) > 0 ? "filled" : "outline"} arrow busy={joining} busyLabel="Joining…" onClick={resident ? onJoin : () => navigate(signInHref(gameSignInContext(game)))} ariaLabel={`Join ${game.activityLabel}`}>
+            Join
+          </CardAction>
         )
       }
     />
@@ -205,6 +225,19 @@ function gameWhen(game: Game): string {
 
 function gameWhen12h(game: Game): string {
   return formatDateTime(game.date, game.time, true);
+}
+
+/** Each price tier as the server's priceMin/priceMax (cents). */
+const PRICE_RANGES: Record<Exclude<PriceTier, "any">, { min?: number; max?: number }> = {
+  free: { max: 0 },
+  under10: { min: 1, max: 999 },
+  "10to20": { min: 1000, max: 2000 },
+  over20: { min: 2001 },
+};
+
+function mergeById(lists: Game[][]): Game[] {
+  const seen = new Set<string>();
+  return lists.flat().filter((g) => (seen.has(g.id) ? false : (seen.add(g.id), true)));
 }
 
 function priceMatches(game: Game, tier: PriceTier): boolean {
@@ -325,8 +358,14 @@ function JoinGameCard({
   // plan" (secondary). Urgency shows as the photo status badge.
   const isJoinable = !joinedByMe && !full;
   const ctaLabel = joinedByMe ? "View plan" : full ? "Join waitlist" : primaryCtaLabel(game);
+  // The price is already in the card footer, so the compact button keeps just the verb.
+  const shortCta = ctaLabel.split(" · ")[0];
   const ctaVariant = isJoinable ? "primary" : "ghost";
 
+  // My Life card style (option B, owner 2026-10-27): the status and the big
+  // date on the photo, the category as a kicker, one muted line.
+  const label = gameCardLabel(game, joinedByMe);
+  const place = game.centreName ?? game.locationText;
   return (
     <ListingCard
       href={href}
@@ -334,46 +373,53 @@ function JoinGameCard({
       headingLevel={2}
       image={game.imageUrl}
       ph={placeholderStripes.green}
+      fallbackKind="Activity"
+      fallbackLine={formatDateTime(game.date, game.time)}
+      rowOnPhone
       icon={<BallIcon size={24} />}
       iconColor={colors.orange}
-      tag={comingSoon ? "Coming soon" : game.soloFriendly ? "Solo friendly" : "Activity"}
-      status={full ? { label: "Full", tone: "calm" } : state === "needs" ? { label: spotsLabel(game) } : null}
+      // Only a real category: a generic "Activity" on every card says nothing.
+      kicker={game.taxonomy?.subcategoryName ?? game.taxonomy?.categoryName ?? null}
+      dateOn={<CardDate date={game.date} time={game.time} label={label} href={href} onGo={navigate} />}
       save={<SaveButton saved={saved} onToggle={toggleSaved} />}
-      details={[
-        { icon: <PinIcon size={13} />, text: game.centreName ?? game.locationText },
-        { icon: <ClockIcon size={13} />, text: gameWhen12h(game) },
-      ]}
+      details={[{ text: [place, game.joined > 0 ? `${game.joined} going` : null].filter(Boolean).join(" · ") }]}
       facts={
         <>
-          <CardPrice>{formatPrice(game.priceCents)}</CardPrice>
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-            <UsersIcon size={13} /> {game.joined} going
-          </span>
-          {state !== "needs" && !full && <span style={{ fontWeight: 600, color: colors.mutedLight }}>{spotsLabel(game)}</span>}
+          <CardPrice cents={game.priceCents} unit="per person" />
+          {!comingSoon && <CardAvailability spotsLeft={game.spotsLeft} />}
         </>
       }
       action={
-        <>
-          {comingSoon ? (
-            <Button style={cardButtonStyle} variant="dark" disabled={notifyBusy || notifySubscribed} onClick={handleNotifyMe}>
-              {notifySubscribed ? "We'll let you know" : notifyBusy ? "Setting up…" : "Notify me"}
-            </Button>
-          ) : (
-            <Button style={cardButtonStyle} variant={ctaVariant} disabled={busy} onClick={onPrimaryAction}>
-              {busy ? "Joining…" : ctaLabel}
-            </Button>
-          )}
-          {full && !joinedByMe && (
-            <button
-              onClick={onFindSimilar}
-              style={{ display: "block", width: "100%", minHeight: 44, background: "none", border: "none", padding: 0, cursor: "pointer", fontSize: 13, fontWeight: 700, color: colors.orange }}
-            >
-              Find similar
-            </button>
-          )}
-        </>
+        comingSoon ? (
+          <CardAction look="outline" disabled={notifySubscribed} busy={notifyBusy} busyLabel="Setting up…" onClick={handleNotifyMe}>
+            {notifySubscribed ? "We'll let you know" : "Notify me"}
+          </CardAction>
+        ) : joinedByMe || game.joinedByMe || game.waitlistedByMe ? (
+          <CardArrow label={game.waitlistedByMe ? `View ${game.activityLabel}: you're on the waitlist` : `View your plan: ${game.activityLabel}`} onClick={() => navigate(href)} />
+        ) : game.joinRequestByMe === "requested" ? (
+          <CardAction look="booked" ariaLabel={`Request sent to join ${game.activityLabel}`}>
+            Sent
+          </CardAction>
+        ) : (
+          <CardAction
+            look={full ? "outline" : ctaVariant === "primary" && (game.priceCents ?? 0) > 0 ? "filled" : "outline"}
+            arrow={!full}
+            busy={busy}
+            busyLabel="Joining…"
+            onClick={onPrimaryAction}
+            ariaLabel={full ? `Join the waitlist for ${game.activityLabel}` : `${ctaLabel}: ${game.activityLabel}`}
+          >
+            {shortCta}
+          </CardAction>
+        )
       }
-    />
+    >
+      {full && !joinedByMe && (
+        <button type="button" className="stretched-link-above" onClick={onFindSimilar} style={{ alignSelf: "flex-start", background: "none", border: "none", padding: "4px 0", minHeight: 32, cursor: "pointer", fontSize: 13, fontWeight: 700, color: colors.orange, position: "relative" }}>
+          Find similar →
+        </button>
+      )}
+    </ListingCard>
   );
 }
 
@@ -465,11 +511,16 @@ export function Games() {
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
   const county = searchParams.get("county") || "All";
-  const when = (searchParams.get("when") as WhenFilter) || "any";
+  // Owner, 2026-10-23: Refine takes several choices per group (?when=today,weekend).
+  const listParam = (key: string) => (searchParams.get(key) || "").split(",").filter((v) => v && v !== "any");
+  const whens = useMemo(() => listParam("when") as WhenFilter[], [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
   const whenDate = searchParams.get("whenDate") || "";
-  const category = searchParams.get("category") || "All";
-  const skill = searchParams.get("skill") || "any";
-  const price = (searchParams.get("price") as PriceTier) || "any";
+  // Category system: ?category=<slug>&sub=<slug>. A pre-taxonomy
+  // ?category=<activity label> link still filters by that label.
+  const taxonomy = useCategoryFilter("activity");
+  const category = taxonomy.legacyLabel ?? "All";
+  const skills = useMemo(() => listParam("skill"), [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
+  const prices = useMemo(() => listParam("price") as PriceTier[], [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
   const availability = useMemo(
     () => (searchParams.get("availability") || "").split(",").filter(Boolean) as AvailabilityFilter[],
     [searchParams]
@@ -481,7 +532,9 @@ export function Games() {
   const [loadFailed, setLoadFailed] = useState(false);
   // HC-QA-073 — server-paginated (cursor) list; filters that map to SQL are
   // sent to the server so a page never hides matches. See loadFirstPage below.
-  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  // One cursor per server query (several ticked types = one query each).
+  const [cursors, setCursors] = useState<(string | null)[]>([]);
+  const nextCursor = cursors.some(Boolean);
   const [loadingMore, setLoadingMore] = useState(false);
   const [loadMoreFailed, setLoadMoreFailed] = useState(false);
   const [seenGames, setSeenGames] = useState<Map<string, Game>>(new Map());
@@ -523,7 +576,7 @@ export function Games() {
 
   useEffect(() => {
     setVisibleCount(PAGE_SIZE);
-  }, [query, county, when, whenDate, category, skill, price, availability.join(","), sort]);
+  }, [query, county, whens.join(","), whenDate, category, skills.join(","), prices.join(","), availability.join(","), sort]);
 
   const setParam = (key: string, value: string, defaultValue: string) => {
     const next = new URLSearchParams(searchParams);
@@ -533,10 +586,14 @@ export function Games() {
   };
   const setCounty = (v: string) => setParam("county", v, "All");
   const setCategory = (v: string) => setParam("category", v, "All");
-  const setWhen = (v: WhenFilter) => setParam("when", v, "any");
+  const toggleParam = (key: string, v: string) => {
+    const cur = listParam(key);
+    const next = cur.includes(v) ? cur.filter((x) => x !== v) : [...cur, v];
+    setParam(key, next.join(","), "");
+  };
+  const clearWhen = () => setParam("when", "", "");
   const setWhenDate = (v: string) => setParam("whenDate", v, "");
-  const setSkill = (v: string) => setParam("skill", v, "any");
-  const setPrice = (v: PriceTier) => setParam("price", v, "any");
+
   const toggleAvailability = (a: AvailabilityFilter) => {
     const next = availability.includes(a) ? availability.filter((x) => x !== a) : [...availability, a];
     const nextParams = new URLSearchParams(searchParams);
@@ -570,7 +627,7 @@ export function Games() {
   );
 
   const parsedQuery = useMemo(() => parseQuery(query), [query]);
-  const effectiveWhen: WhenFilter = when !== "any" ? when : parsedQuery.when ?? "any";
+  const effectiveWhens: WhenFilter[] = whens.length ? whens : parsedQuery.when && parsedQuery.when !== "any" ? [parsedQuery.when] : [];
 
   // HC-QA-073 — the same filters, expressed for the server query.
   const [debouncedText, setDebouncedText] = useState(parsedQuery.text);
@@ -579,21 +636,43 @@ export function Games() {
     return () => clearTimeout(t);
   }, [parsedQuery.text]);
   const serverFilters = useMemo<GameListFilters>(() => {
-    const f: GameListFilters = { q: debouncedText || undefined, county: county !== "All" ? county : undefined, category: category !== "All" ? category : undefined, skill: skill !== "any" ? skill : undefined };
+    const f: GameListFilters = { q: debouncedText || undefined, county: county !== "All" ? county : undefined, category: category !== "All" ? category : undefined, skill: skills.length === 1 ? skills[0] : undefined, ...taxonomy.serverParams };
+    // Several ticked: the server gets the span that covers them all and the
+    // list below keeps only exact matches.
     const day = irelandDaysFromToday;
-    if (effectiveWhen === "today") { f.dateFrom = day(0); f.dateTo = day(0); }
-    if (effectiveWhen === "tonight") { f.dateFrom = day(0); f.dateTo = day(0); f.timeFrom = "17:00"; }
-    if (effectiveWhen === "tomorrow") { f.dateFrom = day(1); f.dateTo = day(1); }
-    if (effectiveWhen === "weekend") { f.dateFrom = day(0); f.dateTo = day(7); f.weekend = true; }
-    if (effectiveWhen === "next7") { f.dateFrom = day(0); f.dateTo = day(7); }
-    if (effectiveWhen === "date" && whenDate) { f.dateFrom = whenDate; f.dateTo = whenDate; }
-    if (price === "free") f.priceMax = 0;
-    if (price === "under10") { f.priceMin = 1; f.priceMax = 999; }
-    if (price === "10to20") { f.priceMin = 1000; f.priceMax = 2000; }
-    if (price === "over20") f.priceMin = 2001;
+    const spans = effectiveWhens.map((w) => {
+      if (w === "today") return { from: day(0), to: day(0) };
+      if (w === "tonight") return { from: day(0), to: day(0), timeFrom: "17:00" };
+      if (w === "tomorrow") return { from: day(1), to: day(1) };
+      if (w === "weekend") return { from: day(0), to: day(7), weekend: true };
+      if (w === "next7") return { from: day(0), to: day(7) };
+      if (w === "date" && whenDate) return { from: whenDate, to: whenDate };
+      return null;
+    });
+    if (spans.length && spans.every(Boolean)) {
+      const ok = spans as { from: string; to: string; timeFrom?: string; weekend?: boolean }[];
+      f.dateFrom = ok.map((x) => x.from).sort()[0];
+      f.dateTo = ok.map((x) => x.to).sort().reverse()[0];
+      if (ok.every((x) => x.timeFrom)) f.timeFrom = "17:00";
+      if (ok.every((x) => x.weekend)) f.weekend = true;
+    }
+    const ranges = prices.filter((p): p is Exclude<PriceTier, "any"> => p !== "any").map((p) => PRICE_RANGES[p]);
+    if (ranges.length) {
+      const mins = ranges.map((r) => r.min ?? 0);
+      const maxs = ranges.map((r) => r.max);
+      if (Math.min(...mins) > 0) f.priceMin = Math.min(...mins);
+      if (maxs.every((m) => m !== undefined)) f.priceMax = Math.max(...(maxs as number[]));
+    }
     return f;
-  }, [debouncedText, county, category, skill, effectiveWhen, whenDate, price]);
-  const filterKey = JSON.stringify(serverFilters);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedText, county, category, skills.join(","), effectiveWhens.join(","), whenDate, prices.join(","), JSON.stringify(taxonomy.serverParams)]);
+  // Several ticked types: the list endpoint takes one type, so one query each.
+  const serverQueries = useMemo<GameListFilters[]>(
+    () => (taxonomy.subSlugs.length > 1 ? taxonomy.subSlugs.map((sub) => ({ ...serverFilters, subcategorySlug: sub })) : [serverFilters]),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [serverFilters, taxonomy.subSlugs.join(",")]
+  );
+  const filterKey = JSON.stringify(serverQueries);
 
   const remember = (rows: Game[]) => setSeenGames((m) => { const n = new Map(m); rows.forEach((g) => n.set(g.id, g)); return n; });
   const load = () => {
@@ -601,12 +680,13 @@ export function Games() {
     setLoading(true);
     setLoadFailed(false);
     setLoadMoreFailed(false);
-    fetchGamesPage(serverFilters)
-      .then((page) => {
+    Promise.all(serverQueries.map((q) => fetchGamesPage(q)))
+      .then((pages) => {
         if (seq !== requestSeq.current) return;
-        setGames(page.items);
-        setNextCursor(page.nextCursor);
-        remember(page.items);
+        const items = mergeById(pages.map((p) => p.items));
+        setGames(items);
+        setCursors(pages.map((p) => p.nextCursor));
+        remember(items);
       })
       .catch(() => { if (seq === requestSeq.current) setLoadFailed(true); })
       .finally(() => { if (seq === requestSeq.current) setLoading(false); });
@@ -619,13 +699,14 @@ export function Games() {
     const seq = requestSeq.current;
     setLoadingMore(true);
     setLoadMoreFailed(false);
-    fetchGamesPage(serverFilters, nextCursor)
-      .then((page) => {
+    Promise.all(serverQueries.map((q, i) => (cursors[i] ? fetchGamesPage(q, cursors[i]) : Promise.resolve({ items: [] as Game[], nextCursor: null }))))
+      .then((pages) => {
         if (seq !== requestSeq.current) return;
+        const fresh = mergeById(pages.map((p) => p.items));
         // Keyset pages can't overlap, but de-duplicate defensively by id.
-        setGames((prev) => { const ids = new Set(prev.map((g) => g.id)); return [...prev, ...page.items.filter((g) => !ids.has(g.id))]; });
-        setNextCursor(page.nextCursor);
-        remember(page.items);
+        setGames((prev) => { const ids = new Set(prev.map((g) => g.id)); return [...prev, ...fresh.filter((g) => !ids.has(g.id))]; });
+        setCursors(pages.map((p) => p.nextCursor));
+        remember(fresh);
         setVisibleCount((v) => v + PAGE_SIZE);
       })
       // Page 1 (and every loaded page) stays visible; only "load more" shows an error.
@@ -633,36 +714,38 @@ export function Games() {
       .finally(() => setLoadingMore(false));
   };
 
-  const filtered = useMemo(() => {
-    return games.filter((g) => {
-      if (!matchesText(g, parsedQuery.text)) return false;
-      if (county !== "All" && g.county !== county) return false;
-      if (category !== "All" && g.activityLabel !== category) return false;
-      if (!dateWhenMatches(g, effectiveWhen, whenDate)) return false;
-      if (skill !== "any" && g.skillLevel && g.skillLevel !== "All levels" && g.skillLevel.toLowerCase() !== skill.toLowerCase()) return false;
-      if (price !== "any" && !priceMatches(g, price)) return false;
-      if (availability.length && !availability.includes(gameState(g))) return false;
-      return true;
-    });
-  }, [games, parsedQuery, county, category, effectiveWhen, whenDate, skill, price, availability]);
+  // One predicate, also used to count what dropping a filter would add.
+  type Relax = { text?: boolean; county?: boolean; category?: boolean; when?: boolean; price?: boolean };
+  const matchGame = (g: Game, r: Relax = {}) => {
+    if (!r.text && !matchesText(g, parsedQuery.text)) return false;
+    if (!r.county && county !== "All" && g.county !== county) return false;
+    if (!r.category && category !== "All" && g.activityLabel !== category) return false;
+    if (!r.when && effectiveWhens.length && !effectiveWhens.some((w) => dateWhenMatches(g, w, whenDate))) return false;
+    if (skills.length && g.skillLevel && g.skillLevel !== "All levels" && !skills.some((sk) => g.skillLevel.toLowerCase() === sk.toLowerCase())) return false;
+    if (!r.price && prices.length && !prices.some((p) => priceMatches(g, p))) return false;
+    if (availability.length && !availability.includes(gameState(g))) return false;
+    return true;
+  };
+  const filtered = useMemo(() => games.filter((g) => matchGame(g)), [games, parsedQuery, county, category, effectiveWhens, whenDate, skills, prices, availability]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const sorted = useMemo(() => [...filtered].sort((a, b) => compareGames(a, b, sort)), [filtered, sort]);
   const visibleGames = sorted.slice(0, visibleCount);
 
   const activeCount =
-    [county !== "All", when !== "any", category !== "All", skill !== "any", price !== "any"].filter(Boolean).length + availability.length;
+    [county !== "All", category !== "All" || !!taxonomy.selected].filter(Boolean).length + whens.length + skills.length + prices.length + availability.length;
 
   const activeChips = useMemo(() => {
     const chips: { key: string; label: string; onRemove: () => void }[] = [];
     if (county !== "All") chips.push({ key: "county", label: county, onRemove: () => setCounty("All") });
-    if (when !== "any") chips.push({ key: "when", label: when === "date" && whenDate ? dateLabel(whenDate) : WHEN_LABELS[when], onRemove: () => setWhen("any") });
+    whens.forEach((w) => chips.push({ key: `when-${w}`, label: w === "date" && whenDate ? dateLabel(whenDate) : WHEN_LABELS[w], onRemove: () => toggleParam("when", w) }));
     if (category !== "All") chips.push({ key: "category", label: category, onRemove: () => setCategory("All") });
+    if (taxonomy.label) chips.push({ key: "taxonomy", label: taxonomy.label, onRemove: () => taxonomy.setCategory(null) });
     availability.forEach((a) => chips.push({ key: `avail-${a}`, label: AVAILABILITY_LABELS[a], onRemove: () => toggleAvailability(a) }));
-    if (skill !== "any") chips.push({ key: "skill", label: skill, onRemove: () => setSkill("any") });
-    if (price !== "any") chips.push({ key: "price", label: PRICE_LABELS[price], onRemove: () => setPrice("any") });
+    skills.forEach((sk) => chips.push({ key: `skill-${sk}`, label: sk, onRemove: () => toggleParam("skill", sk) }));
+    prices.forEach((p) => chips.push({ key: `price-${p}`, label: PRICE_LABELS[p], onRemove: () => toggleParam("price", p) }));
     return chips;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [county, when, whenDate, category, availability, skill, price]);
+  }, [county, whens, whenDate, category, availability, skills, prices, taxonomy.label]);
 
   const handleJoin = async (id: string) => {
     setJoiningId(id);
@@ -730,8 +813,8 @@ export function Games() {
     [games]
   );
 
-  const whenSummaryLabel = when === "date" && whenDate ? dateLabel(whenDate) : WHEN_LABELS[when];
-  const intentActivityLabel = category !== "All" ? category : parsedQuery.text || "this";
+  const whenSummaryLabel = whens.length === 0 ? WHEN_LABELS.any : whens.map((w) => (w === "date" && whenDate ? dateLabel(whenDate) : WHEN_LABELS[w])).join(", ");
+  const intentActivityLabel = category !== "All" ? category : taxonomy.selectedSub?.name ?? taxonomy.selected?.name ?? (parsedQuery.text || "this");
 
   const filterGroupStyle: CSSProperties = { padding: "16px 0", borderTop: `1px solid ${colors.border}` };
   const filterLabelStyle: CSSProperties = { fontSize: 11.5, fontWeight: 700, color: colors.mutedLight, textTransform: "uppercase", letterSpacing: 0, marginBottom: 8 };
@@ -747,13 +830,21 @@ export function Games() {
         )}
       </div>
 
-      <div style={{ ...filterGroupStyle, paddingTop: 0 }}>
+      {/* Owner, 2026-10-23: the category's types live here, not as a second chip row. */}
+      {hasCategoryTypes(taxonomy) && (
+        <div style={{ ...filterGroupStyle, paddingTop: 0, borderTop: "none" }}>
+          <div style={filterLabelStyle}>Type</div>
+          <CategoryTypeOptions state={taxonomy} />
+        </div>
+      )}
+
+      <div style={{ ...filterGroupStyle, ...(hasCategoryTypes(taxonomy) ? {} : { paddingTop: 0 }) }}>
         <div style={filterLabelStyle}>When</div>
-        {(["any", "today", "tonight", "tomorrow", "weekend", "next7"] as WhenFilter[]).map((w) => (
-          <DropdownOption key={w} label={WHEN_LABELS[w]} active={when === w} onClick={() => setWhen(w)} />
+        {(["today", "tonight", "tomorrow", "weekend", "next7"] as WhenFilter[]).map((w) => (
+          <DropdownCheckbox key={w} label={WHEN_LABELS[w]} checked={whens.includes(w)} onChange={() => toggleParam("when", w)} />
         ))}
-        <DropdownOption label="Pick a date" active={when === "date"} onClick={() => setWhen("date")} />
-        {when === "date" && (
+        <DropdownCheckbox label="Pick a date" checked={whens.includes("date")} onChange={() => toggleParam("when", "date")} />
+        {whens.includes("date") && (
           <input aria-label="Pick a date" type="date" value={whenDate} onChange={(e) => setWhenDate(e.target.value)} style={{ ...inputStyle, marginTop: 4, fontSize: 13, padding: "7px 9px" }} />
         )}
       </div>
@@ -767,23 +858,22 @@ export function Games() {
 
       <div style={filterGroupStyle}>
         <div style={filterLabelStyle}>Skill</div>
-        <DropdownOption label="Any level" active={skill === "any"} onClick={() => setSkill("any")} />
         {SKILL_LEVELS.filter((s) => s !== "All levels").map((s) => (
-          <DropdownOption key={s} label={s} active={skill.toLowerCase() === s.toLowerCase()} onClick={() => setSkill(s)} />
+          <DropdownCheckbox key={s} label={s} checked={skills.some((x) => x.toLowerCase() === s.toLowerCase())} onChange={() => toggleParam("skill", s)} />
         ))}
       </div>
 
       <div style={{ ...filterGroupStyle, paddingBottom: 0 }}>
         <div style={filterLabelStyle}>Price</div>
-        {(["any", "free", "under10", "10to20", "over20"] as PriceTier[]).map((p) => (
-          <DropdownOption key={p} label={PRICE_LABELS[p]} active={price === p} onClick={() => setPrice(p)} />
+        {(["free", "under10", "10to20", "over20"] as PriceTier[]).map((p) => (
+          <DropdownCheckbox key={p} label={PRICE_LABELS[p]} checked={prices.includes(p)} onChange={() => toggleParam("price", p)} />
         ))}
       </div>
     </>
   );
 
   return (
-    <div style={{ animation: "fadeUp .35s ease backwards" }}>
+    <div className="fade-panel">
       <ConfirmDialog
         open={!!quickJoinGame}
         title="Confirm your spot"
@@ -817,7 +907,7 @@ export function Games() {
         onSignedIn={refreshGuest}
       />
 
-      <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "36px 24px 24px" }}>
+      <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "36px 24px 16px" }}>
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
           <div>
             <PageTitle>Activities</PageTitle>
@@ -830,60 +920,58 @@ export function Games() {
           )}
         </div>
 
-        {/* Search / discovery card — one grouped control (prominent free-text
-            field on top, compact location/time refinements below it) rather
-            than four equal-weight boxes bolted side by side. */}
-        <div style={{ border: `1px solid ${colors.border}`, borderRadius: radius.card, background: colors.surface, boxShadow: "0 8px 24px rgba(30,40,32,.05)", padding: 14, marginTop: 24, marginBottom: 16 }}>
-          <div style={{ position: "relative" }}>
+        {/* Search card (Batch 2, same pattern as Explore and BrowseLayout): the
+            field and the area/when pickers in one row that wraps on phones.
+            Results filter as you type, so there's no separate Search button. */}
+        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, border: `1px solid ${colors.border}`, borderRadius: radius.card, background: colors.surface, boxShadow: "0 8px 24px rgba(30,40,32,.05)", padding: 8, marginTop: 20, marginBottom: 14 }}>
+          <div style={{ position: "relative", flex: "1 1 260px", minWidth: 0 }}>
             <SearchIcon size={17} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: colors.faint }} />
-            <input aria-label="Search sessions"
+            <input aria-label="Search activities"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="What do you feel like doing? e.g. Badminton tonight"
-              style={{ width: "100%", padding: "8px 8px 8px 36px", border: "none", background: "transparent", fontFamily: fonts.display, fontSize: 16.5, fontWeight: 600, color: colors.text, outline: "none" }}
+              style={{ width: "100%", padding: "11px 8px 11px 36px", border: "none", background: "transparent", fontSize: 16, color: colors.text, outline: "none", boxSizing: "border-box" }}
             />
           </div>
-          <div style={{ height: 1, background: colors.border, margin: "10px 0" }} />
-          <div className="stack-mobile" style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <select aria-label="Area"
-              value={county}
-              onChange={(e) => setCounty(e.target.value)}
-              style={{ padding: "8px 12px", border: "none", borderRadius: radius.control, fontSize: 13.5, background: colors.panel, color: colors.text, fontWeight: 600 }}
-            >
-              <option value="All">Near: anywhere</option>
-              {countyOptions.map((c) => (
-                <option key={c} value={c}>Near: {c}</option>
-              ))}
-            </select>
-            <select aria-label="When"
-              value={when}
-              onChange={(e) => setWhen(e.target.value as WhenFilter)}
-              style={{ padding: "8px 12px", border: "none", borderRadius: radius.control, fontSize: 13.5, background: colors.panel, color: colors.text, fontWeight: 600 }}
-            >
-              {(Object.keys(WHEN_LABELS) as WhenFilter[]).map((w) => (
-                <option key={w} value={w}>{WHEN_LABELS[w]}</option>
-              ))}
-            </select>
-            <div style={{ marginLeft: "auto" }}>
-              <Button onClick={() => resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}>Search</Button>
-            </div>
-          </div>
+          <select aria-label="Area"
+            value={county}
+            onChange={(e) => setCounty(e.target.value)}
+            style={{ padding: "9px 12px", border: "none", borderRadius: radius.pill, fontSize: 13.5, background: colors.panel, color: colors.text, fontWeight: 600 }}
+          >
+            <option value="All">Near: anywhere</option>
+            {countyOptions.map((c) => (
+              <option key={c} value={c}>Near: {c}</option>
+            ))}
+          </select>
         </div>
 
-        {/* Quick category chips */}
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", marginBottom: 20 }}>
+        {/* Category chips (category system); the label chips below remain
+            only as the fallback when no category has live activities. */}
+        <CategoryChips state={taxonomy} subChips={false} />
+        {taxonomy.loaded && taxonomy.categories.length === 0 && (
+        <div className="chips-scroll-mobile" style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", marginBottom: 8 }}>
           <Chip label="All" active={category === "All"} onClick={() => setCategory("All")} />
           {chipCategories.map((c) => (
             <Chip key={c} label={c} active={category === c} onClick={() => setCategory(category === c ? "All" : c)} />
           ))}
           {overflowCategories.length > 0 && (
-            <FilterDropdown label={overflowCategories.includes(category) ? category : "More"} active={overflowCategories.includes(category)}>
+            <span className="show-mobile-contents">
               {overflowCategories.map((c) => (
-                <DropdownOption key={c} label={c} active={category === c} onClick={() => setCategory(category === c ? "All" : c)} />
+                <Chip key={c} label={c} active={category === c} onClick={() => setCategory(category === c ? "All" : c)} />
               ))}
-            </FilterDropdown>
+            </span>
+          )}
+          {overflowCategories.length > 0 && (
+            <span className="hide-mobile">
+              <FilterDropdown label={overflowCategories.includes(category) ? category : "More"} active={overflowCategories.includes(category)}>
+                {overflowCategories.map((c) => (
+                  <DropdownOption key={c} label={c} active={category === c} onClick={() => setCategory(category === c ? "All" : c)} />
+                ))}
+              </FilterDropdown>
+            </span>
           )}
         </div>
+        )}
       </section>
 
       <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "0 24px 32px" }}>
@@ -899,7 +987,7 @@ export function Games() {
                   <div style={{ fontWeight: 700, fontSize: 16 }}>Loading…</div>
                 ) : loadFailed ? null : (
                   <>
-                    {sorted.length > 0 && (
+                    {(sorted.length > visibleCount || !!nextCursor) && (
                       <div style={{ fontSize: 12, color: colors.faint, marginBottom: 2 }}>
                         Showing 1-{Math.min(visibleCount, sorted.length)} of {sorted.length}{nextCursor ? "+" : ""}
                       </div>
@@ -912,10 +1000,12 @@ export function Games() {
                     </div>
                   </>
                 )}
-                <div style={{ fontSize: 13, color: colors.mutedLight, marginTop: 2 }}>
-                  {county === "All" ? "Anywhere" : county} · {whenSummaryLabel}
-                  {parsedQuery.text && ` for "${parsedQuery.text}"`}
-                </div>
+                {(county !== "All" || whens.length > 0 || !!parsedQuery.text) && (
+                  <div style={{ fontSize: 13, color: colors.mutedLight, marginTop: 2 }}>
+                    {county === "All" ? "Anywhere" : county} · {whenSummaryLabel}
+                    {parsedQuery.text && ` for "${parsedQuery.text}"`}
+                  </div>
+                )}
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <button
@@ -937,15 +1027,6 @@ export function Games() {
               </div>
             </div>
 
-            {!loading && sort === "recommended" && sorted.length > 0 && (
-              <div style={{ display: "flex", alignItems: "flex-start", gap: 10, background: "rgba(232,163,58,.12)", border: "1px solid rgba(232,163,58,.3)", borderRadius: radius.control, padding: "12px 16px", marginBottom: 20 }}>
-                <LightbulbIcon size={16} style={{ color: colors.gold, flex: "none", marginTop: 1 }} />
-                <div>
-                  <div style={{ fontSize: 13.5, fontWeight: 700, color: colors.text }}>Showing the best sessions you can join right now</div>
-                  <div style={{ fontSize: 12.5, color: colors.mutedLight, marginTop: 1 }}>Prioritising sessions that need more players and starting soon.</div>
-                </div>
-              </div>
-            )}
 
             {activeChips.length > 0 && (
               <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 20 }}>
@@ -964,11 +1045,11 @@ export function Games() {
               </div>
             )}
             {loading ? (
-              <div className="grid-responsive-3" style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 20 }}>
-                {Array.from({ length: PAGE_SIZE }, (_, i) => <CardSkeleton key={i} photoHeight={150} />)}
+              <div className="listing-grid">
+                {Array.from({ length: PAGE_SIZE }, (_, i) => <ListingCardSkeleton key={i} />)}
               </div>
             ) : loadFailed ? (
-              <LoadErrorState title="We couldn't load sessions right now." onRetry={load} />
+              <LoadErrorState title="We couldn't load activities right now." onRetry={load} />
             ) : sorted.length === 0 && nextCursor ? (
               <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, padding: "28px 0" }}>
                 <p style={{ margin: 0, color: colors.mutedLight, fontSize: 14 }}>No matches in the sessions loaded so far — there are more to check.</p>
@@ -977,19 +1058,20 @@ export function Games() {
             ) : sorted.length === 0 ? (
               <EmptyState
                 icon={<UsersIcon size={22} />}
-                title={games.length === 0 ? "No open sessions yet" : "Nothing matching that yet."}
+                title={games.length === 0 && !taxonomy.selected ? "No open activities yet" : "Nothing matching that yet."}
                 subtitle={
-                  games.length === 0
+                  games.length === 0 && !taxonomy.selected
                     ? "Be the first to start one."
                     : "There may still be people nearby who want to do the same thing."
                 }
                 action={
                   <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
                     <IntentCaptureForm activityLabel={intentActivityLabel} county={county === "All" ? "" : county} />
+                    <CategoryEmptyHint state={taxonomy} basePath="/games" />
                     {games.length > 0 && (
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center" }}>
                         {county !== "All" && <Chip label="Expand to anywhere" active={false} onClick={() => setCounty("All")} />}
-                        {when !== "any" && <Chip label="Any time" active={false} onClick={() => setWhen("any")} />}
+                        {whens.length > 0 && <Chip label="Any time" active={false} onClick={clearWhen} />}
                         {activeCount > 0 && <Chip label="Clear filters" active={false} onClick={clearAllFilters} />}
                       </div>
                     )}
@@ -998,7 +1080,8 @@ export function Games() {
               />
             ) : (
               <>
-                <div className="grid-responsive-3" style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 20 }}>
+
+                <CardGrid>
                   {visibleGames.map((g) => (
                     <JoinGameCard
                       key={g.id}
@@ -1009,11 +1092,12 @@ export function Games() {
                       onFindSimilar={() => {
                         setQuery(g.activityLabel);
                         setCategory("All");
+                        taxonomy.setCategory(null);
                         resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
                       }}
                     />
                   ))}
-                </div>
+                </CardGrid>
                 {visibleCount < sorted.length ? (
                   <div style={{ display: "flex", justifyContent: "center", marginTop: 28 }}>
                     <Button variant="ghost" onClick={() => setVisibleCount((v) => v + PAGE_SIZE)}>
@@ -1033,9 +1117,15 @@ export function Games() {
         </div>
       </section>
 
+      {/* A featured section of another type (owner 2026-10-27). */}
+      <div className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "0 24px" }}>
+        <FeaturedPicks kind="circles" />
+      </div>
+
       {/* Closing CTA band — the shared CtaBand (same as Home's closing band). */}
       <CtaBand
         id="games-cta-title"
+        panel={{ title: "Host your own", text: "Pick a time and place — people nearby can join in.", icon: <PlusLucide size={20} strokeWidth={2} /> }}
         label="Join or host."
         lines={["Can't find", "the right", "game?"]}
         text={

@@ -48,7 +48,7 @@ export function HostHero({ onCta }: { onCta: () => void }) {
 
           <div>
             <div style={{ marginBottom: 22 }}>
-              <Button variant="orange" onClick={onCta} style={{ padding: "13px 22px", fontSize: 15, background: FV_ACCENT }}>
+              <Button variant="orange" onClick={onCta} style={{ padding: "13px 22px", fontSize: 15 }}>
                 Become a host
               </Button>
             </div>

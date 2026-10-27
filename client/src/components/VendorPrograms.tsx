@@ -1,5 +1,9 @@
+import { ListFilterBar, NoMatches, useListFilters } from "./workspace/ListFilters";
+import { useToast } from "./Toast";
+import { emptyCategoryDraft, ListingCategoryFields, saveListingCategory } from "./categories/ListingCategoryFields";
 import { useEffect, useState, type SetStateAction } from "react";
 import { useSearchParams } from "react-router-dom";
+import { VendorCategoryEditor } from "./VendorCategoryEditor";
 import { VendorParticipationEditor } from "./VendorParticipationEditor";
 import {
   addProgramSession,
@@ -29,7 +33,7 @@ import { formatDate } from "../vendorFormat";
 import { AdminButton, AdminModal, Box, ErrorMessage, FormField, IconTabs, LoadingRows, Loaded, useAdminData } from "./admin/adminUi";
 import { SourceTypeBadge, StatusPill } from "./VendorOverviewCards";
 import { Button, ManageCard as Card, ConfirmDialog, EmptyState, inputStyle, labelStyle } from "./ui";
-import { ACTIVITY_CATEGORIES, ATTENDANCE_STATUSES, ATTENDANCE_STATUS_LABELS, PROGRAM_STATUSES, SKILL_LEVELS } from "../constants";
+import { ATTENDANCE_STATUSES, ATTENDANCE_STATUS_LABELS, PROGRAM_STATUSES, SKILL_LEVELS } from "../constants";
 import { formatScheduleCount, formatScheduleWhen, manageTargetFor, scheduleItemDateKey, todayDateKey, type VendorScheduleNavTarget } from "../vendorSchedule";
 import { colors, fonts, radius } from "../theme";
 import type { AttendanceStatus, Program, ProgramStatus, Room, VendorProgramSummary, VendorScheduleItem } from "../types";
@@ -300,6 +304,8 @@ export function ProgramManager({ programId, onChanged }: { programId: string; on
           )}
         </Box>
 
+        <VendorCategoryEditor type="program" id={programId} />
+
         <VendorParticipationEditor type="program" id={programId} />
       </div>
 
@@ -477,6 +483,7 @@ export function ProgramCreateForm({
   onDirtyChange?: (dirty: boolean) => void;
 }) {
   const [creating, setCreating] = useState(false);
+  const toast = useToast();
   const fe = useFormErrors();
   // Release 6 — "Create a program" from a Host Opportunity prefills the
   // activity; read once, not synced.
@@ -491,6 +498,8 @@ export function ProgramCreateForm({
     priceCents: "",
     capacity: "",
     category: searchParams.get("category") ?? "",
+    // Category system — kept in `form` so the saved draft restores it too.
+    taxonomy: emptyCategoryDraft(),
     skillLevel: "",
     instructorName: "",
     guardianRules: "",
@@ -518,7 +527,8 @@ export function ProgramCreateForm({
     value: { form, equipmentText },
     active: touched,
     onRestore: (v) => {
-      setFormRaw(v.form);
+      // A draft saved before the category system has no `taxonomy`.
+      setFormRaw({ ...v.form, taxonomy: v.form.taxonomy ?? emptyCategoryDraft() });
       setEquipmentTextRaw(v.equipmentText);
       onDirtyChange?.(true);
     },
@@ -546,13 +556,22 @@ export function ProgramCreateForm({
         ageRange: form.ageRange,
         priceCents: form.priceCents ? Math.round(parseFloat(form.priceCents) * 100) : 0,
         capacity: form.capacity ? Number(form.capacity) : null,
-        category: form.category,
+        // The legacy free-text category keeps the picked category's name for older readers.
+        category: form.taxonomy.categoryName ?? form.category,
         skillLevel: form.skillLevel,
         equipment: equipmentText.split("\n").map((s) => s.trim()).filter(Boolean),
         instructorName: form.instructorName,
         guardianRules: form.guardianRules,
         safeguardingInfo: form.safeguardingInfo,
       });
+      // The programme exists now — never stay on this form (a second click
+      // would create a duplicate). A failed category save is reported and
+      // can be fixed in the programme's Category section.
+      try {
+        await saveListingCategory("program", created.id, form.taxonomy);
+      } catch (e) {
+        toast.error(`Programme created, but its category wasn't saved: ${e instanceof Error ? e.message : "set it in the Category section"}`);
+      }
       onDirtyChange?.(false);
       draft.clear();
       onCreated(created.id);
@@ -606,14 +625,8 @@ export function ProgramCreateForm({
               </select>
               <FieldError fieldId="program-listing" message={fe.messageFor("program-listing")} />
             </div>
-            <div>
-              <FieldLabel htmlFor="program-category" optional>Category</FieldLabel>
-              <select id="program-category" value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} style={inputStyle}>
-                <option value="">None</option>
-                {ACTIVITY_CATEGORIES.map((c) => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
-              </select>
+            <div style={{ gridColumn: "1 / -1" }}>
+              <ListingCategoryFields family="programme" value={form.taxonomy} onChange={(taxonomy) => setForm((f) => ({ ...f, taxonomy }))} />
             </div>
             <div style={{ gridColumn: "1 / -1" }}>
               <FieldLabel htmlFor="program-title" required>Title</FieldLabel>
@@ -719,6 +732,10 @@ export function VendorProgramsTab({ onOpenProgram }: { onOpenProgram: (id: strin
   const state = useAdminData<VendorProgramSummary[]>(() => fetchVendorPrograms());
   const [error, setError] = useState<string | null>(null);
   const [confirmingProgramId, setConfirmingProgramId] = useState<string | null>(null);
+  const filters = useListFilters<VendorProgramSummary>({
+    search: (p) => [p.title],
+    selects: [{ param: "status", label: "Status", options: PROGRAM_STATUSES.map((s) => ({ value: s, label: s[0].toUpperCase() + s.slice(1) })), get: (p) => p.status }],
+  });
 
   const remove = async (id: string) => {
     setError(null);
@@ -744,10 +761,15 @@ export function VendorProgramsTab({ onOpenProgram }: { onOpenProgram: (id: strin
           {(programs) => programs.length === 0 ? (
             <EmptyState icon={<GraduationCap size={20} />} title="No programmes yet" subtitle="A programme is a multi-week course people enrol on once. Use Add programme to create one." />
           ) : (
+            <>
+            {programs.length > 4 && <ListFilterBar state={filters} searchLabel="Search programmes" placeholder="Programme title" />}
+            {filters.apply(programs).length === 0 ? (
+              <NoMatches onClear={filters.clear} noun="programmes" />
+            ) : (
             <WsListTable
               caption="Your programmes"
               columns={[{ label: "Programme" }, { label: "Status" }, { label: "Price", num: true }, { label: "Places", num: true }, { label: "Created" }]}
-              rows={programs.map((p) => ({
+              rows={filters.apply(programs).map((p) => ({
                 key: p.id,
                 name: p.title,
                 title: p.title,
@@ -762,6 +784,8 @@ export function VendorProgramsTab({ onOpenProgram }: { onOpenProgram: (id: strin
                 menu: [{ label: "Delete programme…", danger: true, onSelect: () => setConfirmingProgramId(p.id) }],
               }))}
             />
+            )}
+            </>
           )}
         </Loaded>
       </Box>

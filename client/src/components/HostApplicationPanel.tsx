@@ -33,6 +33,7 @@ export function HostApplicationPanel({
   hostBio,
   hostPhone,
   onApplied,
+  bare,
 }: {
   hostStatus: HostStatus;
   /** D-03 — why the last application was declined, if a reason was recorded. */
@@ -40,6 +41,8 @@ export function HostApplicationPanel({
   hostBio: string;
   hostPhone: string;
   onApplied: () => void;
+  /** Account redesign: no card frame or title (the page section supplies them). */
+  bare?: boolean;
 }) {
   const [bio, setBio] = useState(hostBio);
   const [phone, setPhone] = useState(hostPhone);
@@ -90,19 +93,22 @@ export function HostApplicationPanel({
   };
 
   return (
-    <div style={{ background: "#fff", border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "18px 20px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-        <AwardIcon size={16} style={{ color: colors.greenText }} />
-        <span style={{ fontFamily: fonts.display, fontSize: 15, fontWeight: 700 }}>Become a host</span>
-      </div>
+    <div style={bare ? undefined : { background: "#fff", border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "18px 20px" }}>
+      {!bare && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+          <AwardIcon size={16} style={{ color: colors.greenText }} />
+          <span style={{ fontFamily: fonts.display, fontSize: 15, fontWeight: 700 }}>Become a host</span>
+        </div>
+      )}
 
       {hostStatus === "verified" && (
         <>
           <p style={{ fontSize: 13, color: colors.greenText, fontWeight: 600, margin: "8px 0 12px" }}>
             You're a Verified Host — this shows next to your name on any Session or Circle you create.
           </p>
-          <label style={labelStyle}>Bio</label>
+          <label htmlFor="host-bio" style={labelStyle}>Bio</label>
           <textarea
+            id="host-bio"
             value={bio}
             onChange={(e) => {
               setBio(e.target.value);
@@ -111,8 +117,9 @@ export function HostApplicationPanel({
             rows={3}
             style={{ ...inputStyle, resize: "vertical", marginBottom: 10 }}
           />
-          <label style={labelStyle}>Phone (optional)</label>
+          <label htmlFor="host-phone" style={labelStyle}>Phone (optional)</label>
           <input
+            id="host-phone"
             value={phone}
             onChange={(e) => {
               setPhone(e.target.value);
@@ -152,16 +159,17 @@ export function HostApplicationPanel({
               <DecisionExplanation decision={hostDecision} />
             </div>
           )}
-          <label style={labelStyle}>Short bio</label>
+          <label htmlFor="host-apply-bio" style={labelStyle}>Short bio</label>
           <textarea
+            id="host-apply-bio"
             value={bio}
             onChange={(e) => setBio(e.target.value)}
             rows={3}
             placeholder="A sentence or two about you and what you like hosting"
             style={{ ...inputStyle, resize: "vertical", marginBottom: 10 }}
           />
-          <label style={labelStyle}>Phone (optional)</label>
-          <input value={phone} onChange={(e) => setPhone(e.target.value)} style={{ ...inputStyle, marginBottom: 14 }} />
+          <label htmlFor="host-apply-phone" style={labelStyle}>Phone (optional)</label>
+          <input id="host-apply-phone" value={phone} onChange={(e) => setPhone(e.target.value)} style={{ ...inputStyle, marginBottom: 14 }} />
 
           <div style={{ background: colors.panel, borderRadius: radius.control, padding: "12px 14px", marginBottom: 12 }}>
             <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 6 }}>Host Guidelines</div>

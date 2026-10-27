@@ -343,7 +343,7 @@
 }
 
 .cx-card-img {
-  aspect-ratio: 4 / 3;
+  aspect-ratio: 16 / 10; /* card redesign 2026-10-22: same as the shared card */
 }
 
 .cx-card-body {
@@ -402,9 +402,6 @@
   padding-top: 10px;
 }
 
-.cx-card-actions .hx-btn {
-  width: 100%;
-}
 
 .cx-card--list {
   flex-direction: row;
@@ -794,18 +791,12 @@
     min-height: 0;
   }
 
-  .cx-card--list .cx-card-actions .hx-btn {
-    width: 100%;
-  }
 
   .cx-tiles,
   .cx-places {
     grid-auto-columns: 42%;
   }
 
-  .cx-band-actions .hx-btn {
-    width: 100%;
-  }
 }
 
 /* ---------- restored original sections ---------- */
@@ -1019,8 +1010,10 @@
   color: var(--hx-ink-soft);
 }
 
+/* Search + Location + Search button; the other filters are the dropdown row
+   below (owner, 2026-10-23). */
 .cx-search {
-  grid-template-columns: minmax(0, 1.7fr) repeat(3, minmax(0, 1fr)) auto;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) auto;
 }
 
 .cx-filter-btn {
@@ -1232,12 +1225,8 @@
     border-bottom: 1px solid var(--hx-rule);
   }
 
-  .cx-search .hx-field:nth-child(3) {
+  .cx-search .hx-field:nth-child(2) {
     border-right: 0;
-  }
-
-  .cx-search .hx-field:nth-child(4) {
-    border-top: 1px solid var(--hx-rule);
   }
 
   .cx-search .hx-search-go {
@@ -1524,5 +1513,746 @@
   .cx-grid .cx-card .hx-card-meta,
   .cx-grid .cx-card-facts {
     font-size: 12px;
+  }
+}
+
+/* =====================================================================
+   My Life card styles on the Circles page (owner 2026-10-27, options in
+   claude.ai/artifact/KwHTXL1TgkGDMAUwZ3EHgN). Per section:
+   - Find your next Circle, grid: B (My Life card + an action line)
+   - Find your next Circle, list: D (compact rows)
+   - Upcoming meetups: A (My Life card, as is)
+   - New & growing: D (compact rows)
+   Interest / county tiles already have the text on the photo (C).
+   ===================================================================== */
+
+/* Shared pieces: big date on the photo, coloured kicker, one muted line. */
+.cx-card-date {
+  position: absolute;
+  left: 16px;
+  bottom: 14px;
+  z-index: 1;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  color: #fff;
+  pointer-events: none;
+}
+.cx-card-date b {
+  font-family: var(--hx-display);
+  font-weight: 800;
+  font-size: clamp(26px, 2.4vw, 34px);
+  line-height: 1;
+  letter-spacing: -0.03em;
+}
+.cx-card-date span {
+  font-size: 14px;
+  font-weight: 600;
+  opacity: 0.9;
+}
+.cx-card-kicker {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-green-text);
+}
+.cx-card-sub {
+  font-size: 14.5px;
+  line-height: 1.45;
+  color: var(--color-muted-light);
+}
+.cx-hot-text {
+  color: var(--color-orange-dark);
+  font-weight: 700;
+}
+
+/* --- B: grid cards — no box, rounded 4:3 photo, text below, action line */
+.cx-grid .cx-card {
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: none;
+}
+.cx-grid .cx-card:hover {
+  border-color: transparent;
+}
+.cx-grid .cx-card:focus-within {
+  outline-offset: 6px;
+  border-radius: var(--hx-r-card);
+}
+.cx-grid .cx-card .cx-card-img {
+  aspect-ratio: 4 / 3;
+  border-radius: var(--hx-r-card);
+  overflow: hidden;
+}
+.cx-grid .cx-card .cx-card-img::after,
+.cx-meet-img::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(0deg, rgba(12, 14, 12, 0.66) 0%, rgba(12, 14, 12, 0) 52%);
+  pointer-events: none;
+}
+.cx-grid .cx-card .cx-card-body {
+  gap: 4px;
+  padding: 12px 0 0;
+}
+.cx-grid .cx-card .cx-card-body h3 {
+  margin: 0;
+  font-family: var(--hx-display);
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+.cx-grid .cx-card:hover .cx-card-body h3 {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+.cx-grid .cx-card .cx-card-foot2 {
+  margin-top: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--color-border);
+  flex-wrap: nowrap;
+  align-items: center;
+}
+.cx-grid .cx-card .cx-card-facts {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+.cx-card .cx-card-meet {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+.cx-card .cx-card-meet.is-hot {
+  color: var(--color-orange-dark);
+  font-weight: 700;
+}
+.cx-card .cx-card-meet.is-quiet {
+  font-weight: 500;
+  color: var(--color-muted-light);
+}
+.cx-card .cx-mode,
+.cx-card .cx-mode--member,
+.cx-card .cx-mode--requested,
+.cx-card .cx-mode--invite {
+  font-size: 12.5px;
+}
+.cx-grid .cx-card .hx-save {
+  top: 12px;
+  right: 12px;
+}
+
+/* --- D: list view — compact rows, small square photo, lines between --- */
+.cx-list {
+  gap: 0;
+}
+.cx-list > li + li .cx-card {
+  border-top: 1px solid var(--color-border);
+}
+.cx-list .cx-card--list {
+  align-items: center;
+  gap: 18px;
+  padding: 16px 0;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: none;
+}
+.cx-list .cx-card--list .cx-card-img {
+  width: 132px;
+  min-height: 0;
+  aspect-ratio: 1;
+  border-radius: 14px;
+  overflow: hidden;
+}
+.cx-list .cx-card--list .cx-card-img::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(0deg, rgba(12, 14, 12, 0.6) 0%, rgba(12, 14, 12, 0) 60%);
+  pointer-events: none;
+}
+.cx-list .cx-card--list .cx-card-date {
+  left: 10px;
+  bottom: 9px;
+  flex-direction: column;
+  gap: 2px;
+}
+.cx-list .cx-card--list .cx-card-date b {
+  font-size: 21px;
+}
+.cx-list .cx-card--list .cx-card-date span {
+  font-size: 12px;
+}
+.cx-list .cx-card--list .cx-card-body {
+  gap: 3px;
+  padding: 0;
+}
+.cx-list .cx-card--list .cx-card-body h3 {
+  margin: 0;
+  font-family: var(--hx-display);
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+.cx-list .cx-card--list:hover .cx-card-body h3 {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.cx-list .cx-card--list .cx-card-sub {
+  font-size: 14px;
+}
+.cx-list .cx-card--list .cx-card-foot2 {
+  margin-top: 6px;
+  padding: 0;
+}
+.cx-list .cx-card--list .hx-save {
+  top: 22px;
+  left: 98px;
+  right: auto;
+}
+.cx-list .cx-card--list:focus-within {
+  outline-offset: 2px;
+}
+
+/* --- A: Upcoming meetups — the My Life card as is ---------------------- */
+.cx-meetups {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 28px 20px;
+}
+.cx-meet {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  color: inherit;
+  text-decoration: none;
+}
+.cx-meet-img {
+  position: relative;
+  display: block;
+  aspect-ratio: 4 / 3;
+  border-radius: var(--hx-r-card);
+  overflow: hidden;
+}
+.cx-meet-img .cx-tile-ph {
+  background: #172019;
+  color: #ff4b24;
+}
+.cx-meet-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.cx-meet-text strong {
+  font-family: var(--hx-display);
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  color: var(--color-text);
+}
+.cx-meet:hover .cx-meet-text strong {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+.cx-meet:focus-visible {
+  outline: 3px solid var(--hx-orange);
+  outline-offset: 4px;
+  border-radius: var(--hx-r-card);
+}
+
+/* --- D: New & growing — compact rows, no panel box --------------------- */
+.cx-panel--rows {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+}
+.cx-panel--rows .cx-plans {
+  margin-top: 0;
+  border-top: 0;
+}
+.cx-panel--rows .cx-plan {
+  grid-template-columns: 96px minmax(0, 1fr) auto 18px;
+  gap: 18px;
+  padding: 16px 0;
+}
+.cx-panel--rows .cx-plan-thumb {
+  width: 96px;
+  height: 96px;
+  border-radius: 14px;
+}
+.cx-panel--rows .cx-plan-text strong {
+  font-family: var(--hx-display);
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+.cx-panel--rows .cx-plan-text small {
+  margin-top: 4px;
+  font-size: 14px;
+  color: var(--color-muted-light);
+}
+.cx-panel--rows .cx-badge {
+  background: var(--color-surface);
+}
+
+@media (max-width: 640px) {
+  .cx-list .cx-card--list {
+    gap: 14px;
+  }
+  .cx-list .cx-card--list .cx-card-img {
+    width: 96px;
+  }
+  .cx-list .cx-card--list .hx-save {
+    display: none;
+  }
+  .cx-list .cx-card--list .cx-card-date b {
+    font-size: 17px;
+  }
+  .cx-panel--rows .cx-plan {
+    grid-template-columns: 76px minmax(0, 1fr) 18px;
+    gap: 14px;
+  }
+  .cx-panel--rows .cx-plan-thumb {
+    width: 76px;
+    height: 76px;
+  }
+  .cx-meetups {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+/* Phones: the grid stays two across, so the B card scales down and its
+   action line stacks (status above the button). */
+@media (max-width: 560px) {
+  .cx-grid {
+    gap: 22px 12px;
+  }
+  .cx-grid .cx-card .cx-card-body {
+    padding: 10px 0 0;
+  }
+  .cx-grid .cx-card .cx-card-body h3 {
+    font-size: 16px;
+  }
+  .cx-grid .cx-card .cx-card-sub {
+    font-size: 13px;
+  }
+  .cx-card-kicker {
+    font-size: 11px;
+  }
+  .cx-grid .cx-card .cx-card-date {
+    left: 10px;
+    bottom: 9px;
+    gap: 6px;
+  }
+  .cx-grid .cx-card .cx-card-date b {
+    font-size: 21px;
+  }
+  .cx-grid .cx-card .cx-card-date span {
+    font-size: 12px;
+  }
+  .cx-grid .cx-card .cx-card-foot2 {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .cx-grid .cx-card .cx-card-actions {
+    margin: 0;
+  }
+  .cx-grid .cx-card .cx-card-meet {
+    font-size: 12.5px;
+  }
+}
+
+/* Spacing pass (owner 2026-10-27: between sections, inside cards, rows). */
+
+/* Between sections: more room and a thin line, so each section reads on its own. */
+.cx-results,
+.cx-section {
+  padding-top: clamp(48px, 5.5vw, 88px);
+  padding-bottom: clamp(48px, 5.5vw, 88px);
+}
+.cx-results + .cx-section,
+.cx-section + .cx-section {
+  /* a 1px line inside the side gutters, so it lines up with the content */
+  background: linear-gradient(var(--color-border), var(--color-border)) top center / calc(100% - 2 * var(--hx-gutter)) 1px no-repeat;
+}
+.cx-results-head,
+.cx-section-head {
+  margin-bottom: 28px;
+}
+.cx-sub {
+  margin-top: 6px;
+}
+
+/* Inside each card: photo → text, label → title → line → action line. */
+.cx-grid .cx-card .cx-card-body,
+.cx-meet-text {
+  gap: 6px;
+}
+.cx-grid .cx-card .cx-card-body {
+  padding-top: 16px;
+}
+.cx-meet {
+  gap: 16px;
+}
+.cx-grid .cx-card .cx-card-foot2 {
+  margin-top: 12px;
+  padding-top: 14px;
+}
+.cx-list .cx-card--list .cx-card-body {
+  gap: 5px;
+}
+.cx-list .cx-card--list .cx-card-foot2 {
+  margin-top: 10px;
+}
+
+/* Rows: card grids 56px apart; compact rows with more room around the line.
+   Columns: the site's normal gap between cards side by side (owner 2026-10-27). */
+.cx-grid,
+.cx-meetups {
+  row-gap: 56px;
+  column-gap: var(--hx-gap);
+}
+
+.cx-list .cx-card--list,
+.cx-panel--rows .cx-plan {
+  padding: 24px 0;
+}
+@media (max-width: 560px) {
+  .cx-grid,
+  .cx-meetups {
+    row-gap: 36px;
+    column-gap: 12px;
+  }
+  .cx-list .cx-card--list,
+  .cx-panel--rows .cx-plan {
+    padding: 18px 0;
+  }
+  .cx-grid .cx-card .cx-card-body {
+    padding-top: 12px;
+  }
+  .cx-grid .cx-card .cx-card-body {
+    gap: 4px;
+  }
+  .cx-grid .cx-card .cx-card-foot2 {
+    margin-top: 10px;
+    padding-top: 10px;
+  }
+}
+
+/* Option 3 (owner 2026-10-27): the card's action is a white pill on the
+   photo, bottom right, opposite the big date. Fixed colours because it sits
+   on photography in both themes. The text below no longer has an action line. */
+.cx-photo-act {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 3;
+}
+.cx-photo-act .cx-card-actions,
+.cx-card .cx-photo-act .cx-card-actions {
+  margin: 0;
+  padding: 0;
+}
+.cx-photo-act .lc-act,
+.cx-photo-act .lc-arrow {
+  min-height: 36px;
+  border: 0;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #172019;
+  font-size: 13.5px;
+  font-weight: 700;
+  box-shadow: 0 1px 4px rgba(12, 14, 12, 0.22);
+}
+.cx-photo-act .lc-act {
+  padding: 0 14px;
+}
+.cx-photo-act .lc-arrow {
+  width: 36px;
+  height: 36px;
+}
+.cx-photo-act .lc-act--booked,
+.cx-photo-act .lc-act:disabled {
+  background: rgba(255, 255, 255, 0.86);
+  color: #3b433c;
+}
+@media (hover: hover) {
+  .cx-photo-act .lc-act--outline:hover:not(:disabled),
+  .cx-photo-act .lc-arrow:hover,
+  .cx-card:hover .cx-photo-act .lc-arrow {
+    background: var(--color-cta);
+    color: var(--color-on-cta);
+  }
+}
+/* the date leaves room for the pill; a long day ("Tomorrow") puts the time underneath */
+.cx-grid .cx-card .cx-card-date {
+  right: 110px;
+  min-width: 0;
+  flex-wrap: wrap;
+  row-gap: 2px;
+}
+/* no action line under the text any more */
+.cx-grid .cx-card .cx-card-foot2 {
+  margin-top: 6px;
+  padding-top: 0;
+  border-top: 0;
+}
+@media (max-width: 560px) {
+  .cx-photo-act {
+    right: 8px;
+    bottom: 8px;
+  }
+  .cx-photo-act .lc-act {
+    min-height: 32px;
+    padding: 0 11px;
+    font-size: 12.5px;
+  }
+  .cx-photo-act .lc-act svg {
+    display: none;
+  }
+  .cx-photo-act .lc-arrow {
+    width: 32px;
+    height: 32px;
+  }
+  /* phones: day only, so it clears the pill (the label above stays) */
+  .cx-grid .cx-card .cx-card-date {
+    right: 78px;
+  }
+  .cx-grid .cx-card .cx-card-date > span {
+    display: none;
+  }
+}
+
+/* "Next meetup" above the big date on the photo (owner 2026-10-27). Replaces
+   the strip and the separate "Tomorrow" pill. White on the photo's dark fade;
+   an orange pill when the meetup is today/tomorrow or nearly full. */
+.cx-card-date-label {
+  /* its own line above the date; never wraps */
+  flex: 0 0 100%;
+  margin-bottom: 4px;
+  white-space: nowrap;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.92);
+}
+/* Label tones (card states, owner 2026-10-27). Plain: white text on the
+   photo's fade. Every other tone puts the text in a pill. */
+.cx-card-date-label.is-hot > span,
+.cx-card-date-label.is-full > span,
+.cx-card-date-label.is-mine > span,
+.cx-card-date-label.is-wait > span,
+.cx-card-date-label.is-lock > span,
+.cx-card-date-label > a.cx-label-link {
+  padding: 3px 8px;
+  border-radius: 999px;
+  color: #ffffff;
+}
+/* act soon: today/tomorrow, nearly full, or a place offered */
+.cx-card-date-label.is-hot > span {
+  background: #d7380f;
+}
+/* can't book right now */
+.cx-card-date-label.is-full > span {
+  background: rgba(20, 20, 20, 0.78);
+}
+/* yours: going, or on right now */
+.cx-card-date-label.is-mine > span {
+  background: #2e7d50;
+}
+/* waiting for a place */
+.cx-card-date-label.is-wait > span {
+  background: rgba(255, 255, 255, 0.92);
+  color: #3b433c;
+}
+/* members only: an outline */
+.cx-card-date-label.is-lock > span {
+  padding: 2px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  background: rgba(255, 255, 255, 0.16);
+}
+/* happening now: a small static dot (no animation) */
+.cx-card-date-label.is-live > span::before {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: #9df0b9;
+  vertical-align: 1px;
+}
+/* a hover shortcut to the meetup page ("Join the waitlist", "Claim your place") */
+.cx-card-date.has-link {
+  z-index: 3;
+}
+.cx-card-date-label > a.cx-label-link {
+  pointer-events: auto;
+  background: #d7380f;
+  text-decoration: none;
+  cursor: pointer;
+}
+.cx-card-date-label > a.cx-label-link:hover {
+  background: #b82f0b;
+}
+/* a plan name instead of a date: smaller, up to two lines */
+.cx-card-date b.is-text {
+  flex: 0 1 100%;
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  padding-bottom: 2px;
+  font-size: clamp(21px, 1.9vw, 26px);
+  line-height: 1.08;
+}
+/* list view thumbnails are too small for the label */
+.cx-list .cx-card--list .cx-card-date-label {
+  display: none;
+}
+/* places left: one plain line under the title */
+.cx-card .cx-card-meet {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+.cx-card .cx-card-meet.is-hot {
+  color: var(--color-orange-dark);
+  font-weight: 700;
+}
+/* membership reads as calm green with a tick, not as a warning */
+.cx-card .cx-mode--member {
+  color: var(--color-green-text);
+}
+.cx-card .cx-mode--member::before {
+  content: "✓ ";
+}
+@media (max-width: 560px) {
+  /* phones: tighter so the longest label fits the card, and lifted clear of the Join pill */
+  .cx-card-date-label {
+    margin-bottom: 8px;
+    font-size: 9.5px;
+    letter-spacing: 0.02em;
+  }
+  .cx-card-date-label.is-hot > span,
+  .cx-card-date-label.is-full > span,
+  .cx-card-date-label.is-mine > span,
+  .cx-card-date-label.is-wait > span,
+  .cx-card-date-label.is-lock > span,
+  .cx-card-date-label > a.cx-label-link {
+    padding: 2px 6px;
+  }
+}
+
+/* Places left on hover: the "Next meetup" label swaps to "2 places left"
+   while the card is hovered or has keyboard focus (no motion, same spot).
+   Touch screens keep "Next meetup". */
+.cx-label-rest {
+  display: inline-block;
+}
+.cx-label-hover {
+  display: none;
+}
+@media (hover: hover) {
+  .cx-card:hover .cx-label-rest,
+  .cx-card:focus-within .cx-label-rest {
+    display: none;
+  }
+  .cx-card:hover .cx-label-hover,
+  .cx-card:focus-within .cx-label-hover {
+    display: inline-block;
+  }
+}
+
+/* Card hover (owner 2026-10-27): the photo slowly zooms in and eases back
+   out, the title underline and the photo action fade in, and the meetup
+   label cross-fades to its detail. Mouse/trackpad only; reduced motion
+   turns the zoom off. */
+@media (hover: hover) {
+  .cx-card .cx-card-img img,
+  .cx-meet-img img {
+    transform: scale(1);
+    transition: transform 0.5s cubic-bezier(0.45, 0, 0.25, 1);
+    will-change: transform;
+  }
+  .cx-card:hover .cx-card-img img,
+  .cx-card:focus-within .cx-card-img img,
+  .cx-meet:hover .cx-meet-img img,
+  .cx-meet:focus-visible .cx-meet-img img {
+    transform: scale(1.04);
+  }
+  /* title underline fades in rather than snapping on */
+  .cx-grid .cx-card .cx-card-body h3,
+  .cx-list .cx-card--list .cx-card-body h3,
+  .cx-meet .cx-meet-text strong {
+    text-decoration: underline;
+    text-decoration-color: transparent;
+    text-underline-offset: 4px;
+    transition: text-decoration-color 0.24s ease;
+  }
+  .cx-grid .cx-card:hover .cx-card-body h3,
+  .cx-list .cx-card--list:hover .cx-card-body h3,
+  .cx-meet:hover .cx-meet-text strong {
+    text-decoration-color: currentColor;
+  }
+  /* the white pill on the photo eases to orange */
+  .cx-photo-act .lc-act,
+  .cx-photo-act .lc-arrow {
+    transition: background-color 0.24s ease, color 0.24s ease;
+  }
+  /* the label cross-fades between its resting text and the detail */
+  .cx-card-date-label {
+    display: grid;
+    justify-items: start;
+  }
+  .cx-card-date-label > * {
+    grid-area: 1 / 1;
+  }
+  .cx-card-date-label > .cx-label-rest,
+  .cx-card-date-label > .cx-label-hover {
+    display: inline-block;
+    transition: opacity 0.2s ease, visibility 0.2s ease, background-color 0.2s ease;
+  }
+  .cx-card-date-label > .cx-label-hover {
+    opacity: 0;
+    visibility: hidden;
+  }
+  .cx-card:hover .cx-card-date-label > .cx-label-rest,
+  .cx-card:focus-within .cx-card-date-label > .cx-label-rest {
+    display: inline-block;
+    opacity: 0;
+    visibility: hidden;
+  }
+  .cx-card:hover .cx-card-date-label > .cx-label-hover,
+  .cx-card:focus-within .cx-card-date-label > .cx-label-hover {
+    opacity: 1;
+    visibility: visible;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cx-card .cx-card-img img,
+  .cx-meet-img img {
+    transform: none !important;
+  }
+  .cx-card-body h3,
+  .cx-meet-text strong,
+  .cx-photo-act .lc-act,
+  .cx-photo-act .lc-arrow,
+  .cx-card-date-label > * {
+    transition: none !important;
   }
 }

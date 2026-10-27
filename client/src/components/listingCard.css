@@ -1,0 +1,599 @@
+/* ListingCard — redesigned 2026-10-22 (owner's "Different ways to discover"
+   reference, compact grid card). Corners stay the consumer card radius
+   (owner). Hover: border emphasis + a very slight photo scale (≤1.02), no
+   card movement; nothing moves with reduced motion. */
+
+.listing-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card, 16px);
+  overflow: hidden;
+  transition: border-color 0.18s ease;
+}
+.listing-card img {
+  transition: transform 0.2s ease;
+}
+@media (hover: hover) {
+  .listing-card:hover {
+    border-color: var(--color-border-strong);
+  }
+}
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .listing-card:hover img {
+    transform: scale(1.02);
+  }
+}
+.listing-card:focus-within {
+  border-color: var(--color-text);
+}
+
+/* Photo pills sit on photography, so they keep fixed colours in both themes. */
+.lc-status {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: calc(100% - 60px);
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.95);
+  color: #172019;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+.lc-status[data-tone="hot"] { color: #b42318; }
+.lc-status[data-tone="new"] { color: #17663f; }
+.lc-status[data-tone="featured"],
+.lc-status[data-tone="popular"] { color: #b8320f; }
+
+.lc-tag {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  z-index: 1;
+  max-width: calc(100% - 20px);
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #172019;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+/* Neutralise the older green "badge on hover" rule for these cards. */
+.listing-card:hover .card-photo-badge {
+  background: rgba(255, 255, 255, 0.92) !important;
+  color: #172019 !important;
+}
+
+.lc-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px 16px;
+  min-width: 0;
+}
+.lc-title {
+  margin: 0 0 2px;
+  font-size: 16.5px;
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: 0;
+  color: var(--color-text);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.lc-detail {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 13.5px;
+  line-height: 1.4;
+  color: var(--color-muted-light);
+}
+.lc-detail[data-tone="hot"] { color: var(--color-orange-dark); font-weight: 700; }
+.lc-detail-icon { display: inline-flex; flex: none; color: var(--color-faint); }
+.lc-detail-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lc-going {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-muted);
+}
+.lc-going svg { color: var(--color-faint); }
+
+.lc-footer {
+  margin-top: auto;
+  padding-top: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.lc-facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 12px;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-muted);
+}
+/* The price tag (E3, owner 2026-10-27): bold figures on a soft green tag,
+   the unit in lighter text. Free: the same tag, green figures. */
+.lc-price {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  background: var(--color-green-bg);
+  color: var(--color-green-text);
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.lc-price b {
+  font-family: "Bricolage Grotesque Variable", "Bricolage Grotesque", system-ui, sans-serif;
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--color-text);
+}
+.lc-price.is-free b { color: var(--color-green-text); }
+/* a second short phrase after the price ("Free first session") */
+.lc-price-note { font-size: 12.5px; font-weight: 700; color: var(--color-green-text); }
+.lc-avail { font-size: 13px; font-weight: 600; }
+.lc-avail[data-tone="few"] { color: var(--color-orange); }
+.lc-avail[data-tone="good"] { color: var(--color-green-text); }
+.lc-avail[data-tone="full"] { color: var(--color-muted-light); }
+.lc-action-slot { margin-left: auto; flex: none; display: flex; align-items: center; gap: 8px; }
+
+/* Arrow (open): orange outline → filled orange, white arrow on hover. */
+.lc-arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1.5px solid var(--color-cta);
+  border-radius: var(--radius-button);
+  background: transparent;
+  color: var(--color-cta);
+  cursor: pointer;
+  transition: background-color 0.18s ease, color 0.18s ease, border-color 0.18s ease;
+}
+.lc-arrow svg { transition: transform 0.18s ease; }
+.lc-arrow--filled { background: var(--color-cta); color: var(--color-on-cta); }
+@media (hover: hover) {
+  .lc-arrow:hover,
+  .listing-card:hover .lc-arrow {
+    background: var(--color-cta);
+    color: var(--color-on-cta);
+  }
+  .lc-arrow--filled:hover,
+  .listing-card:hover .lc-arrow--filled {
+    background: var(--color-cta-hover);
+    border-color: var(--color-cta-hover);
+  }
+}
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .lc-arrow:hover svg { transform: translateX(2px); }
+}
+.lc-arrow:active { background: var(--color-cta-hover); border-color: var(--color-cta-hover); color: var(--color-on-cta); }
+.lc-arrow:focus-visible,
+.lc-act:focus-visible {
+  outline: 2px solid var(--color-text);
+  outline-offset: 2px;
+}
+
+/* Worded actions: Join (filled / outline), Join waitlist, Leave, Booked. */
+.lc-act {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1.5px solid var(--color-cta);
+  border-radius: var(--radius-button);
+  background: transparent;
+  color: var(--color-cta);
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.18s ease, color 0.18s ease, border-color 0.18s ease;
+}
+.lc-act--filled { background: var(--color-cta); color: var(--color-on-cta); }
+.lc-act--neutral { border-color: var(--color-border-strong); color: var(--color-text); }
+.lc-act--booked,
+.lc-act:disabled {
+  border-color: var(--color-panel);
+  background: var(--color-panel);
+  color: var(--color-muted-light);
+  cursor: not-allowed;
+}
+.lc-act[aria-busy="true"] { cursor: progress; opacity: 0.75; }
+@media (hover: hover) {
+  .lc-act--outline:hover:not(:disabled) { background: var(--color-cta); color: var(--color-on-cta); }
+  .lc-act--filled:hover:not(:disabled) { background: var(--color-cta-hover); border-color: var(--color-cta-hover); }
+  .lc-act--neutral:hover:not(:disabled) { background: var(--color-text); border-color: var(--color-text); color: var(--color-bg); }
+}
+
+/* A small result note under the footer (e.g. "You're in!", an error). */
+.lc-note { font-size: 12.5px; font-weight: 700; }
+.lc-note[data-tone="good"] { color: var(--color-green-text); }
+.lc-note[data-tone="error"] { color: var(--color-danger); }
+
+/* Results grid (brief §7): at most 4 columns, each at least 280px — so a
+   page with a filter sidebar gets 3 on a standard desktop and 4 only when
+   there's room (~1600px+), then 2 on tablets and 1 on phones. No media
+   queries needed: it follows the space the grid actually has. */
+.listing-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, max(280px, calc((100% - 60px) / 4))), 1fr));
+  gap: 20px;
+  align-items: stretch;
+}
+@media (max-width: 560px) {
+  .listing-grid { gap: 16px; }
+}
+
+/* Loading skeleton with the card's real proportions (no layout shift). */
+.lc-skeleton { pointer-events: none; }
+.lc-skeleton-photo { aspect-ratio: 16 / 10; width: 100%; }
+
+/* ---------- My Life card style (option B), opt-in (owner 2026-10-27) ----------
+   Used by the Activities page (`.lc-grid--b` on its results grid). No box,
+   a rounded 4:3 photo with the big date and status on it, the action as a
+   white pill on the photo (bottom right), then a coloured kicker, a display
+   title, one muted line and price / places. Same look as the /circles cards.
+   Other pages that use ListingCard are unchanged. */
+.lc-kicker {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-orange-dark, #b8320f);
+}
+/* The photo card look's extra parts stay hidden on boxed cards, so a card
+   can always pass them (CardGrid turns them on). */
+.lc-kicker--tag,
+.lc-photo-fade,
+.lc-date-on {
+  display: none;
+}
+.lc-grid--b .lc-kicker--tag {
+  display: block;
+}
+.lc-grid--b .lc-photo-fade {
+  display: block;
+}
+.lc-grid--b .lc-date-on {
+  display: flex;
+}
+/* in the photo look the category is the kicker, and the date label replaces
+   the status pill */
+.lc-grid--b .lc-tag,
+.lc-grid--b .listing-card:has(.lc-date-on) .lc-status {
+  display: none;
+}
+.lc-photo-fade {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: linear-gradient(0deg, rgba(12, 14, 12, 0.66) 0%, rgba(12, 14, 12, 0) 52%);
+  pointer-events: none;
+}
+.lc-date-on {
+  position: absolute;
+  left: 16px;
+  right: 110px;
+  bottom: 14px;
+  z-index: 2;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 10px;
+  min-width: 0;
+  color: #ffffff;
+  pointer-events: none;
+}
+.lc-date-on b {
+  font-family: "Bricolage Grotesque Variable", "Bricolage Grotesque", system-ui, sans-serif;
+  font-weight: 800;
+  font-size: clamp(20px, 1.8vw, 24px);
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+.lc-date-on .lc-date-time {
+  font-size: 12.5px;
+  font-weight: 600;
+  opacity: 0.92;
+}
+/* the status above the big date: its own line, never wraps */
+.lc-date-label {
+  flex: 0 0 100%;
+  margin-bottom: 4px;
+  white-space: nowrap;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.94);
+}
+/* Label tones (Activities card labels, owner 2026-10-27). Plain: white text
+   on the photo's fade; every other tone sits in a pill. */
+.lc-date-label.is-hot > *,
+.lc-date-label.is-full > *,
+.lc-date-label.is-mine > *,
+.lc-date-label.is-wait > *,
+.lc-date-label.is-line > *,
+.lc-date-label.is-circle > *,
+.lc-date-label > a.lc-label-link {
+  padding: 2px 7px;
+  border-radius: 999px;
+  color: #ffffff;
+}
+/* yours: going, or on right now */
+.lc-date-label.is-mine > * { background: #2e7d50; }
+/* act soon: nearly full, needs people, starts soon */
+.lc-date-label.is-hot > * { background: #d7380f; }
+/* can't book */
+.lc-date-label.is-full > * { background: rgba(20, 20, 20, 0.78); }
+/* you're waiting: waitlist, request sent */
+.lc-date-label.is-wait > * { background: rgba(255, 255, 255, 0.92); color: #3b433c; }
+/* information: coming soon */
+.lc-date-label.is-line > * { padding: 1px 7px; border: 1px solid rgba(255, 255, 255, 0.75); background: rgba(255, 255, 255, 0.14); }
+/* a Circle's meetup */
+.lc-date-label.is-circle > * { padding: 1px 7px; border: 1px solid #bfe8cf; background: rgba(46, 125, 80, 0.4); color: #e4f6ea; }
+/* happening now: a small static dot */
+.lc-date-label.is-live > *::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: #9df0b9;
+  vertical-align: 1px;
+}
+/* the hover shortcut ("Join the waitlist") */
+.lc-date-on:has(.lc-label-link) {
+  z-index: 3;
+}
+.lc-date-label > a.lc-label-link {
+  pointer-events: auto;
+  background: #d7380f;
+  text-decoration: none;
+  cursor: pointer;
+}
+.lc-date-label > a.lc-label-link:hover {
+  background: #b82f0b;
+}
+/* hover swap: resting text, and on hover (mouse) or keyboard focus the
+   detail, cross-faded in the same spot. Phones keep the resting text. */
+.lc-date-label > .lc-label-hover {
+  display: none;
+}
+@media (hover: hover) {
+  .lc-date-label {
+    display: grid;
+    justify-items: start;
+  }
+  .lc-date-label > * {
+    grid-area: 1 / 1;
+  }
+  .lc-date-label > .lc-label-rest,
+  .lc-date-label > .lc-label-hover {
+    display: inline-block;
+    transition: opacity 0.2s ease, visibility 0.2s ease;
+  }
+  .lc-date-label > .lc-label-hover {
+    opacity: 0;
+    visibility: hidden;
+  }
+  .listing-card:hover .lc-date-label > .lc-label-rest,
+  .listing-card:focus-within .lc-date-label > .lc-label-rest {
+    opacity: 0;
+    visibility: hidden;
+  }
+  .listing-card:hover .lc-date-label > .lc-label-hover,
+  .listing-card:focus-within .lc-date-label > .lc-label-hover {
+    opacity: 1;
+    visibility: visible;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lc-date-label > * {
+    transition: none !important;
+  }
+}
+
+.lc-grid--b {
+  row-gap: 48px;
+}
+.lc-grid--b .listing-card,
+.lc-grid--b .listing-card:hover,
+.lc-grid--b .listing-card:focus-within {
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+.lc-grid--b .listing-card {
+  /* a size container, so the action can sit on the photo's bottom edge
+     (the photo is 4:3 of the card width) */
+  container-type: inline-size;
+}
+.lc-grid--b .listing-card > div:not(.lc-body) {
+  aspect-ratio: 4 / 3 !important;
+  border-radius: var(--radius-card, 16px);
+  overflow: hidden;
+}
+.lc-grid--b .listing-card:focus-within > div:not(.lc-body) {
+  outline: 2px solid var(--color-text);
+  outline-offset: 3px;
+}
+/* no photo, but a date on it: the colour block alone (the date and title
+   are already shown); without a date the block keeps its own text */
+.lc-grid--b .listing-card:has(.lc-date-on) .no-photo-text {
+  display: none !important; /* beats the block's inline style */
+}
+/* the when-line repeats the big date on the photo */
+.lc-grid--b .listing-card:has(.lc-date-on) .lc-detail[data-kind="date"] {
+  display: none;
+}
+.lc-grid--b .lc-body {
+  gap: 4px;
+  padding: 14px 0 0;
+}
+.lc-grid--b .lc-title {
+  font-family: "Bricolage Grotesque Variable", "Bricolage Grotesque", system-ui, sans-serif;
+  font-size: 20px;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+.lc-grid--b .lc-detail {
+  font-size: 14px;
+  color: var(--color-muted-light);
+}
+.lc-grid--b .lc-detail-icon {
+  display: none;
+}
+.lc-grid--b .lc-footer {
+  /* pinned to the bottom of the card, so the price tags line up across a
+     row whatever the title length (owner 2026-10-27) */
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 0;
+}
+.lc-grid--b .lc-facts {
+  flex: 1;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+/* just the price tag on the photo cards: "N left" / "Full" is already the
+   label on the photo when it matters (owner 2026-10-27) */
+.lc-grid--b .lc-avail {
+  display: none;
+}
+/* "Good fit · Why?" at the right of the price row */
+.lc-why {
+  margin-left: auto;
+  min-width: 0;
+}
+.lc-why:empty {
+  display: none;
+}
+.lc-why > div {
+  margin-top: 0 !important;
+}
+.lc-grid--b .listing-card {
+  height: 100%;
+}
+.lc-grid--b .lc-action-slot {
+  position: absolute;
+  top: calc(75cqw - 48px);
+  right: 12px;
+  z-index: 3;
+}
+.lc-grid--b .lc-action-slot .lc-act,
+.lc-grid--b .lc-action-slot .lc-arrow {
+  min-height: 36px;
+  border: 0;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #172019;
+  font-size: 13.5px;
+  font-weight: 700;
+  box-shadow: 0 1px 4px rgba(12, 14, 12, 0.22);
+  transition: background-color 0.24s ease, color 0.24s ease;
+}
+.lc-grid--b .lc-action-slot .lc-act {
+  padding: 0 14px;
+}
+.lc-grid--b .lc-action-slot .lc-arrow {
+  width: 36px;
+  height: 36px;
+}
+.lc-grid--b .lc-action-slot .lc-act:disabled {
+  background: rgba(255, 255, 255, 0.86);
+  color: #3b433c;
+}
+@media (hover: hover) {
+  .lc-grid--b .lc-action-slot .lc-act--outline:hover:not(:disabled),
+  .lc-grid--b .lc-action-slot .lc-act--filled:hover:not(:disabled),
+  .lc-grid--b .lc-action-slot .lc-act--neutral:hover:not(:disabled),
+  .lc-grid--b .listing-card:hover .lc-action-slot .lc-arrow {
+    background: var(--color-cta);
+    color: var(--color-on-cta);
+  }
+  /* same hover as /circles and My Life: the photo zooms in 4% and eases out */
+  .lc-grid--b .listing-card img {
+    transition: transform 0.5s cubic-bezier(0.45, 0, 0.25, 1);
+  }
+  .lc-grid--b .listing-card:hover img {
+    transform: scale(1.04);
+  }
+  .lc-grid--b .lc-title {
+    text-decoration: underline;
+    text-decoration-color: transparent;
+    text-underline-offset: 4px;
+    transition: text-decoration-color 0.24s ease;
+  }
+  .lc-grid--b .listing-card:hover .lc-title {
+    text-decoration-color: currentColor;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lc-grid--b .listing-card img,
+  .lc-grid--b .lc-title,
+  .lc-grid--b .lc-action-slot .lc-act,
+  .lc-grid--b .lc-action-slot .lc-arrow {
+    transition: none !important;
+  }
+  .lc-grid--b .listing-card:hover img {
+    transform: none;
+  }
+}
+@media (max-width: 560px) {
+  .lc-grid--b {
+    row-gap: 36px;
+  }
+  .lc-date-label {
+    margin-bottom: 6px;
+    font-size: 9.5px;
+    letter-spacing: 0.04em;
+  }
+}

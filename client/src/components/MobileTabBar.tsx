@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../AuthContext";
-import { EXPLORE_PATHS, EXPLORE_PLACES, EXPLORE_THINGS, FREE_TIME_ITEM, START_ITEMS, START_PATHS, isUnder, visibleItems, type NavContext, type NavItem } from "../navigation/navConfig";
+import { EXPLORE_LEARN, EXPLORE_PATHS, EXPLORE_PLACES, EXPLORE_PLACES_SOON, EXPLORE_THINGS, FREE_TIME_ITEM, START_GROUPS, START_PATHS, isUnder, visibleItems, type NavContext, type NavItem } from "../navigation/navConfig";
 import { Compass, House, Plus, UserRound, UsersRound } from "lucide-react";
 import { ICON_STROKE } from "./header/headerStyles";
 import { Drawer } from "./ui";
@@ -132,7 +132,7 @@ export function MobileTabBar() {
 
   const startActive = isUnder(location.pathname, START_PATHS);
   const exploreActive = isUnder(location.pathname, EXPLORE_PATHS) && !startActive;
-  const places = visibleItems(EXPLORE_PLACES, navCtx);
+  const places = [...visibleItems(EXPLORE_PLACES, navCtx), ...visibleItems(EXPLORE_PLACES_SOON, navCtx)];
 
   // Sheet rows are real links (header audit P1-2), from the shared nav config.
   const sheetLink = (item: NavItem) => (
@@ -141,6 +141,7 @@ export function MobileTabBar() {
         <item.icon size={20} strokeWidth={ICON_STROKE} />
       </span>
       {item.label}
+      {item.soon && <span className="hc-ed-soon" style={{ marginLeft: "auto" }}>Soon</span>}
     </Link>
   );
 
@@ -163,6 +164,8 @@ export function MobileTabBar() {
       <Drawer open={exploreOpen} onClose={() => setExploreOpen(false)} title="Explore">
         <div style={sheetGroupLabelStyle}>Things to do</div>
         {EXPLORE_THINGS.map(sheetLink)}
+        <div style={sheetGroupLabelStyle}>Learn & give back</div>
+        {EXPLORE_LEARN.map(sheetLink)}
         {/* Sitemap audit P1-06 — only while venue pages are public; otherwise
             both would land on /coming-soon. */}
         {places.length > 0 && (
@@ -177,8 +180,17 @@ export function MobileTabBar() {
 
       <Drawer open={createOpen} onClose={() => setCreateOpen(false)} title="Start">
         <p style={{ fontSize: 13, color: colors.mutedLight, margin: "0 0 16px" }}>Start something new.</p>
-        {/* Same items as the desktop Start menu (navConfig START_ITEMS). */}
-        {visibleItems(START_ITEMS, navCtx).map(sheetLink)}
+        {/* Same groups as the desktop Start menu (navConfig START_GROUPS). */}
+        {START_GROUPS.map((g) => {
+          const items = visibleItems(g.items, navCtx);
+          if (!items.length) return null;
+          return (
+            <div key={g.key}>
+              <div style={sheetGroupLabelStyle}>{g.label}</div>
+              {items.map(sheetLink)}
+            </div>
+          );
+        })}
       </Drawer>
     </>
   );

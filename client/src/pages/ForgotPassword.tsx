@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { Link } from "react-router-dom";
 import { requestPasswordReset } from "../api";
 import { AuthEditorialHeader, AuthEditorialShell } from "../components/AuthEditorialShell";
 import { AuthFormError, FieldIcon, useFocusOnError } from "../components/AuthForms";
@@ -62,7 +63,7 @@ export function ForgotPassword() {
             eyebrow="Reset password"
             accent="orange"
             headline={<>Forgotten something?<br /><span style={{ color: colors.orangeDark }}>Let's get you back in.</span></>}
-            subtitle="Enter the email on your vendor or admin account."
+            subtitle="Enter the email on your business (venue, club, experience or admin) account."
           />
           <form onSubmit={(e: FormEvent) => { e.preventDefault(); submit(); }}>
             <label htmlFor="forgot-email" style={labelStyle}>Email address</label>
@@ -87,6 +88,11 @@ export function ForgotPassword() {
               {loading ? "Sending…" : "Send reset link →"}
             </Button>
           </form>
+          {/* PUB-35 — a resident who lands here is sent to their own reset. */}
+          <p style={{ textAlign: "center", color: colors.muted, fontSize: 14, marginTop: 20 }}>
+            Personal HelloCircle account?{" "}
+            <Link to="/signin?forgot=1" style={{ color: colors.text, fontWeight: 700, textDecoration: "none" }}>Reset it from Sign in</Link>
+          </p>
         </>
       )}
     </AuthEditorialShell>

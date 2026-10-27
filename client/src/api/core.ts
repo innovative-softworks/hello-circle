@@ -15,6 +15,12 @@ export class ApiError extends Error {
   }
 }
 
+/** PUB-14 — the record genuinely doesn't exist (or was removed): a 404/410.
+ * Anything else (5xx, network, timeout) is a load failure worth retrying. */
+export function isNotFound(e: unknown): boolean {
+  return e instanceof ApiError && (e.status === 404 || e.status === 410);
+}
+
 // --- Centralised session-expiry detection -----------------------------------
 // A 401 means two very different things depending on which endpoint sent it:
 // on a login/signup/verify attempt it means "these credentials/this token

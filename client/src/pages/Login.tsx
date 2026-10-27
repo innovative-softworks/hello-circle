@@ -182,6 +182,11 @@ export function Login() {
           Create a business account <ArrowRightIcon size={14} />
         </Link>
       </p>
+      {/* PUB-35 — residents and businesses sign in at different doors. */}
+      <p style={{ textAlign: "center", color: colors.muted, fontSize: 14, marginTop: 10 }}>
+        Booking or joining things for yourself?{" "}
+        <Link to="/signin" style={{ color: colors.text, fontWeight: 700, textDecoration: "none" }}>Personal sign in</Link>
+      </p>
     </AuthEditorialShell>
   );
 }

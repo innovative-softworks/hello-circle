@@ -12,6 +12,11 @@ export interface Room {
 }
 
 export interface Centre {
+  /** Category system (2026-10-22) — present on public detail responses. */
+  taxonomy?: ListingTaxonomy | null;
+  tags?: string[];
+  /** DP-07 — the organisation's cancellation window in hours (detail response only). */
+  cancellationHours?: number;
   id: string;
   name: string;
   area: string;
@@ -87,6 +92,9 @@ export interface RoomBlock {
 }
 
 export interface Club {
+  /** Category system (2026-10-22) — present on public detail responses. */
+  taxonomy?: ListingTaxonomy | null;
+  tags?: string[];
   /** Release 2 — public detail fetch only. */
   participationAttributes?: string[];
   /** Release 3 — official Circle (public detail fetch only). */
@@ -518,7 +526,7 @@ export interface HouseholdMember {
 export type FavouriteStatus = "interested" | "planning" | "joined";
 
 export interface Favourite {
-  listingType: "centre" | "club" | "game" | "program_session" | "club_session" | "experience" | "circle";
+  listingType: "centre" | "club" | "game" | "program" | "program_session" | "club_session" | "experience" | "circle";
   listingId: string;
   status: FavouriteStatus;
   /** Best-effort listing display details — null if the listing was since removed. */
@@ -608,6 +616,11 @@ export interface MyIntent {
 // --- Join a Game (MVP) / paid games (NEXT) ---------------------------------
 
 export interface Game {
+  /** Category system (2026-10-22) — present on public detail responses. */
+  taxonomy?: ListingTaxonomy | null;
+  tags?: string[];
+  /** DP-15 — upcoming dates of the same repeating activity (detail response only). */
+  otherDates?: { id: string; date: string; time: string; spotsLeft: number | null }[];
   id: string;
   hostResidentId: string;
   /** "Host" trust tier (IA spec five-layer audit) — badge-only, never a
@@ -645,6 +658,9 @@ export interface Game {
   /** Only present on the single-game detail fetch, not the list. */
   joinedByMe?: boolean;
   waitlistedByMe?: boolean;
+  /** Detail fetch only: a paid join's reference (GJ-…) and whether its
+   * payment is still being checked. Null for a free join. */
+  myJoin?: { ref: string; paymentReview: boolean } | null;
   /** Contextual familiarity (implementation plan Phase 8) — how many
    * currently-joined participants the signed-in resident has previously
    * shared a different game with. 0 for a signed-out visitor. */
@@ -683,6 +699,8 @@ export interface Game {
   /** Set only when this game was created as a specific Circle's plan
    * (HelloCircle Manage Phase 4's "Create plan" deep-link). */
   circleId: string | null;
+  /** Experience 3.0 — the partner Circle of a shared Circle-to-Circle activity. */
+  partnerCircle?: { id: string; name: string; slug: string | null } | null;
   /** HelloCircle Manage Phase 5 — the circle's own name/slug, so
    * /manage/activities can show which rows are a Circle's Plan and link
    * back to it. Both null whenever circleId is null. */
@@ -745,6 +763,9 @@ export interface CircleSuggestion {
 }
 
 export interface Circle {
+  /** Category system (2026-10-22) — present on public detail responses. */
+  taxonomy?: ListingTaxonomy | null;
+  tags?: string[];
   id: string;
   name: string;
   activityLabel: string;
@@ -781,7 +802,24 @@ export interface Circle {
    * only falling back to an activity-label match (source: 'nearby') when
    * the Circle has no real upcoming activity of its own. Null when
    * nothing's currently scheduled either way; the client never fakes one. */
-  nextPlan: { id: string; date: string; time: string; joined: number; capacity: number; spotsLeft: number; source: "circle" | "nearby" } | null;
+  nextPlan: {
+    id: string;
+    date: string;
+    time: string;
+    joined: number;
+    capacity: number;
+    spotsLeft: number;
+    source: "circle" | "nearby";
+    /** Length in minutes when the host set one. Optional: older servers don't send it. */
+    durationMinutes?: number | null;
+    /** The viewer has joined this meetup. */
+    joinedByMe?: boolean;
+    /** The viewer's waitlist place: waiting, or a place offered to them. */
+    waitlist?: "waiting" | "offered" | null;
+  } | null;
+  /** When the viewer can't see any of the Circle's own meetups because they're
+   * members-only: just the next one's date and time (never for invite-only). */
+  membersOnlyNext?: { date: string; time: string } | null;
   /** Loose calendar-month count of open games matching this activity —
    * a participation-health signal, not a stored/cached counter. */
   plansThisMonth: number;
@@ -829,6 +867,11 @@ export interface Circle {
   /** Only meaningful on a restricted response for an 'approval' Circle —
    * true when the viewer already has a pending join request in. */
   requested?: boolean;
+  /** Circle Experience 2.0 — this Circle's own past activities that someone
+   * confirmed attending. Detail fetch only; verified, never estimated. */
+  activitiesTogether?: number;
+  /** Circle Experience 4.0 — the organiser's "people often come on their own"; null = not said. */
+  soloWelcome?: boolean | null;
 }
 
 /** A real photo from a recent game matching this Circle's activity (§18) —
@@ -866,6 +909,16 @@ export interface CirclePlanPreview {
    * presented as the same thing — see CircleDetail.tsx's "From this
    * Circle"/"You might also like" split. */
   source: "circle" | "nearby";
+  /** Circle Experience 2.0 — optional, so an older server still type-checks. */
+  imageUrl?: string | null;
+  /** The host said people come on their own (come_alone). */
+  soloFriendly?: boolean;
+  /** What experience the host says is needed; null = none stated. */
+  experienceRequired?: string | null;
+  /** The signed-in viewer's own state (Circle upcoming list). */
+  joinedByMe?: boolean;
+  waitlistedByMe?: boolean;
+  joinRequested?: boolean;
 }
 
 /** Organiser-only, real plans linked via games.circle_id (HelloCircle Manage
@@ -976,6 +1029,228 @@ export interface CirclePlanIdea {
   createdAt: string;
   confirmedAt: string | null;
   cancelledAt: string | null;
+  // Circle Experience 2.0, Make It Happen — only sent while that feature is
+  // on. `stage` is derived: gathering/ready/expired for an unconfirmed idea.
+  interestCount?: number;
+  interestedByMe?: boolean;
+  targetSize?: number | null;
+  expiresAt?: string | null;
+  stage?: "gathering" | "ready" | "confirmed" | "activity_created" | "completed" | "cancelled" | "expired";
+  sourcePulseKey?: string | null;
+  declineReason?: string | null;
+  /** Circles 3.0 — the real listing this plan is about, read live for the
+   * viewer (server circlePlanListings.ts). Null for a free-text plan. */
+  listing?: CirclePlanListing | null;
+  /** Circles 3.0 — set when this plan is shared between two Circles. The
+   * home Circle owns it (its organisers decide); members are never shared. */
+  shared?: { homeCircle: { id: string; slug: string | null; name: string } | null; partnerCircle: { id: string; slug: string | null; name: string } | null } | null;
+}
+
+/** Circles 3.0 — a plan's listing. A reference only: booking, price and
+ * capacity stay with the listing's own page. */
+export type CirclePlanListingType = "game" | "experience" | "program" | "centre" | "club";
+export interface CirclePlanListing {
+  type: CirclePlanListingType;
+  /** activity | adventure | experience | volunteer | programme | venue | club */
+  kind: string;
+  id: string;
+  sessionId: string | null;
+  title: string;
+  imageUrl: string | null;
+  date: string | null;
+  time: string | null;
+  where: string | null;
+  priceCents: number | null;
+  /** Null when the page can't be opened (venue pages still "Coming soon"). */
+  href: string | null;
+  /** no_dates: still listed, nothing scheduled yet (not the same as gone). */
+  availability: "available" | "full" | "past" | "cancelled" | "unavailable" | "no_dates";
+  spotsLeft: number | null;
+  myState: "booked" | "waitlisted" | null;
+  bookingNote: string | null;
+  restricted: boolean;
+}
+
+/** Circles 3.1 — a listing linked to a Circle (GET /api/circles/:id/links).
+ * Not a plan: nobody has said they're going. "official" = the partner named
+ * this Circle on its own listing (managed by the partner, read-only here). */
+export interface CircleLink {
+  id: string;
+  relationship: "shared" | "created_for" | "official";
+  status: "approved" | "pending";
+  note: string | null;
+  listing: CirclePlanListing;
+  linkedByName: string | null;
+  linkedByMe: boolean;
+  canDecide: boolean;
+  canRemove: boolean;
+  createdAt: string;
+}
+
+/** Circles 3.0 — My Life "Plans you're in" (GET /api/circles/my-plans).
+ * One entry per listing+date even when planned in several Circles. */
+export interface MyCirclePlan {
+  key: string;
+  planId: string;
+  title: string;
+  status: "idea" | "confirmed";
+  proposedDate: string | null;
+  proposedTime: string | null;
+  circles: { id: string; slug: string | null; name: string; planId: string }[];
+  listing: CirclePlanListing | null;
+}
+
+// --- Circle Experience 2.0 ---------------------------------------------------
+// Pulse, Free Time Match, first-time guidance and Memories. Members-only;
+// every count is an aggregate with a minimum group size (server
+// circlePlanning.ts), and no response lists who wants what or who is free.
+
+export type CircleFeatureKey = "circles.pulse" | "circles.free_time_match" | "circles.make_it_happen" | "circles.first_time_friendly" | "circles.memories" | "circles.collaboration" | "circles.visitor_experience";
+
+/** Circle Experience 4.0 — what someone who isn't a member may see
+ * (GET /api/circles/:id/visitor). Never member names, chat, memories,
+ * wishes or availability; polls/plans only as counts, open Circles only. */
+export interface CircleVisitorView {
+  joinMode: "open" | "approval" | "invite";
+  members: number;
+  organiser: { name: string; verified: boolean; residentId: string | null } | null;
+  about: { about: string | null; whatWeDo: string | null; whoCanJoin: string | null; values: string | null };
+  coverUrl: string | null;
+  upcoming: {
+    id: string;
+    activityLabel: string;
+    date: string;
+    time: string;
+    place: string | null;
+    durationMinutes: number | null;
+    priceCents: number | null;
+    joined: number;
+    spotsLeft: number;
+    imageUrl: string | null;
+    soloFriendly: boolean;
+    experienceRequired: string | null;
+  }[];
+  past: { id: string; activityLabel: string; date: string; attended: number; imageUrl: string | null }[];
+  activitiesTogether: number;
+  venuePhotos: string[];
+  pattern: { weekday: string; partOfDay: string } | null;
+  soloWelcome: { source: "organiser" | "activities" } | null;
+  community: { openPolls: number; livePlans: number } | null;
+}
+
+export interface CircleMembership {
+  member: boolean;
+  role: string | null;
+  requested: boolean;
+  /** Removed by an organiser and not yet lifted (owner decision D5). */
+  restricted?: boolean;
+  /** Whether the welcome step was seen; null when not a member. */
+  welcomed?: boolean | null;
+  /** True when they've never taken part in one of this Circle's activities; null when not a member. */
+  firstCircleActivity?: boolean | null;
+}
+
+export interface CirclePulseGroup {
+  key: string;
+  interestKey: string;
+  interest: string;
+  weekStart: string;
+  /** null = only you so far (below the visibility threshold). */
+  count: number | null;
+  mine: boolean;
+  topSlot: string | null;
+  topSlotCount: number | null;
+  status: "active" | "matched" | "proposed" | "converted";
+  planId: string | null;
+  /** Organisers only: notes members left, without names. */
+  organiserNotes?: string[];
+}
+
+export interface CirclePulseView {
+  weeks: [string, string];
+  groups: CirclePulseGroup[];
+  mine: { id: string; interest: string; weekStart: string; slots: string[]; note: string | null }[];
+  suggestions: string[];
+  limits: { maxActive: number; noteMaxLength: number };
+  /** "Who's free" chart (2026-10-24): today to the end of next week; count
+   * is null below two people. Optional — older servers don't send it. */
+  freeByDay?: { date: string; count: number | null }[];
+}
+
+export interface CircleFreeTimeMatch {
+  weekStart: string;
+  slot: string;
+  interest: string | null;
+  interestKey: string | null;
+  count: number;
+  includesMe: boolean;
+}
+
+/** Circle Home planner (2026-10-24) — members free each day this week and
+ * next; `free` is null below `minGroup` people or for a past day. */
+export interface CircleFreeDay {
+  date: string;
+  free: number | null;
+  past: boolean;
+  best: boolean;
+}
+export interface CircleFreeDaysView {
+  days: CircleFreeDay[];
+  minGroup: number;
+}
+
+export interface CircleFreeTimeView {
+  weeks: [string, string];
+  mine: Record<string, string[] | null>;
+  sharedCount: Record<string, number | null>;
+  matches: CircleFreeTimeMatch[];
+  minGroup: number;
+}
+
+export interface CircleFirstTimeGuide {
+  guidelines: { values: string | null; whoCanJoin: string | null };
+  nextActivity: {
+    id: string;
+    activityLabel: string;
+    date: string;
+    time: string;
+    durationMinutes: number | null;
+    where: string | null;
+    meetingInstructions: string | null;
+    equipmentNeeded: string | null;
+    experienceRequired: string | null;
+    soloFriendly: boolean;
+    accessibilityInfo: string | null;
+    organiserName: string | null;
+  } | null;
+}
+
+export interface CircleMemory {
+  id: string;
+  kind: "photo" | "reflection";
+  imageUrl: string | null;
+  caption: string | null;
+  body: string | null;
+  activity: { id: string; activityLabel: string; date: string };
+  contributorName: string;
+  mine: boolean;
+  canRemove: boolean;
+  createdAt: string;
+}
+
+export interface CircleMemoriesView {
+  activitiesTogether: number;
+  canContribute: boolean;
+  contributableActivities: { id: string; activityLabel: string; date: string }[];
+  items: CircleMemory[];
+}
+
+export interface CircleRestriction {
+  residentId: string;
+  name: string;
+  reason: string | null;
+  createdAt: string;
+  restrictedByName: string;
 }
 
 export type HostStatus = "none" | "pending" | "verified" | "rejected";
@@ -1214,6 +1489,9 @@ export interface SearchResult {
   /** Filtered the same simple way centres/clubs are, not ranked alongside
    * activities — see server/src/routes/search.ts's comment. */
   experiences: ExperienceSearchResult[];
+  /** Category system (2026-10-22) — additive; older servers omit them. */
+  programmes?: { id: string; title: string; parentName: string | null; area: string | null; county: string | null; nextSessionDate: string | null; priceCents: number | null; imageUrl: string | null }[];
+  circles?: { id: string; slug: string | null; name: string; activityLabel: string; area: string; county: string; members: number }[];
 }
 
 // --- homepage discovery feeds (Phase 5) ---------------------------------
@@ -1259,6 +1537,20 @@ export interface DiscoverItem {
   listingType?: "game" | "program" | "club" | "experience";
   listingId?: string;
   experienceKind?: string | null;
+  /** Activities only (Home feed and Explore search): what the card label
+   * needs beyond the summary, plus the signed-in viewer's own state. */
+  card?: {
+    capacity: number;
+    minParticipants: number | null;
+    pending: boolean;
+    comingSoon: boolean;
+    circleName: string | null;
+    createdAt: string | null;
+    soloFriendly: boolean;
+    joinedByMe: boolean;
+    waitlistedByMe: boolean;
+    joinRequested: boolean;
+  };
 }
 
 /** Release 6 — a demand cluster shown to hosts. Aggregate only: a range,
@@ -1326,6 +1618,9 @@ export interface ActivitySummary extends Omit<DiscoverItem, "kind" | "matchReaso
 export interface DiscoverFeed {
   today: DiscoverItem[];
   weekend: DiscoverItem[];
+  /** A radius found nothing with a confirmed location, so this is the
+   * county it was measured from instead (no distance claim). */
+  radiusFallback?: { county: string };
 }
 
 // --- Map discovery (Maps & Geographic Discovery, Phase E) -------------------
@@ -1616,6 +1911,11 @@ export interface NotificationPrefs {
   activityReminders: boolean;
   openSpots: boolean;
   routineReminders: boolean;
+  /** My Life 3.0 (D5) — opt-in in-app alerts, read by server/src/myLife.ts's
+   * sweep only when === true (the older routineReminders defaulted to on, so
+   * it can't stand for consent). Optional: absent means off. */
+  savedAvailability?: boolean;
+  routineAlerts?: boolean;
   marketing: boolean;
   /** Gates "intent_match" notifications (see notifications.ts's
    * PREF_KEY_BY_KIND) — unlike most other categories here, this one is
@@ -1724,6 +2024,9 @@ export interface SessionAttendanceEntry {
 }
 
 export interface Program {
+  /** Category system (2026-10-22) — present on public detail responses. */
+  taxonomy?: ListingTaxonomy | null;
+  tags?: string[];
   id: string;
   listingType: "centre" | "club";
   listingId: string;
@@ -1796,6 +2099,9 @@ export interface ExperienceSessionSlot {
 }
 
 export interface Experience {
+  /** Category system (2026-10-22) — present on public detail responses. */
+  taxonomy?: ListingTaxonomy | null;
+  tags?: string[];
   id: string;
   kind: ExperienceKind;
   title: string;
@@ -2170,4 +2476,17 @@ export interface CircleActivity {
   status: string;
   createdAt: string;
   memberCount: number;
+}
+
+/** Category system (2026-10-22): a listing's primary category and optional
+ * subcategory, as returned on public detail responses. `active` is false when
+ * the category was retired after it was chosen. */
+export interface ListingTaxonomy {
+  categoryId: string;
+  categoryName: string;
+  categorySlug: string;
+  subcategoryId: string | null;
+  subcategoryName: string | null;
+  subcategorySlug: string | null;
+  active: boolean;
 }

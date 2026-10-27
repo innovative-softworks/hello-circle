@@ -1,3 +1,6 @@
+import { CardAction, CardArrow } from "../components/ListingCard";
+import { useCategoryFilter } from "../components/categories/CategoryChips";
+import { DropdownCheckbox, DropdownOption, FilterDropdown } from "../components/FilterDropdown";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowRight, Award, CalendarDays, ChevronDown, Heart, LayoutGrid, List, LocateFixed, MapPin, Search, SlidersHorizontal, Users, X } from "lucide-react";
@@ -29,6 +32,7 @@ import type { Circle, CircleInvitation, CircleSuggestion, Game } from "../types"
 import "./homeEditorial.css";
 import "./circlesPage.css";
 import { CtaBand } from "../components/CtaBand";
+import { FeaturedPicks, FeatureHead, FeatureRow } from "../components/FeaturedPicks";
 
 // Circles page — UX pass (2026-10-12) on the editorial rebuild. One search
 // bar (search / location / interest / meeting time), one row of quick
@@ -85,6 +89,12 @@ function isNew(c: Circle): boolean {
 function matchesInterest(c: Circle, key: InterestKey): boolean {
   const hay = `${c.activityLabel} ${c.name}`.toLowerCase();
   return INTEREST_BY_KEY[key].words.some((w) => hay.includes(w));
+}
+
+/** "Interest" → "Sports" → "Sports +1" on a dropdown trigger. */
+function multiLabel(name: string, picked: string[]): string {
+  if (picked.length === 0) return name;
+  return picked.length === 1 ? picked[0] : `${picked[0]} +${picked.length - 1}`;
 }
 
 function planMatchesWhen(c: Circle, when: WhenFilter): boolean {
@@ -149,8 +159,14 @@ export function Circles() {
   const query = params.get("q") ?? "";
   const county = params.get("county") ?? "All";
   const activity = params.get("activity") ?? "All"; // deep links from other pages
-  const interest = (params.get("interest") as InterestKey | null) ?? null;
-  const when = (params.get("when") as WhenFilter | null) ?? "any";
+  // Owner, 2026-10-23: one row of dropdowns; Type, Interest, Meeting time and
+  // Show take several choices (?interest=sports,social).
+  const listOf = (key: string) => (params.get(key) ?? "").split(",").filter((v) => v && v !== "any");
+  const interests = useMemo(() => listOf("interest").filter((k): k is InterestKey => k in INTEREST_BY_KEY), [params]); // eslint-disable-line react-hooks/exhaustive-deps
+  const interest: InterestKey | null = interests[0] ?? null;
+  // Category system — ?category=<slug>&sub=<slug>, filtered on the server.
+  const taxonomy = useCategoryFilter("circle");
+  const whens = useMemo(() => listOf("when").filter((w): w is WhenFilter => w in WHEN_LABELS), [params]); // eslint-disable-line react-hooks/exhaustive-deps
   const sort = (params.get("sort") as SortKey | null) ?? "recommended";
   const view = params.get("view") === "list" ? "list" : "grid";
   const quick = useMemo(() => new Set((params.get("show") ?? "").split(",").filter((k): k is QuickKey => (QUICK_KEYS as readonly string[]).includes(k))), [params]);
@@ -168,7 +184,10 @@ export function Circles() {
     else s.add(k);
     setParam({ show: Array.from(s).join(",") || null });
   };
-  const setInterest = (k: InterestKey | null) => setParam({ interest: k === interest ? null : k });
+  const toggleList = (key: string, v: string) => {
+    const cur = listOf(key);
+    setParam({ [key]: (cur.includes(v) ? cur.filter((x) => x !== v) : [...cur, v]).join(",") || null });
+  };
   const clearAll = () => setParams(new URLSearchParams(view === "list" ? { view: "list" } : {}), { replace: true });
 
   const [queryInput, setQueryInput] = useState(query);
@@ -190,7 +209,8 @@ export function Circles() {
   const [games, setGames] = useState<Game[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
-  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [cursors, setCursors] = useState<(string | null)[]>([]);
+  const nextCursor = cursors.some(Boolean);
   const [loadingMore, setLoadingMore] = useState(false);
   const [loadMoreFailed, setLoadMoreFailed] = useState(false);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
@@ -211,8 +231,13 @@ export function Circles() {
   const filterBtnRef = useRef<HTMLButtonElement>(null);
   const requestSeq = useRef(0);
 
-  const serverFilters = useMemo(() => ({ q: query || undefined, county: county !== "All" ? county : undefined, activity: activity !== "All" ? activity : undefined }), [query, county, activity]);
-  const filterKey = JSON.stringify(serverFilters);
+  const taxonomyKey = JSON.stringify([taxonomy.serverParams, taxonomy.subSlugs]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const serverFilters = useMemo(() => ({ q: query || undefined, county: county !== "All" ? county : undefined, activity: activity !== "All" ? activity : undefined, ...taxonomy.serverParams }), [query, county, activity, taxonomyKey]);
+  // Several types ticked: the list endpoint takes one type, so one query each.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const serverQueries = useMemo(() => (taxonomy.subSlugs.length > 1 ? taxonomy.subSlugs.map((sub) => ({ ...serverFilters, subcategorySlug: sub })) : [serverFilters]), [serverFilters, taxonomyKey]);
+  const filterKey = JSON.stringify(serverQueries);
 
   const load = () => {
     const seq = ++requestSeq.current;
@@ -220,11 +245,12 @@ export function Circles() {
     setLoadFailed(false);
     setLoadMoreFailed(false);
     setVisibleCount(PAGE_SIZE);
-    fetchCirclesPage(serverFilters)
-      .then((page) => {
+    Promise.all(serverQueries.map((q) => fetchCirclesPage(q)))
+      .then((pages) => {
         if (seq !== requestSeq.current) return;
-        setCircles(page.items);
-        setNextCursor(page.nextCursor);
+        const seen = new Set<string>();
+        setCircles(pages.flatMap((p) => p.items).filter((c) => (seen.has(c.id) ? false : (seen.add(c.id), true))));
+        setCursors(pages.map((p) => p.nextCursor));
       })
       .catch(() => {
         if (seq === requestSeq.current) setLoadFailed(true);
@@ -241,14 +267,14 @@ export function Circles() {
     const seq = requestSeq.current;
     setLoadingMore(true);
     setLoadMoreFailed(false);
-    fetchCirclesPage(serverFilters, nextCursor)
-      .then((page) => {
+    Promise.all(serverQueries.map((q, i) => (cursors[i] ? fetchCirclesPage(q, cursors[i]) : Promise.resolve({ items: [] as Circle[], nextCursor: null }))))
+      .then((pages) => {
         if (seq !== requestSeq.current) return;
         setCircles((prev) => {
           const ids = new Set(prev.map((c) => c.id));
-          return [...prev, ...page.items.filter((c) => !ids.has(c.id))];
+          return [...prev, ...pages.flatMap((p) => p.items).filter((c) => (ids.has(c.id) ? false : (ids.add(c.id), true)))];
         });
-        setNextCursor(page.nextCursor);
+        setCursors(pages.map((p) => p.nextCursor));
       })
       .catch(() => {
         if (seq === requestSeq.current) setLoadMoreFailed(true);
@@ -259,7 +285,7 @@ export function Circles() {
   // Client-side filters (interest / time / quick) can only be accurate over
   // every page, so while one is on, the remaining pages load in the
   // background and the count says "checking more" until they have.
-  const clientFiltering = !!interest || when !== "any" || quick.size > 0;
+  const clientFiltering = interests.length > 0 || whens.length > 0 || quick.size > 0;
   useEffect(() => {
     if (clientFiltering && nextCursor && !loadingMore && !loadMoreFailed && !loading) loadMore();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -425,8 +451,8 @@ export function Circles() {
   const filtered = useMemo(
     () =>
       circles.filter((c) => {
-        if (interest && !matchesInterest(c, interest)) return false;
-        if (!planMatchesWhen(c, when)) return false;
+        if (interests.length && !interests.some((k) => matchesInterest(c, k))) return false;
+        if (whens.length && !whens.some((w) => planMatchesWhen(c, w))) return false;
         if (quick.has("active")) {
           const p = ownPlan(c);
           if (!(p && daysUntil(p.date) <= 7)) return false;
@@ -434,7 +460,7 @@ export function Circles() {
         if (quick.has("new") && !isNew(c)) return false;
         return true;
       }),
-    [circles, interest, when, quick]
+    [circles, interests, whens, quick]
   );
   const sorted = useMemo(() => [...filtered].sort((a, b) => compareCircles(a, b, sort)), [filtered, sort]);
   const visible = sorted.slice(0, visibleCount);
@@ -443,8 +469,9 @@ export function Circles() {
     query && { key: "q", label: `“${query}”`, clear: () => setParam({ q: null }) },
     county !== "All" && { key: "county", label: nearMe ? `Near me · ${county}` : county, clear: () => setParam({ county: null, near: null }) },
     activity !== "All" && { key: "activity", label: activity, clear: () => setParam({ activity: null }) },
-    interest && { key: "interest", label: INTEREST_BY_KEY[interest]?.label, clear: () => setParam({ interest: null }) },
-    when !== "any" && { key: "when", label: WHEN_LABELS[when], clear: () => setParam({ when: null }) },
+    taxonomy.label && { key: "category", label: taxonomy.label, clear: () => taxonomy.setCategory(null) },
+    ...interests.map((k) => ({ key: `interest-${k}`, label: INTEREST_BY_KEY[k].label, clear: () => toggleList("interest", k) })),
+    ...whens.map((w) => ({ key: `when-${w}`, label: WHEN_LABELS[w], clear: () => toggleList("when", w) })),
     quick.has("active") && { key: "active", label: "Active this week", clear: () => toggleQuick("active") },
     quick.has("new") && { key: "new", label: "New Circles", clear: () => toggleQuick("new") },
   ].filter(Boolean) as { key: string; label: string; clear: () => void }[];
@@ -560,29 +587,6 @@ export function Circles() {
               ))}
             </select>
           </div>
-          <div className="hx-field cx-field-desk">
-            <label htmlFor="cx-interest">Interest</label>
-            <Users size={18} className="hx-field-icon" aria-hidden="true" />
-            <select id="cx-interest" value={interest ?? ""} onChange={(e) => setParam({ interest: e.target.value || null })}>
-              <option value="">All interests</option>
-              {INTERESTS.map((i) => (
-                <option key={i.key} value={i.key}>
-                  {i.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="hx-field cx-field-desk">
-            <label htmlFor="cx-when">Meeting time</label>
-            <CalendarDays size={18} className="hx-field-icon" aria-hidden="true" />
-            <select id="cx-when" value={when} onChange={(e) => setParam({ when: e.target.value })}>
-              {(Object.keys(WHEN_LABELS) as WhenFilter[]).map((w) => (
-                <option key={w} value={w}>
-                  {WHEN_LABELS[w]}
-                </option>
-              ))}
-            </select>
-          </div>
           <button type="submit" className="hx-btn hx-btn--orange hx-search-go">
             Search <ArrowRight size={16} aria-hidden="true" />
           </button>
@@ -593,24 +597,43 @@ export function Circles() {
           <button ref={filterBtnRef} type="button" className="cx-pill cx-filter-btn" aria-haspopup="dialog" aria-expanded={sheetOpen} onClick={() => setSheetOpen(true)}>
             <SlidersHorizontal size={15} aria-hidden="true" /> Filters{activeFilters.length ? ` · ${activeFilters.length}` : ""} · Sort
           </button>
-          <div className="cx-pills cx-quick" role="group" aria-label="Quick filters">
-            <button type="button" className={`cx-pill${activeFilters.length === 0 ? " is-on" : ""}`} aria-pressed={activeFilters.length === 0} onClick={clearAll}>
-              All Circles
-            </button>
-            <button type="button" className={`cx-pill${quick.has("active") ? " is-on" : ""}`} aria-pressed={quick.has("active")} onClick={() => toggleQuick("active")}>
-              Active this week
-            </button>
-            <button type="button" className={`cx-pill${quick.has("new") ? " is-on" : ""}`} aria-pressed={quick.has("new")} onClick={() => toggleQuick("new")}>
-              New Circles
-            </button>
+          {/* Owner, 2026-10-23: one row of dropdowns (no Refine sidebar on
+              this page); tick several where it makes sense. */}
+          <div className="cx-pills cx-quick cx-dropdowns" role="group" aria-label="Filter Circles">
+            {taxonomy.categories.length > 0 && (
+              <FilterDropdown label={taxonomy.selected ? taxonomy.selected.name : "Category"} active={!!taxonomy.selected}>
+                <DropdownOption label="All categories" active={!taxonomy.selected} onClick={() => taxonomy.setCategory(null)} />
+                {taxonomy.categories.map((c) => (
+                  <DropdownOption key={c.id} label={c.name} active={taxonomy.selected?.id === c.id} onClick={() => taxonomy.setCategory(c.slug)} />
+                ))}
+              </FilterDropdown>
+            )}
+            {taxonomy.selected && taxonomy.selected.subcategories.length > 1 && (
+              <FilterDropdown label={multiLabel("Type", taxonomy.selectedSubs.map((x) => x.name))} active={taxonomy.subSlugs.length > 0}>
+                {taxonomy.selected.subcategories.map((x) => (
+                  <DropdownCheckbox key={x.id} label={x.name} checked={taxonomy.subSlugs.includes(x.slug)} onChange={() => taxonomy.toggleSub(x.slug)} />
+                ))}
+              </FilterDropdown>
+            )}
+            <FilterDropdown label={multiLabel("Interest", interests.map((k) => INTEREST_BY_KEY[k].label))} active={interests.length > 0}>
+              {INTERESTS.map((i) => (
+                <DropdownCheckbox key={i.key} label={i.label} checked={interests.includes(i.key)} onChange={() => toggleList("interest", i.key)} />
+              ))}
+            </FilterDropdown>
+            <FilterDropdown label={multiLabel("Meeting time", whens.map((w) => WHEN_LABELS[w]))} active={whens.length > 0}>
+              {(Object.keys(WHEN_LABELS) as WhenFilter[])
+                .filter((w) => w !== "any")
+                .map((w) => (
+                  <DropdownCheckbox key={w} label={WHEN_LABELS[w]} checked={whens.includes(w)} onChange={() => toggleList("when", w)} />
+                ))}
+            </FilterDropdown>
+            <FilterDropdown label={multiLabel("Show", [quick.has("active") ? "Active this week" : "", quick.has("new") ? "New Circles" : ""].filter(Boolean))} active={quick.size > 0}>
+              <DropdownCheckbox label="Active this week" checked={quick.has("active")} onChange={() => toggleQuick("active")} />
+              <DropdownCheckbox label="New Circles" checked={quick.has("new")} onChange={() => toggleQuick("new")} />
+            </FilterDropdown>
             <button type="button" className={`cx-pill${nearMe ? " is-on" : ""}`} aria-pressed={nearMe} onClick={handleNearMe} disabled={locating}>
               <LocateFixed size={15} aria-hidden="true" /> {locating ? "Locating…" : "Near me"}
             </button>
-            {(["sports", "social", "outdoors"] as InterestKey[]).map((k) => (
-              <button key={k} type="button" className={`cx-pill${interest === k ? " is-on" : ""}`} aria-pressed={interest === k} onClick={() => setInterest(k)}>
-                {k === "sports" ? "Sports" : k === "social" ? "Social" : "Outdoors"}
-              </button>
-            ))}
           </div>
           <label className="cx-sort">
             <span>Sort by</span>
@@ -674,24 +697,24 @@ export function Circles() {
 
       {/* FIND YOUR NEXT CIRCLE — the main focus. */}
       <section className="hx-wrap cx-results" aria-labelledby="cx-results-title" ref={resultsRef}>
-        <div className="cx-results-head">
-          <div>
-            <h2 id="cx-results-title" className="cx-h2">
-              Find your next Circle
-            </h2>
-            <p className="cx-sub" role="status">
-              {resultCount}
-            </p>
-          </div>
-          <div className="cx-view" role="group" aria-label="View">
-            <button type="button" className={view === "grid" ? "is-on" : undefined} aria-pressed={view === "grid"} onClick={() => setParam({ view: "grid" })}>
-              <LayoutGrid size={16} aria-hidden="true" /> Grid
-            </button>
-            <button type="button" className={view === "list" ? "is-on" : undefined} aria-pressed={view === "list"} onClick={() => setParam({ view: "list" })}>
-              <List size={16} aria-hidden="true" /> List
-            </button>
-          </div>
-        </div>
+        <FeatureHead
+          id="cx-results-title"
+          label="Find your next Circle"
+          a="Find your next"
+          b="Circle."
+          copy={resultCount}
+          copyIsStatus
+          extra={
+            <div className="cx-view" role="group" aria-label="View">
+              <button type="button" className={view === "grid" ? "is-on" : undefined} aria-pressed={view === "grid"} onClick={() => setParam({ view: "grid" })}>
+                <LayoutGrid size={16} aria-hidden="true" /> Grid
+              </button>
+              <button type="button" className={view === "list" ? "is-on" : undefined} aria-pressed={view === "list"} onClick={() => setParam({ view: "list" })}>
+                <List size={16} aria-hidden="true" /> List
+              </button>
+            </div>
+          }
+        />
 
         {loading && circles.length === 0 ? (
           <ul className="cx-grid" aria-busy="true" aria-label="Loading Circles">
@@ -757,39 +780,49 @@ export function Circles() {
         )}
       </section>
 
-      {/* A · UPCOMING MEETUPS — Circles' own meetups only. */}
-      <section className="hx-wrap cx-section" aria-labelledby="cx-up-title">
-        <div className="cx-section-head">
-          <div>
-            <h2 id="cx-up-title" className="cx-h2">
-              Upcoming meetups
-            </h2>
-            <p className="cx-sub">Meetups Circles have scheduled for the next two weeks.</p>
-          </div>
+      {/* A · UPCOMING MEETUPS — Circles' own meetups only, as a featured
+          row (owner 2026-10-27): title-on-the-photo cards, five in view. */}
+      {upcoming.length > 0 ? (
+        <div className="hx-wrap">
+          <FeatureRow
+            id="cx-up-title"
+            label="Upcoming meetups"
+            a="Meet up."
+            b="In the next two weeks."
+            copy="Meetups Circles have scheduled. Join one to see if the group is for you."
+            link={{ label: "See all activities", to: `/games${county !== "All" ? `?county=${encodeURIComponent(county)}` : ""}` }}
+            picks={upcoming.map((c) => {
+              const p = ownPlan(c)!;
+              const cover = getCircleCoverUrl(c);
+              const soon = soonLabel(p.date, p.time);
+              // Same states as the Circle cards: yours first, then places.
+              const until = liveUntil(p.date, p.time, p.durationMinutes);
+              const state = until
+                ? { text: "Happening now", hot: false }
+                : p.joinedByMe
+                  ? { text: "You're going", hot: false }
+                  : p.waitlist === "offered"
+                    ? { text: "Place offered to you", hot: true }
+                    : p.waitlist === "waiting"
+                      ? { text: "On the waitlist", hot: false }
+                      : p.spotsLeft <= 0
+                        ? { text: "Fully booked", hot: false }
+                        : { text: p.spotsLeft <= 3 ? placesLeft(p.spotsLeft) : soon ?? (c.activityLabel || "Circle meetup"), hot: !!soon || p.spotsLeft <= 3 };
+              return {
+                key: c.id,
+                href: `/games/${p.id}`,
+                image: cover ? getMediaUrl(cover, "card") : null,
+                kicker: state.text,
+                hot: state.hot,
+                title: c.name,
+                line: [`${until ? "Now" : bigDay(p.date, p.time)} · ${p.time}`, [c.area, c.county].filter(Boolean)[0]].filter(Boolean).join(" · "),
+              };
+            })}
+          />
         </div>
-        {upcoming.length > 0 ? (
-          <div className="cx-panel">
-            <ul className="cx-plans">
-              {upcoming.map((c) => {
-                const p = ownPlan(c)!;
-                return (
-                  <li key={c.id}>
-                    <CxRow
-                      image={getCircleCoverUrl(c)}
-                      title={c.name}
-                      meta={`${dateLabel(p.date)} · ${p.time} · ${[c.area, c.county].filter(Boolean).join(", ")}`}
-                      badge={p.spotsLeft > 0 ? `${p.spotsLeft} place${p.spotsLeft === 1 ? "" : "s"} left` : "Full"}
-                      hot={p.spotsLeft > 0 && p.spotsLeft <= 3}
-                      cta="View meetup"
-                      href={`/games/${p.id}`}
-                      go={go}
-                    />
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        ) : (
+      ) : (
+        <section className="hx-wrap cx-section fp-section" aria-labelledby="cx-up-title">
+          <FeatureHead id="cx-up-title" label="Upcoming meetups" a="Meet up." b="In the next two weeks." />
           <div className="cx-empty cx-empty--soft">
             <strong>No Circle meetups scheduled yet.</strong>
             <p>When a Circle schedules a meetup it shows here with its date, place and spaces. Meanwhile, see what's on near you.</p>
@@ -797,26 +830,19 @@ export function Circles() {
               See activities nearby <ArrowRight size={16} aria-hidden="true" />
             </a>
           </div>
-        )}
-      </section>
+        </section>
+      )}
 
       {/* B · EXPLORE BY INTEREST — applies the Interest filter. */}
-      <section className="hx-wrap cx-section" aria-labelledby="cx-int-title">
-        <div className="cx-section-head">
-          <div>
-            <h2 id="cx-int-title" className="cx-h2">
-              Explore by interest
-            </h2>
-            <p className="cx-sub">Pick one to filter the Circles above.</p>
-          </div>
-        </div>
+      <section className="hx-wrap cx-section fp-section" aria-labelledby="cx-int-title">
+        <FeatureHead id="cx-int-title" label="Explore by interest" a="Pick a thing." b="Find its people." copy="Pick one to filter the Circles above." />
         <ul className="cx-tiles cx-tiles--6">
           {interestTiles.map((t) => (
             <li key={t.key}>
               <button
                 type="button"
                 className="cx-tile cx-tile--wide"
-                aria-pressed={interest === t.key}
+                aria-pressed={interests.includes(t.key)}
                 onClick={() => {
                   setParam({ interest: t.key });
                   scrollToResults();
@@ -840,18 +866,19 @@ export function Circles() {
 
       {/* C · CIRCLES NEAR YOU — county level; location only on request. */}
       {countyTiles.length > 0 && (
-        <section className="hx-wrap cx-section" aria-labelledby="cx-near-title">
-          <div className="cx-section-head">
-            <div>
-              <h2 id="cx-near-title" className="cx-h2">
-                Circles near you
-              </h2>
-              <p className="cx-sub">Browse by county, or let us find the closest one — we'll ask before using your location.</p>
-            </div>
-            <button type="button" className="hx-link hx-link--arrow" onClick={handleNearMe} disabled={locating}>
-              <LocateFixed size={16} aria-hidden="true" /> {locating ? "Locating…" : nearMe ? "Stop using my location" : "Use my location"}
-            </button>
-          </div>
+        <section className="hx-wrap cx-section fp-section" aria-labelledby="cx-near-title">
+          <FeatureHead
+            id="cx-near-title"
+            label="Circles near you"
+            a="Close to home."
+            b="Pick a county."
+            copy="Browse by county, or let us find the closest one — we'll ask before using your location."
+            extra={
+              <button type="button" className="hx-link hx-link--arrow" onClick={handleNearMe} disabled={locating}>
+                <LocateFixed size={16} aria-hidden="true" /> {locating ? "Locating…" : nearMe ? "Stop using my location" : "Use my location"}
+              </button>
+            }
+          />
           <ul className="cx-places">
             {countyTiles.map((t) => (
               <li key={t.label}>
@@ -910,16 +937,9 @@ export function Circles() {
 
       {/* D · NEW & GROWING — only states the data supports. */}
       {growing.length > 0 && (
-        <section className="hx-wrap cx-section" aria-labelledby="cx-grow-title">
-          <div className="cx-section-head">
-            <div>
-              <h2 id="cx-grow-title" className="cx-h2">
-                New &amp; growing Circles
-              </h2>
-              <p className="cx-sub">Newly started, or with a meetup that still has places.</p>
-            </div>
-          </div>
-          <div className="cx-panel">
+        <section className="hx-wrap cx-section fp-section" aria-labelledby="cx-grow-title">
+          <FeatureHead id="cx-grow-title" label="New & growing Circles" a="Just started." b="Still room for you." copy="Newly started, or with a meetup that still has places." />
+          <div className="cx-panel cx-panel--rows">
             <ul className="cx-plans">
               {growing.map(({ c, isNew: fresh, places }) => (
                 <li key={c.id}>
@@ -939,6 +959,11 @@ export function Circles() {
         </section>
       )}
 
+      {/* A featured section of another type (owner 2026-10-27). */}
+      <div className="hx-wrap">
+        <FeaturedPicks kind="activities" />
+      </div>
+
       {/* START YOUR OWN — the shared CtaBand, with the existing interest capture. */}
       <CtaBand
         id="cx-band-title"
@@ -946,8 +971,10 @@ export function Circles() {
         lines={["Can't find", "your", "Circle?"]}
         text="Pick an activity and a place — people nearby who want the same thing can find you. Or tell us what you're into and we'll let you know when a Circle starts."
         action={{ label: "Start a Circle", to: "/circles/start" }}
+        panel={interest || query ? { title: "Tell us what you're into", text: "We'll let you know when a Circle like it starts near you." } : { title: "Start your own Circle", text: "Pick an activity and a place — people nearby can join." }}
       >
-        <IntentCaptureForm activityLabel={interest ? INTEREST_BY_KEY[interest].label : query || "this"} county={county === "All" ? "" : county} />
+        {/* Only when there's something to ask about; otherwise the panel's main button is "Start a Circle". */}
+        {interest || query ? <IntentCaptureForm variant="panel" activityLabel={interest ? INTEREST_BY_KEY[interest].label : query} county={county === "All" ? "" : county} /> : null}
       </CtaBand>
 
       {/* Phone filter sheet. */}
@@ -978,18 +1005,42 @@ export function Circles() {
                 <LocateFixed size={15} aria-hidden="true" /> Near me
               </button>
             </div>
+            {taxonomy.categories.length > 0 && (
+              <>
+                <p className="cx-sheet-l">Category</p>
+                <div className="cx-pills">
+                  {taxonomy.categories.map((c) => (
+                    <button key={c.id} type="button" className={`cx-pill${taxonomy.selected?.id === c.id ? " is-on" : ""}`} aria-pressed={taxonomy.selected?.id === c.id} onClick={() => taxonomy.setCategory(taxonomy.selected?.id === c.id ? null : c.slug)}>
+                      {c.name}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+            {taxonomy.selected && taxonomy.selected.subcategories.length > 1 && (
+              <>
+                <p className="cx-sheet-l">Type</p>
+                <div className="cx-pills">
+                  {taxonomy.selected.subcategories.map((x) => (
+                    <button key={x.id} type="button" className={`cx-pill${taxonomy.subSlugs.includes(x.slug) ? " is-on" : ""}`} aria-pressed={taxonomy.subSlugs.includes(x.slug)} onClick={() => taxonomy.toggleSub(x.slug)}>
+                      {x.name}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
             <p className="cx-sheet-l">Interest</p>
             <div className="cx-pills">
               {INTERESTS.map((i) => (
-                <button key={i.key} type="button" className={`cx-pill${interest === i.key ? " is-on" : ""}`} aria-pressed={interest === i.key} onClick={() => setInterest(i.key)}>
+                <button key={i.key} type="button" className={`cx-pill${interests.includes(i.key) ? " is-on" : ""}`} aria-pressed={interests.includes(i.key)} onClick={() => toggleList("interest", i.key)}>
                   {i.label}
                 </button>
               ))}
             </div>
             <p className="cx-sheet-l">Meeting time</p>
             <div className="cx-pills">
-              {(Object.keys(WHEN_LABELS) as WhenFilter[]).map((w) => (
-                <button key={w} type="button" className={`cx-pill${when === w ? " is-on" : ""}`} aria-pressed={when === w} onClick={() => setParam({ when: w })}>
+              {(Object.keys(WHEN_LABELS) as WhenFilter[]).filter((w) => w !== "any").map((w) => (
+                <button key={w} type="button" className={`cx-pill${whens.includes(w) ? " is-on" : ""}`} aria-pressed={whens.includes(w)} onClick={() => toggleList("when", w)}>
                   {WHEN_LABELS[w]}
                 </button>
               ))}
@@ -1057,6 +1108,106 @@ function CxRow({ image, title, meta, badge, hot, cta, href, go }: { image: strin
   );
 }
 
+/** How soon a meetup is, only when it's close (today or tomorrow, Irish time):
+ * "Tonight" (from 17:00), "Today" or "Tomorrow". Null otherwise. */
+function soonLabel(date: string, time: string): string | null {
+  if (date === irelandDaysFromToday(0)) return time >= "17:00" ? "Tonight" : "Today";
+  if (date === irelandDaysFromToday(1)) return "Tomorrow";
+  return null;
+}
+
+/** "Tonight" (today from 17:00), "Today", "Tomorrow" or "Thu 29" — the big
+ * date on a card photo (My Life style). */
+function bigDay(date: string, time?: string): string {
+  if (date === irelandDaysFromToday(0)) return time && time >= "17:00" ? "Tonight" : "Today";
+  if (date === irelandDaysFromToday(1)) return "Tomorrow";
+  return new Date(`${date}T12:00:00Z`).toLocaleDateString("en-IE", { weekday: "short", day: "numeric", timeZone: "Europe/Dublin" }).replace(",", "");
+}
+
+/** "HH:MM" now in Ireland. */
+function irelandNowHhmm(): string {
+  return new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Dublin", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date());
+}
+
+const minutesOf = (hhmm: string) => {
+  const [h, m] = hhmm.split(":").map(Number);
+  return h * 60 + m;
+};
+const hhmmOf = (mins: number) => `${String(Math.floor(mins / 60) % 24).padStart(2, "0")}:${String(mins % 60).padStart(2, "0")}`;
+
+/** The end time when a meetup is on right now (its length is known and it
+ * started today in Ireland); null otherwise. */
+function liveUntil(date: string, time: string, durationMinutes?: number | null): string | null {
+  if (!durationMinutes || date !== irelandDaysFromToday(0)) return null;
+  const now = minutesOf(irelandNowHhmm());
+  const start = minutesOf(time);
+  const end = start + durationMinutes;
+  return now >= start && now < end ? hhmmOf(end) : null;
+}
+
+const placesLeft = (n: number) => `${n} place${n === 1 ? "" : "s"} left`;
+
+type LabelTone = "plain" | "hot" | "full" | "mine" | "wait" | "lock";
+
+/** What the photo of a Circle card says about its next meetup (card states,
+ * owner 2026-10-27; see the "Circle meetup states" artifact). `rest` is the
+ * label, `hover` what it swaps to on hover (or a link to the meetup page),
+ * `big`/`small` the big date and the line beside it, `sr` the same for
+ * screen readers. Null when nothing is planned at all. */
+interface MeetupView {
+  rest: string;
+  hover?: string;
+  link?: { href: string; text: string };
+  tone: LabelTone;
+  live?: boolean;
+  big: string;
+  bigIsText?: boolean;
+  small: string;
+  sr: string;
+}
+
+function meetupView(circle: Circle, status: Status): MeetupView | null {
+  const plan = ownPlan(circle);
+  if (plan) {
+    const when = `${dateLabel(plan.date)}, ${plan.time}`;
+    const full = plan.spotsLeft <= 0;
+    const base = { big: bigDay(plan.date, plan.time), small: plan.time };
+    const until = liveUntil(plan.date, plan.time, plan.durationMinutes);
+    const gameHref = `/games/${plan.id}`;
+    if (until) return { ...base, big: "Now", rest: "Happening now", hover: `Until ${until}`, tone: "mine", live: true, sr: `Happening now, until ${until}.` };
+    if (plan.joinedByMe) return { ...base, rest: "You're going", hover: `${plan.joined} going`, tone: "mine", sr: `You're going to the next meetup, ${when}.` };
+    if (plan.waitlist === "offered")
+      return { ...base, rest: "Place offered to you", link: { href: gameHref, text: "Claim your place" }, tone: "hot", sr: `A place at the next meetup, ${when}, is offered to you.` };
+    if (plan.waitlist === "waiting")
+      return { ...base, rest: "On the waitlist", hover: "We'll email you", tone: "wait", sr: `You're on the waitlist for the next meetup, ${when}.` };
+    if (full) return { ...base, rest: "Fully booked", link: { href: gameHref, text: "Join the waitlist" }, tone: "full", sr: `Next meetup ${when}, fully booked.` };
+    const soon = soonLabel(plan.date, plan.time);
+    const urgent = !!soon || plan.spotsLeft <= 3;
+    return { ...base, rest: "Next meetup", hover: placesLeft(plan.spotsLeft), tone: urgent ? "hot" : "plain", sr: `Next meetup ${when}, ${placesLeft(plan.spotsLeft)}.` };
+  }
+  const locked = circle.membersOnlyNext;
+  if (locked) {
+    return {
+      big: bigDay(locked.date, locked.time),
+      small: locked.time,
+      rest: "Members only",
+      hover: status === "requested" ? "Request sent" : "Join the Circle to go",
+      tone: "lock",
+      sr: `Next meetup ${dateLabel(locked.date)}, ${locked.time}, for members only.`,
+    };
+  }
+  const idea = circle.activePlan;
+  if (idea) {
+    // Members see what's being planned; everyone else just that something is.
+    if (status === "member") {
+      const date = idea.proposedDate ? `${bigDay(idea.proposedDate)}${idea.proposedTime ? ` · ${idea.proposedTime}` : ""} (proposed)` : "Date to be agreed";
+      return { big: idea.title, bigIsText: true, small: date, rest: "Being planned", hover: "Say if you're in", tone: "plain", sr: `Being planned: ${idea.title}. ${date}.` };
+    }
+    return { big: "Coming up", bigIsText: true, small: "Date to be agreed", rest: "Being planned", tone: "plain", sr: "The next meetup is being planned." };
+  }
+  return null;
+}
+
 type Status = "member" | "requested" | "open" | "approval" | "invite";
 
 // One Circle card (grid) or row (list). The title link covers the card; the
@@ -1068,16 +1219,74 @@ function CircleItem({ circle, layout, status, busy, signedIn, onJoin, onGo }: { 
   const cover = getCircleCoverUrl(circle);
   const href = `/circles/${circle.slug ?? circle.id}`;
   const where = Array.from(new Set([circle.area, circle.county].filter(Boolean))).join(", ");
-  const plan = ownPlan(circle);
+  // The next meetup's state on the photo: label, hover and big date.
+  const meet = meetupView(circle, status);
   const statusLabel: Record<Status, string> = { member: "You're a member", requested: "Request sent", open: "Open to join", approval: "Approval needed", invite: "Invite only" };
   const open = () => onGo(href);
+  // The card's action. Grid: a white pill on the photo, bottom right,
+  // opposite the big date (option 3, owner 2026-10-27). List: end of the row.
+  const onPhoto = layout === "grid";
+  const actions = (
+    <div className="cx-card-actions">
+      {/* Card redesign (2026-10-22): the shared card actions — arrow to
+          open, outline "Join" (free), grey disabled once requested. On the
+          photo the labels are short so they fit beside the big date. */}
+      {status === "member" || status === "invite" ? (
+        <CardArrow label={`View Circle: ${circle.name}`} onClick={open} />
+      ) : status === "requested" ? (
+        <CardAction look="booked" ariaLabel={onPhoto ? `Request sent to ${circle.name}` : undefined}>
+          {onPhoto ? "Sent" : "Request sent"}
+        </CardAction>
+      ) : (
+        <CardAction
+          look="outline"
+          arrow={status !== "approval"}
+          busy={busy}
+          busyLabel={status === "approval" ? "Sending…" : "Joining…"}
+          onClick={() => (signedIn ? setJoinOpen(true) : onJoin())}
+          ariaLabel={status === "approval" ? (onPhoto ? `Request to join ${circle.name}` : undefined) : `Join ${circle.name}`}
+        >
+          {status === "approval" ? (onPhoto ? "Request" : "Request to join") : "Join"}
+        </CardAction>
+      )}
+    </div>
+  );
   return (
     <article className={`cx-card cx-card--${layout}`}>
       <span className="hx-img cx-card-img">
         {cover ? <img src={getMediaUrl(cover, "card")} alt="" loading="lazy" /> : <span className="cx-tile-ph" aria-hidden="true">{circle.name.charAt(0)}</span>}
-        <span className="cx-card-badge">{circle.activityLabel || "Circle"}</span>
+        {/* My Life card style (owner 2026-10-27): the next meetup's date, big, on the photo. */}
+        {meet && (
+          <span className={`cx-card-date${meet.link ? " has-link" : ""}`} aria-hidden="true">
+            {/* The label above the big date (owner 2026-10-27): its colour says what
+                matters to you; on hover / keyboard focus it swaps to the detail,
+                or to a shortcut to the meetup page (mouse only). */}
+            <small className={`cx-card-date-label is-${meet.tone}${meet.live ? " is-live" : ""}`}>
+              <span className={meet.hover || meet.link ? "cx-label-rest" : undefined}>{meet.rest}</span>
+              {meet.link ? (
+                <a
+                  className="cx-label-hover cx-label-link"
+                  href={meet.link.href}
+                  tabIndex={-1}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    onGo(meet.link!.href);
+                  }}
+                >
+                  {meet.link.text}
+                </a>
+              ) : (
+                meet.hover && <span className="cx-label-hover">{meet.hover}</span>
+              )}
+            </small>
+            <b className={meet.bigIsText ? "is-text" : undefined}>{meet.big}</b>
+            <span>{meet.small}</span>
+          </span>
+        )}
+        {onPhoto && <span className="cx-photo-act">{actions}</span>}
       </span>
       <div className="cx-card-body">
+        <span className="cx-card-kicker">{circle.activityLabel || "Circle"}</span>
         <h3>
           <a
             className="hx-stretch"
@@ -1090,40 +1299,16 @@ function CircleItem({ circle, layout, status, busy, signedIn, onJoin, onGo }: { 
             {circle.name}
           </a>
         </h3>
-        {/* Same shape as the app's shared ListingCard: details → footer (facts left, action right). */}
-        {where && (
-          <span className="hx-card-meta">
-            <MapPin size={14} aria-hidden="true" /> {where}
-          </span>
-        )}
-        {plan && (
-          <span className="hx-card-meta cx-card-meet">
-            <CalendarDays size={14} aria-hidden="true" /> Next meetup {dateLabel(plan.date)} · {plan.time}
-            {plan.spotsLeft > 0 ? ` · ${plan.spotsLeft} place${plan.spotsLeft === 1 ? "" : "s"}` : " · Full"}
-          </span>
-        )}
+        {/* One muted line (My Life card style), then join status. */}
+        <span className="cx-card-sub">{[where, `${circle.members} member${circle.members === 1 ? "" : "s"}`].filter(Boolean).join(" · ")}</span>
         <div className="cx-card-foot2">
         <span className="cx-card-facts">
-          <span className="cx-members">
-            <Users size={14} aria-hidden="true" /> {circle.members} member{circle.members === 1 ? "" : "s"}
-          </span>
+          {/* The meetup is on the photo (owner 2026-10-27: no places-left line here);
+              screen readers still get it. */}
+          {meet ? <span className="visually-hidden">{meet.sr}</span> : <span className="cx-card-meet is-quiet">Nothing planned yet</span>}
           <span className={`cx-mode cx-mode--${status}`}>{statusLabel[status]}</span>
         </span>
-        <div className="cx-card-actions">
-          {status === "member" || status === "invite" ? (
-            <button type="button" className="hx-btn hx-btn--ghost cx-btn-sm" onClick={open}>
-              View Circle
-            </button>
-          ) : status === "requested" ? (
-            <button type="button" className="hx-btn hx-btn--ghost cx-btn-sm" disabled aria-disabled="true">
-              Request sent
-            </button>
-          ) : (
-            <button type="button" className="hx-btn hx-btn--dark cx-btn-sm" onClick={() => (signedIn ? setJoinOpen(true) : onJoin())} disabled={busy}>
-              {busy ? (status === "approval" ? "Sending…" : "Joining…") : status === "approval" ? "Request to join" : "Join Circle"}
-            </button>
-          )}
-        </div>
+        {layout === "list" && actions}
         </div>
       </div>
       <button

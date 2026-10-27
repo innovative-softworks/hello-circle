@@ -1122,6 +1122,11 @@ export interface ScheduledActivity {
    * internally for isLive — see there. Powers Free Time Mode's "fits in my
    * window" filter (implementation plan Phase 9). */
   durationMinutes: number;
+  /** Experience 3.0 — true only when the listing itself states its length
+   * (game/experience/program duration_minutes). False means durationMinutes
+   * is the ASSUMED_DURATION_MINUTES fallback, which must never be used to
+   * claim something "fits" a time window. */
+  durationKnown: boolean;
   /** From the hosting centre/club — null if that listing has no
    * coordinates set. Powers Free Time Mode's distance filter. */
   lat: number | null;
@@ -1234,7 +1239,9 @@ export function computeIsLive(kind: ScheduledActivity["kind"], date: string, tim
  * circle-only or invite-only game (see games.ts's `visibility` column)
  * would surface in general discovery feeds to anyone. `sharing.ts`'s
  * `getShareData`/`ogMeta.ts` already correctly gate on visibility for the
- * share-card/OG-meta paths; this closes the same gap for real discovery. */
+ * share-card/OG-meta paths; this closes the same gap for real discovery.
+ * Activities still waiting for enough people ('pending_participants') are
+ * joinable and listed too (card labels, owner 2026-10-27: "2 more needed"). */
 export async function listScheduledActivities(opts: { county?: string; from: Date; to: Date; radius?: RadiusFilter; includeExperiences?: boolean }): Promise<ScheduledActivity[]> {
   const { county, from, to } = opts;
   const fromIso = from.toISOString().slice(0, 10);
@@ -1244,18 +1251,18 @@ export async function listScheduledActivities(opts: { county?: string; from: Dat
     county
       ? await db
           .prepare(
-            `SELECT g.id, g.activity_label, g.date, g.time, g.price_cents, g.capacity, g.image_url, g.circle_id, c.name as centre_name, c.area, c.county, c.lat, c.lng, c.location_source,
+            `SELECT g.id, g.activity_label, g.date, g.time, g.price_cents, g.capacity, g.image_url, g.circle_id, g.duration_minutes, c.name as centre_name, c.area, c.county, c.lat, c.lng, c.location_source,
                     (SELECT COUNT(*) FROM game_participants gp WHERE gp.game_id = g.id AND gp.status = 'joined') as joined
              FROM games g LEFT JOIN centres c ON c.id = g.centre_id
-             WHERE g.status = 'open' AND ${discoverableGameSql("g")} AND g.date >= ? AND g.date <= ? AND c.county = ?`
+             WHERE g.status IN ('open', 'pending_participants') AND ${discoverableGameSql("g")} AND g.date >= ? AND g.date <= ? AND c.county = ?`
           )
           .all(fromIso, toIso, county)
       : await db
           .prepare(
-            `SELECT g.id, g.activity_label, g.date, g.time, g.price_cents, g.capacity, g.image_url, g.circle_id, c.name as centre_name, c.area, c.county, c.lat, c.lng, c.location_source,
+            `SELECT g.id, g.activity_label, g.date, g.time, g.price_cents, g.capacity, g.image_url, g.circle_id, g.duration_minutes, c.name as centre_name, c.area, c.county, c.lat, c.lng, c.location_source,
                     (SELECT COUNT(*) FROM game_participants gp WHERE gp.game_id = g.id AND gp.status = 'joined') as joined
              FROM games g LEFT JOIN centres c ON c.id = g.centre_id
-             WHERE g.status = 'open' AND ${discoverableGameSql("g")} AND g.date >= ? AND g.date <= ?`
+             WHERE g.status IN ('open', 'pending_participants') AND ${discoverableGameSql("g")} AND g.date >= ? AND g.date <= ?`
           )
           .all(fromIso, toIso)
   ) as GameRow[];
@@ -1300,7 +1307,8 @@ export async function listScheduledActivities(opts: { county?: string; from: Dat
       joined: g.joined,
       imageUrl: g.image_url || null,
       isLive: computeIsLive("game", g.date, g.time, 0, now),
-      durationMinutes: ASSUMED_DURATION_MINUTES.game,
+      durationMinutes: (g as GameRow & { duration_minutes?: number | null }).duration_minutes || ASSUMED_DURATION_MINUTES.game,
+      durationKnown: !!(g as GameRow & { duration_minutes?: number | null }).duration_minutes,
       lat: g.lat !== null ? Number(g.lat) : null,
       lng: g.lng !== null ? Number(g.lng) : null,
       locationSource: g.location_source,
@@ -1327,6 +1335,7 @@ export async function listScheduledActivities(opts: { county?: string; from: Dat
       imageUrl: p.image_url || null,
       isLive: computeIsLive("program_session", p.date, p.time, p.duration_minutes, now),
       durationMinutes: p.duration_minutes,
+      durationKnown: p.duration_minutes > 0,
       lat: p.lat !== null ? Number(p.lat) : null,
       lng: p.lng !== null ? Number(p.lng) : null,
       locationSource: p.location_source,
@@ -1353,6 +1362,7 @@ export async function listScheduledActivities(opts: { county?: string; from: Dat
         imageUrl: cs.image_url || null,
         isLive: computeIsLive("club_session", date, cs.time, 0, now),
         durationMinutes: ASSUMED_DURATION_MINUTES.club_session,
+        durationKnown: false,
         lat: cs.lat !== null ? Number(cs.lat) : null,
         lng: cs.lng !== null ? Number(cs.lng) : null,
         locationSource: cs.location_source,
@@ -1399,6 +1409,7 @@ export async function listScheduledActivities(opts: { county?: string; from: Dat
         imageUrl: e.image_url || null,
         isLive: computeIsLive("program_session", e.date, e.time, e.duration_minutes || 120, now),
         durationMinutes: e.duration_minutes || 120,
+        durationKnown: e.duration_minutes > 0,
         lat: e.lat !== null ? Number(e.lat) : null,
         lng: e.lng !== null ? Number(e.lng) : null,
         locationSource: e.location_source,

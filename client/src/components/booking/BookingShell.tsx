@@ -75,7 +75,7 @@ export function BkButton({
   const inactive = disabled || busy;
   const look: Record<BkButtonVariant, CSSProperties> = {
     primary: { background: bk.accent, color: bk.onAccent, border: "none", fontFamily: bkFonts.display, fontSize: 18, fontWeight: 700, minHeight: 54, padding: "0 26px" },
-    secondary: { background: "transparent", color: bk.ink, border: `1px solid ${bk.ink}`, fontSize: 16, fontWeight: 600, minHeight: 48, padding: "0 20px" },
+    secondary: { background: "transparent", color: bk.ink, border: `1.5px solid ${bk.ink}`, fontSize: 16, fontWeight: 600, minHeight: 48, padding: "0 20px" },
     dark: { background: bk.ink, color: bk.bg, border: "none", fontSize: 16, fontWeight: 600, minHeight: 48, padding: "0 20px" },
     quiet: { background: "none", color: bk.accentText, border: "none", fontSize: 15, fontWeight: 600, minHeight: 44, padding: 0 },
     danger: { background: "none", color: bk.danger, border: "none", fontSize: 15, fontWeight: 600, minHeight: 44, padding: "0 4px", textDecoration: "underline" },
@@ -89,8 +89,10 @@ export function BkButton({
       aria-disabled={busy || undefined}
       aria-busy={busy || undefined}
       aria-label={ariaLabel}
+      className={`bk-btn bk-btn--${variant}`}
       style={{
-        borderRadius: bkRadius.control,
+        // Buttons share the app-wide 4px button corner (owner, 2026-10-22).
+        borderRadius: "var(--radius-button)",
         cursor: inactive ? "default" : "pointer",
         display: "inline-flex",
         alignItems: "center",
@@ -158,6 +160,13 @@ export function BookingShell({
   submitBar?: ReactNode;
   children: ReactNode;
 }) {
+  // DP-35 (detail-page audit) — move focus to the step title on arrival and on
+  // every step change, so screen readers announce "Which room?" etc. instead
+  // of leaving focus on the page body.
+  const titleRef = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    titleRef.current?.focus();
+  }, [current]);
   return (
     <div className="bk-shell">
       <main className="bk-main">
@@ -178,7 +187,7 @@ export function BookingShell({
             <StepProgress labels={steps} current={current} />
           </div>
         </div>
-        <h1 style={{ margin: 0, fontFamily: bkFonts.display, fontSize: "clamp(32px, 3.8vw, 52px)", lineHeight: 1.04, fontWeight: 700, letterSpacing: 0 }}>{title}</h1>
+        <h1 ref={titleRef} tabIndex={-1} style={{ outline: "none", margin: 0, fontFamily: bkFonts.display, fontSize: "clamp(32px, 3.8vw, 52px)", lineHeight: 1.04, fontWeight: 700, letterSpacing: 0 }}>{title}</h1>
         <StepErrors errors={errors} />
         {children}
         {submitBar}

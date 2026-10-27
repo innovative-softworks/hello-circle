@@ -15,6 +15,7 @@ export function favouriteDetailHref(f: Favourite): string | null {
   if (f.listingType === "game") return `/games/${f.listingId}`;
   if (f.listingType === "experience") return `/experiences/${f.listingId}`;
   if (f.listingType === "circle") return `/circles/${f.slug ?? f.listingId}`;
+  if (f.listingType === "program") return `/programs/${f.listingId}`;
   if (f.listingType === "program_session") return f.parentId ? `/programs/${f.parentId}` : null;
   if (f.listingType === "club_session") return f.parentId ? `/clubs/${f.parentId}` : null;
   return null;

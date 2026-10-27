@@ -255,6 +255,10 @@ function suspendAction(type: string, t: Record<string, unknown> | null): { label
       return { label: "Suspend listing", done: "Listing suspended", impact: "Hides the listing and closes it to new bookings. Existing bookings are kept. The partner is told why and can't resume it themselves.", needsReason: true, audience: "partner" };
     case "circle":
       return { label: "Close Circle", done: "Circle closed", impact: "Closes the Circle: its chat becomes read-only history.", needsReason: false, audience: "applicant" };
+    case "circle_memory":
+      return { label: "Remove memory", done: "Memory removed", impact: "Removes the photo or reflection from the Circle's Memories for everyone. The record stays for this case.", needsReason: true, audience: "applicant" };
+    case "circle_plan":
+      return { label: "Remove plan", done: "Plan removed", impact: "Takes the suggested plan down. Members are told why. Bookings on the listing it points at are not affected.", needsReason: true, audience: "applicant" };
     case "review":
       return { label: "Hide review", done: "Review hidden", impact: "Hides the review from the listing page.", needsReason: false, audience: "applicant" };
     default:
@@ -281,6 +285,17 @@ function targetFacts(type: string, t: Record<string, unknown>): [string, React.R
       return [["Listing", v("name")], ["Partner", v("partnerName")], ["Status", v("status")]];
     case "circle":
       return [["Circle", v("name")], ["Status", v("status")]];
+    case "circle_memory":
+      // The photo itself stays members-only (owner decision D4); the case shows the words around it.
+      return [["Circle", v("circleName")], ["Kind", v("kind") === "photo" ? "Photo" : "Reflection"], ["Caption", v("caption")], ["Text", v("body")], ["Added by", v("authorName")], ["Status", v("status") === "removed" ? "Removed" : "Visible"]];
+    case "circle_plan":
+      return [["Circle", v("circleName")], ["Plan", v("title")], ["Note", v("note")], ["About", t.listingType ? `${v("listingType")} · ${v("listingId")}` : "Not linked to a listing"], ["Suggested by", v("authorName")], ["Status", v("status")]];
+    case "program":
+      return [["Programme", v("name")], ["Partner", v("partnerName")], ["Status", v("status")]];
+    case "host":
+      return [["Host", v("name")], ["Host status", v("hostStatus")]];
+    case "provider":
+      return [["Provider", v("name")], ["Account status", v("status")]];
     case "review":
       return [["Review", v("comment")], ["By", v("name")], ["Hidden", Number(t.hidden) ? "Yes" : "No"]];
     default:

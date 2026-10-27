@@ -3,6 +3,7 @@ import { db } from "./db/index.js";
 import { notifyPartner, NEXT_STEPS } from "./moderationNotify.js";
 import { recordDecision, type DecisionReason } from "./moderationDecisions.js";
 import { notifyResident } from "./notifications.js";
+import { removePlan } from "./circleModeration.js";
 import { cancelGameAndNotify } from "./routes/games.js";
 
 // OG-03 / DEC-10 — a report's "suspend" decision changes the reported
@@ -21,11 +22,16 @@ import { cancelGameAndNotify } from "./routes/games.js";
 // Chat, activity and listing actions need a D-03 reason (category +
 // explanation for the person affected).
 
-export const REPORT_TARGET_TYPES = ["review", "circle", "chat_message", "game", "centre", "club", "experience"] as const;
+export const REPORT_TARGET_TYPES = ["review", "circle", "chat_message", "game", "centre", "club", "experience", "program", "host", "provider", "circle_memory", "circle_plan"] as const;
+/** Detail-page audit DP-06 (2026-10-22) — reportable from their public pages,
+ * but review-only: there is no one-click "suspend" for a programme or a person.
+ * Admins act through the existing tools (listing/programme edit, host status,
+ * organisation suspension) and close the report as actioned. */
+export const REVIEW_ONLY_REPORT_TYPES: readonly ReportTargetType[] = ["program", "host", "provider"];
 export type ReportTargetType = (typeof REPORT_TARGET_TYPES)[number];
 export const isReportTargetType = (v: unknown): v is ReportTargetType => typeof v === "string" && (REPORT_TARGET_TYPES as readonly string[]).includes(v);
 /** Types whose "suspend" action needs a recorded reason. */
-export const REASON_REQUIRED: readonly ReportTargetType[] = ["chat_message", "game", "centre", "club", "experience"];
+export const REASON_REQUIRED: readonly ReportTargetType[] = ["chat_message", "game", "centre", "club", "experience", "circle_memory", "circle_plan"];
 
 export class ModerationError extends Error {
   status: number;
@@ -42,6 +48,26 @@ const LISTING_NAME = { centre: "name", club: "name", experience: "title" } as co
 export async function resolveReportTarget(type: string, id: string): Promise<Record<string, unknown> | null> {
   if (type === "circle") {
     return ((await db.prepare(`SELECT id, name, status, created_by_resident_id as createdByResidentId FROM circles WHERE id = ?`).get(id)) as Record<string, unknown> | undefined) ?? null;
+  }
+  if (type === "circle_memory") {
+    // Circle Experience 2.0 — a member photo or reflection. Admins see the
+    // caption/text and who added it; the photo itself stays members-only.
+    return ((await db
+      .prepare(
+        `SELECT m.id, m.circle_id as circleId, c.name as circleName, m.kind, m.caption, m.body, m.status, m.created_at as createdAt, r.name as authorName, m.resident_id as authorResidentId
+         FROM circle_memories m LEFT JOIN circles c ON c.id = m.circle_id LEFT JOIN residents r ON r.id = m.resident_id WHERE m.id = ?`
+      )
+      .get(id)) as Record<string, unknown> | undefined) ?? null;
+  }
+  if (type === "circle_plan") {
+    // Circles 3.0 — a suggested plan (and the listing it points at, if any).
+    return ((await db
+      .prepare(
+        `SELECT p.id, p.circle_id as circleId, c.name as circleName, p.title, p.note, p.status, p.listing_type as listingType, p.listing_id as listingId,
+                p.created_at as createdAt, r.name as authorName, p.created_by_resident_id as authorResidentId
+         FROM circle_plans p LEFT JOIN circles c ON c.id = p.circle_id LEFT JOIN residents r ON r.id = p.created_by_resident_id WHERE p.id = ?`
+      )
+      .get(id)) as Record<string, unknown> | undefined) ?? null;
   }
   if (type === "review") {
     return ((await db.prepare(`SELECT id, listing_type as listingType, listing_id as listingId, name, comment, hidden FROM reviews WHERE id = ?`).get(id)) as Record<string, unknown> | undefined) ?? null;
@@ -67,6 +93,19 @@ export async function resolveReportTarget(type: string, id: string): Promise<Rec
       .get(id)) as Record<string, unknown> | undefined;
     return g ? { ...g, joined: Number(g.joined), paidOnline: Number(g.paidOnline) } : null;
   }
+  if (type === "program") {
+    return ((await db
+      .prepare(`SELECT p.id, p.title as name, p.status, p.vendor_id as vendorId, u.business_name as partnerName FROM programs p LEFT JOIN users u ON u.id = p.vendor_id WHERE p.id = ?`)
+      .get(id)) as Record<string, unknown> | undefined) ?? null;
+  }
+  if (type === "host") {
+    return ((await db.prepare(`SELECT id, name, host_status as hostStatus FROM residents WHERE id = ?`).get(id)) as Record<string, unknown> | undefined) ?? null;
+  }
+  if (type === "provider") {
+    return ((await db
+      .prepare(`SELECT id, COALESCE(NULLIF(business_name, ''), name) as name, status FROM users WHERE id = ? AND role = 'vendor'`)
+      .get(id)) as Record<string, unknown> | undefined) ?? null;
+  }
   if (type === "centre" || type === "club" || type === "experience") {
     const t = LISTING_TABLE[type];
     const row = (await db
@@ -86,12 +125,13 @@ export interface ReportAction {
 export async function applyReportAction(report: { id: number; targetType: string; targetId: string }, actorUserId: string, reason: DecisionReason | null): Promise<ReportAction> {
   const { targetType: type, targetId: id } = report;
   if (!isReportTargetType(type)) throw new ModerationError("This report's target can't be acted on", 400);
+  if (REVIEW_ONLY_REPORT_TYPES.includes(type)) throw new ModerationError("Act on this from its own admin page, then mark the report as actioned", 400);
   if (REASON_REQUIRED.includes(type) && !reason?.explanation) throw new ModerationError("Give a reason category and an explanation", 400);
   const audit = (action: string, previousValue: unknown, newValue: unknown) =>
     writeAudit({ actorUserId, action, objectType: type, objectId: id, previousValue, newValue: { ...(newValue as object), reportId: report.id }, reason: reason?.explanation });
 
   if (type === "circle") {
-    const r = await db.prepare(`UPDATE circles SET status = 'closed' WHERE id = ? AND status != 'closed'`).run(id);
+    const r = await db.prepare(`UPDATE circles SET status = 'closed', closed_by = 'helloCircle' WHERE id = ? AND status != 'closed'`).run(id);
     if (r.changes !== 1) throw new ModerationError("This Circle is already closed (or no longer exists)");
     await audit("suspend_by_report", { status: "active" }, { status: "closed" });
     return { action: "circle_closed", summary: "circle closed" };
@@ -110,10 +150,27 @@ export async function applyReportAction(report: { id: number; targetType: string
     await audit("chat_message.hidden", { hidden: false }, { hidden: true, by: "admin" });
     return { action: "chat_message_hidden", summary: "message hidden" };
   }
+  if (type === "circle_memory") {
+    const r = await db
+      .prepare(`UPDATE circle_memories SET status = 'removed', removed_at = NOW(), removed_by = ?, removed_by_kind = 'admin' WHERE id = ? AND status = 'visible'`)
+      .run(actorUserId, id);
+    if (r.changes !== 1) throw new ModerationError("This memory is already removed (or no longer exists)");
+    await audit("circle_memory.removed", { status: "visible" }, { status: "removed", by: "admin" });
+    return { action: "circle_memory_removed", summary: "memory removed" };
+  }
+  if (type === "circle_plan") {
+    const plan = (await db.prepare(`SELECT circle_id as circleId FROM circle_plans WHERE id = ?`).get(id)) as { circleId: string } | undefined;
+    if (!plan) throw new ModerationError("This plan no longer exists", 404);
+    const r = await removePlan(plan.circleId, id, { kind: "admin", userId: actorUserId }, reason!.explanation);
+    if (r === "too_late") throw new ModerationError("This plan is already an activity or closed — act on the activity instead");
+    if (r === "missing") throw new ModerationError("This plan no longer exists", 404);
+    return { action: "circle_plan_removed", summary: "plan removed" };
+  }
   if (type === "game") {
     await cancelActivityByPlatform(id, actorUserId, reason!, report.id);
     return { action: "game_cancelled", summary: "activity cancelled" };
   }
+  if (type !== "centre" && type !== "club" && type !== "experience") throw new ModerationError("This report's target can't be acted on", 400);
   // centre / club / experience
   const t = LISTING_TABLE[type];
   const row = (await db.prepare(`SELECT status, vendor_id as vendorId, ${LISTING_NAME[type]} as name FROM ${t} WHERE id = ?`).get(id)) as { status: string; vendorId: string | null; name: string } | undefined;

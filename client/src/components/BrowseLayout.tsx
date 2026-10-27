@@ -1,13 +1,20 @@
+import { Compass } from "lucide-react";
+import type { CategoryFamily } from "../api";
+import { CategoryChips, CategoryEmptyHint, CategoryTypeOptions, categoryWord, hasCategoryTypes, useCategoryFilter } from "./categories/CategoryChips";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowRightIcon, ClockIcon, CloseIcon, GridIcon, LightbulbIcon, PinIcon, SearchIcon, UsersIcon } from "./icons";
 import { Chip } from "./Chip";
 import { DiscoveryMap, type DiscoveryMapPin } from "./DiscoveryMap";
-import { DropdownOption } from "./FilterDropdown";
+import { DropdownCheckbox } from "./FilterDropdown";
 import { PageTitle } from "./PageTitle";
 import { Button, CardSkeleton, Drawer, EmptyState, LoadErrorState } from "./ui";
 import { SaveButton, useSavedState } from "./SaveButton";
-import { CardPrice, ListingCard, cardButtonStyle } from "./ListingCard";
+import { CardArrow, CardAvailability, CardGrid, CardPrice, ListingCard } from "./ListingCard";
+import { FeaturedPicks, type FeaturedKind } from "./FeaturedPicks";
+import { useGuest } from "../GuestContext";
+import { CardDate, itemCardLabel } from "./CardDate";
+import { FeatureCard, featureFits, type FeatureVariant } from "./FeatureCard";
 import { dateLabel } from "../euro";
 import { formatAvailability, formatDateTime, formatPrice } from "../formatters";
 import { colors, fonts, maxWidth, radius } from "../theme";
@@ -76,6 +83,8 @@ export interface BrowseItem {
   priceCents: number;
   /** Adds the small "pp" after a non-free price. */
   perPerson: boolean;
+  /** What one price covers when it isn't per person ("for 6 sessions"). */
+  priceUnit?: string;
   imageUrl: string;
   featured: boolean;
   href: string;
@@ -88,6 +97,9 @@ export interface BrowseItem {
   ctaLabel: string;
   /** Only listing types favourites support get a save button. */
   save: { kind: "experience"; id: string } | null;
+  /** Real duration / skill level, shown by the Adventure card style when set. */
+  durationMinutes?: number | null;
+  skill?: string | null;
 }
 
 export interface BrowseConfig {
@@ -95,17 +107,32 @@ export interface BrowseConfig {
   subtitle: string;
   /** "adventures", "programs"… — used in counts and empty states. */
   nounPlural: string;
+  /** Batch 2 — the listing type shown on a card with no photo ("Programme", "Adventure"…). */
+  kindLabel?: string;
   searchPlaceholder: string;
   icon: ReactNode;
-  load: () => Promise<BrowseItem[]>;
+  load: (taxonomy: { categorySlug?: string; subcategorySlug?: string }) => Promise<BrowseItem[]>;
+  /** Category system — chips + server filter for this family (?category=&sub=). */
+  categoryFamily?: CategoryFamily;
+  /** Adventures vs Experiences: counts only that kind. */
+  categoryExperienceKind?: "adventure" | "experience";
+  /** Where category links in the empty state point (this page's path). */
+  categoryBasePath?: string;
+  /** The tag filter is only a fallback for when no category has live listings. */
+  tagFilterFallbackOnly?: boolean;
   /** Changing this resets filters (e.g. moving between /adventures and /experiences). */
   resetKey: string;
   /** Optional chip/sidebar filter over BrowseItem.filterTag (e.g. "Difficulty", "Category"). */
   tagFilterLabel?: string;
   /** Map "Search this area" entity types; omit to show the list's own pins only. */
   mapSearchTypes?: MapMarkerType[];
+  /** A featured section of another type above the closing band (owner 2026-10-27). */
+  featured?: FeaturedKind;
   /** Whether any item can be featured — hides the "top picks first" hint and the sort option otherwise. */
   supportsFeatured: boolean;
+  /** Card style for the row of featured listings above the grid (owner plan,
+   * 2026-10-23). A chosen category always uses the Bold typography style. */
+  featureStyle?: FeatureVariant;
   /** Closing CtaBand copy — `label` is the vertical word, `lines` the three-line heading. */
   closing: { label?: string; lines?: [string, string, string]; text: string; primary: { label: string; to: string }; secondary: { label: string; to: string } };
 }
@@ -129,6 +156,20 @@ function priceTierToRange(tier: PriceTier): { minPriceCents?: number; maxPriceCe
   if (tier === "30to50") return { minPriceCents: 3000, maxPriceCents: 5000 };
   if (tier === "over50") return { minPriceCents: 5001 };
   return {};
+}
+
+/** Several ticked tiers as one min/max pair for the map search: the span
+ * from the cheapest to the dearest tier ticked (the list itself matches
+ * each tier exactly). */
+function pricesToRange(tiers: PriceTier[]): { minPriceCents?: number; maxPriceCents?: number } {
+  if (tiers.length === 0) return {};
+  const ranges = tiers.map(priceTierToRange);
+  const mins = ranges.map((r) => r.minPriceCents);
+  const maxs = ranges.map((r) => r.maxPriceCents);
+  return {
+    ...(mins.some((m) => m === undefined) ? {} : { minPriceCents: Math.min(...(mins as number[])) }),
+    ...(maxs.some((m) => m === undefined) ? {} : { maxPriceCents: Math.max(...(maxs as number[])) }),
+  };
 }
 
 function dateWhenMatches(e: BrowseItem, when: WhenFilter, whenDate: string): boolean {
@@ -186,7 +227,7 @@ function SaveSlot({ save }: { save: NonNullable<BrowseItem["save"]> }) {
   return <SaveButton saved={saved} onToggle={toggleSaved} />;
 }
 
-export function BrowseCard({ e, icon }: { e: BrowseItem; icon: ReactNode }) {
+export function BrowseCard({ e, icon, kindLabel }: { e: BrowseItem; icon: ReactNode; kindLabel?: string }) {
   const navigate = useNavigate();
   const session = e.next;
   const open = () => navigate(e.href);
@@ -202,31 +243,56 @@ export function BrowseCard({ e, icon }: { e: BrowseItem; icon: ReactNode }) {
       icon={icon}
       iconColor={colors.orange}
       tag={e.tags[0]}
+      fallbackKind={kindLabel ?? null}
+      fallbackLine={session ? formatDateTime(session.date, session.time) : "No dates yet"}
+      dateOn={session ? <CardDate date={session.date} time={session.time} label={itemCardLabel({ date: session.date, time: session.time, spotsLeft: session.spotsLeft })} /> : undefined}
+      rowOnPhone
       status={low && session ? { label: formatAvailability(session.spotsLeft as number) } : null}
       save={e.save ? <SaveSlot save={e.save} /> : null}
       details={[
         e.locationLabel ? { icon: <PinIcon size={13} />, text: e.locationLabel } : null,
-        { icon: <ClockIcon size={13} />, text: session ? formatDateTime(session.date, session.time) : "No dates yet" },
+        { icon: <ClockIcon size={13} />, text: session ? formatDateTime(session.date, session.time) : "No dates yet", kind: session ? "date" : undefined },
         e.tags.length > 1 ? { text: <span style={{ textTransform: "capitalize" }}>{e.tags.slice(1).join(" · ")}</span> } : null,
       ]}
       facts={
         <>
-          {e.priceCents ? (
-            <CardPrice>
-              {formatPrice(e.priceCents)}
-              {e.perPerson ? <span style={{ fontSize: 12, fontWeight: 600, color: colors.mutedLight }}> pp</span> : null}
-            </CardPrice>
-          ) : (
-            <CardPrice>{formatPrice(e.priceCents)}</CardPrice>
-          )}
-          {session && session.spotsLeft !== null && !low && <span style={{ fontWeight: 600, color: colors.mutedLight }}>{formatAvailability(session.spotsLeft)}</span>}
+          <CardPrice cents={e.priceCents} unit={e.priceUnit ?? (e.perPerson ? "per person" : undefined)} />
+          {session && session.spotsLeft !== null && <CardAvailability spotsLeft={session.spotsLeft} />}
         </>
       }
       action={
-        <Button style={cardButtonStyle} variant="dark" onClick={open}>
-          {e.ctaLabel}
-        </Button>
+        <CardArrow label={`${e.ctaLabel}: ${e.title}`} onClick={open} />
       }
+    />
+  );
+}
+
+/** A listing in one of the premium styles (featured row / category row). */
+function BrowseFeatureCard({ e, variant, category }: { e: BrowseItem; variant: FeatureVariant; category: string | null }) {
+  const navigate = useNavigate();
+  const session = e.next;
+  const low = !!session && session.spotsLeft !== null && session.spotsLeft <= 2;
+  return (
+    <FeatureCard
+      variant={variant}
+      data={{
+        href: e.href,
+        title: e.title,
+        image: e.imageUrl || null,
+        ph: e.tone === "green" ? colors.greenBg : colors.orangeBg,
+        category: variant === "bold" ? category : (e.tags[0] ?? null),
+        status: low && session ? { label: formatAvailability(session.spotsLeft as number), tone: "hot" } : e.featured ? { label: "Featured", tone: "featured" } : null,
+        place: e.locationLabel || null,
+        date: session?.date ?? null,
+        time: session?.time ?? null,
+        durationMinutes: e.durationMinutes ?? null,
+        skill: e.skill ?? null,
+        price: `${formatPrice(e.priceCents)}${e.priceCents && e.perPerson ? " pp" : ""}`,
+        spotsLeft: session && !low ? session.spotsLeft : null,
+      }}
+      save={e.save ? <SaveSlot save={e.save} /> : null}
+      onOpen={() => navigate(e.href)}
+      actionLabel={e.ctaLabel}
     />
   );
 }
@@ -243,10 +309,12 @@ export function BrowseLayout({ config }: { config: BrowseConfig }) {
   const defaultSort: SortKey = config.supportsFeatured ? "featured" : "soonest";
   const [query, setQuery] = useState("");
   const [county, setCounty] = useState("All");
-  const [tag, setTag] = useState("All");
-  const [when, setWhen] = useState<WhenFilter>("any");
+  // Owner, 2026-10-23: Refine's Type, Difficulty and Price take several
+  // choices; none ticked = no filter.
+  const [tags, setTags] = useState<string[]>([]);
+  const [whens, setWhens] = useState<WhenFilter[]>([]);
   const [whenDate, setWhenDate] = useState("");
-  const [price, setPrice] = useState<PriceTier>("any");
+  const [prices, setPrices] = useState<PriceTier[]>([]);
   const [sort, setSort] = useState<SortKey>(defaultSort);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
@@ -255,30 +323,42 @@ export function BrowseLayout({ config }: { config: BrowseConfig }) {
   // HC-QA-063 — a failed load is an error state, never an empty result.
   const [loadFailed, setLoadFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  const { resident } = useGuest();
+  const taxonomy = useCategoryFilter(config.categoryFamily ?? null, { experienceKind: config.categoryExperienceKind });
+  const taxonomyKey = JSON.stringify([taxonomy.serverParams, taxonomy.subSlugs]);
   useEffect(() => {
     setLoading(true);
     setLoadFailed(false);
-    config
-      .load()
+    // Several types ticked: the list endpoint takes one type, so ask once per
+    // type and merge (no server change).
+    const subs = taxonomy.subSlugs;
+    const req =
+      subs.length > 1 && taxonomy.serverParams.categorySlug
+        ? Promise.all(subs.map((sub) => config.load({ categorySlug: taxonomy.serverParams.categorySlug, subcategorySlug: sub }))).then((lists) => {
+            const seen = new Set<string>();
+            return lists.flat().filter((e) => (seen.has(e.id) ? false : (seen.add(e.id), true)));
+          })
+        : config.load(taxonomy.serverParams);
+    req
       .then(setItems)
       .catch(() => { setItems([]); setLoadFailed(true); })
       .finally(() => setLoading(false));
     // `load` is recreated by callers on every render; resetKey is the real identity.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [config.resetKey, attempt]);
+  }, [config.resetKey, attempt, taxonomyKey]);
 
   useEffect(() => {
     setVisibleCount(PAGE_SIZE);
-  }, [query, county, tag, when, whenDate, price, sort]);
+  }, [query, county, tags, whens, whenDate, prices, sort]);
 
   useEffect(() => {
     // Reset page-specific filters when navigating between pages that share this layout.
     setQuery("");
     setCounty("All");
-    setTag("All");
-    setWhen("any");
+    setTags([]);
+    setWhens([]);
     setWhenDate("");
-    setPrice("any");
+    setPrices([]);
     setSort(defaultSort);
     setView("grid");
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -286,44 +366,67 @@ export function BrowseLayout({ config }: { config: BrowseConfig }) {
 
   const countyOptions = useMemo(() => uniqueSorted(items.map((e) => e.county)), [items]);
   const tagOptions = useMemo(() => uniqueSorted(items.map((e) => e.filterTag)), [items]);
-  const showTagFilter = !!config.tagFilterLabel && tagOptions.length > 0;
+  const showTagFilter = !!config.tagFilterLabel && tagOptions.length > 0 && !(config.tagFilterFallbackOnly && taxonomy.categories.length > 0);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
+  // One predicate, so "how many more if I drop this filter" uses the same rules.
+  const countWith = (f: { query?: string; county?: string; tags?: string[]; whens?: WhenFilter[]; prices?: PriceTier[] }) => {
+    const q = (f.query ?? query).trim().toLowerCase();
+    const c = f.county ?? county;
+    const t = f.tags ?? tags;
+    const w = f.whens ?? whens;
+    const pr = f.prices ?? prices;
     return items.filter((e) => {
       if (q && !e.searchText.includes(q)) return false;
-      if (county !== "All" && e.county !== county) return false;
-      if (showTagFilter && tag !== "All" && e.filterTag !== tag) return false;
-      if (!dateWhenMatches(e, when, whenDate)) return false;
-      if (price !== "any" && !priceMatches(e, price)) return false;
+      if (c !== "All" && e.county !== c) return false;
+      if (showTagFilter && t.length > 0 && !t.includes(e.filterTag ?? "")) return false;
+      if (w.length > 0 && !w.some((x) => dateWhenMatches(e, x, whenDate))) return false;
+      if (pr.length > 0 && !pr.some((x) => priceMatches(e, x))) return false;
       return true;
     });
-  }, [items, query, county, showTagFilter, tag, when, whenDate, price]);
+  };
+  const filtered = useMemo(() => countWith({}), [items, query, county, showTagFilter, tags, whens, whenDate, prices]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const sorted = useMemo(() => [...filtered].sort((a, b) => compareItems(a, b, sort)), [filtered, sort]);
-  const visibleItems = sorted.slice(0, visibleCount);
+  // Premium row (owner plan, 2026-10-23): a chosen category shows its first
+  // listings in the Bold typography style; otherwise featured listings use
+  // the page's style. Only listings with what the style needs; the rest of
+  // the grid stays compact.
+  const boldWord = categoryWord(taxonomy);
+  const rowStyle: FeatureVariant | null = boldWord ? "bold" : config.featureStyle ?? null;
+  const featureRow = !rowStyle
+    ? []
+    : sorted
+        .filter((e) => (rowStyle === "bold" || e.featured) && featureFits(rowStyle, { image: e.imageUrl, date: e.next?.date, category: boldWord }))
+        .slice(0, 4);
+  const featureIds = new Set(featureRow.map((e) => e.id));
+  const gridItems = sorted.filter((e) => !featureIds.has(e.id));
+  const visibleItems = gridItems.slice(0, visibleCount);
 
-  const activeCount = [county !== "All", showTagFilter && tag !== "All", when !== "any", price !== "any"].filter(Boolean).length;
+  const activeCount = [county !== "All", showTagFilter && tags.length > 0, whens.length > 0, prices.length > 0, !!taxonomy.selected].filter(Boolean).length;
+  const toggle = <T,>(list: T[], v: T) => (list.includes(v) ? list.filter((x) => x !== v) : [...list, v]);
 
   const activeChips = useMemo(() => {
     const chips: { key: string; label: string; onRemove: () => void }[] = [];
     if (county !== "All") chips.push({ key: "county", label: county, onRemove: () => setCounty("All") });
-    if (showTagFilter && tag !== "All") chips.push({ key: "tag", label: tag, onRemove: () => setTag("All") });
-    if (when !== "any") chips.push({ key: "when", label: when === "date" && whenDate ? dateLabel(whenDate) : WHEN_LABELS[when], onRemove: () => setWhen("any") });
-    if (price !== "any") chips.push({ key: "price", label: PRICE_LABELS[price], onRemove: () => setPrice("any") });
+    if (showTagFilter) tags.forEach((t) => chips.push({ key: `tag-${t}`, label: t.charAt(0).toUpperCase() + t.slice(1), onRemove: () => setTags((l) => l.filter((x) => x !== t)) }));
+    whens.forEach((w) => chips.push({ key: `when-${w}`, label: w === "date" && whenDate ? dateLabel(whenDate) : WHEN_LABELS[w], onRemove: () => setWhens((l) => l.filter((x) => x !== w)) }));
+    prices.forEach((p) => chips.push({ key: `price-${p}`, label: PRICE_LABELS[p], onRemove: () => setPrices((l) => l.filter((x) => x !== p)) }));
+    if (taxonomy.label) chips.push({ key: "taxonomy", label: taxonomy.label, onRemove: () => taxonomy.setCategory(null) });
     return chips;
-  }, [county, showTagFilter, tag, when, whenDate, price]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [county, showTagFilter, tags, whens, whenDate, prices, taxonomy.label]);
 
   const clearAllFilters = () => {
     setQuery("");
     setCounty("All");
-    setTag("All");
-    setWhen("any");
+    setTags([]);
+    setWhens([]);
     setWhenDate("");
-    setPrice("any");
+    setPrices([]);
+    if (taxonomy.selected) taxonomy.setCategory(null);
   };
 
-  const whenSummaryLabel = when === "date" && whenDate ? dateLabel(whenDate) : WHEN_LABELS[when];
+  const whenSummaryLabel = whens.length === 0 ? WHEN_LABELS.any : whens.map((w) => (w === "date" && whenDate ? dateLabel(whenDate) : WHEN_LABELS[w])).join(", ");
   const sortKeys = (Object.keys(SORT_LABELS) as SortKey[]).filter((k) => k !== "featured" || config.supportsFeatured);
 
   const filterGroupStyle: CSSProperties = { padding: "16px 0", borderTop: `1px solid ${colors.border}` };
@@ -340,13 +443,21 @@ export function BrowseLayout({ config }: { config: BrowseConfig }) {
         )}
       </div>
 
-      <div style={{ ...filterGroupStyle, paddingTop: 0 }}>
+      {/* Owner, 2026-10-23: the category's types live here, not as a second chip row. */}
+      {hasCategoryTypes(taxonomy) && (
+        <div style={{ ...filterGroupStyle, paddingTop: 0, borderTop: "none" }}>
+          <div style={filterLabelStyle}>Type</div>
+          <CategoryTypeOptions state={taxonomy} />
+        </div>
+      )}
+
+      <div style={{ ...filterGroupStyle, ...(hasCategoryTypes(taxonomy) ? {} : { paddingTop: 0 }) }}>
         <div style={filterLabelStyle}>When</div>
-        {(["any", "today", "tomorrow", "weekend", "next7"] as WhenFilter[]).map((w) => (
-          <DropdownOption key={w} label={WHEN_LABELS[w]} active={when === w} onClick={() => setWhen(w)} />
+        {(["today", "tomorrow", "weekend", "next7"] as WhenFilter[]).map((w) => (
+          <DropdownCheckbox key={w} label={WHEN_LABELS[w]} checked={whens.includes(w)} onChange={() => setWhens((l) => toggle(l, w))} />
         ))}
-        <DropdownOption label="Pick a date" active={when === "date"} onClick={() => setWhen("date")} />
-        {when === "date" && (
+        <DropdownCheckbox label="Pick a date" checked={whens.includes("date")} onChange={() => setWhens((l) => toggle(l, "date" as WhenFilter))} />
+        {whens.includes("date") && (
           <input aria-label="Pick a date"
             type="date"
             value={whenDate}
@@ -359,75 +470,54 @@ export function BrowseLayout({ config }: { config: BrowseConfig }) {
       {showTagFilter && (
         <div style={filterGroupStyle}>
           <div style={filterLabelStyle}>{config.tagFilterLabel}</div>
-          <DropdownOption label={`Any ${config.tagFilterLabel!.toLowerCase()}`} active={tag === "All"} onClick={() => setTag("All")} />
           {tagOptions.map((d) => (
-            <DropdownOption key={d} label={<span style={{ textTransform: "capitalize" }}>{d}</span>} active={tag === d} onClick={() => setTag(d)} />
+            <DropdownCheckbox key={d} label={<span style={{ textTransform: "capitalize" }}>{d}</span>} checked={tags.includes(d)} onChange={() => setTags((l) => toggle(l, d))} />
           ))}
         </div>
       )}
 
       <div style={{ ...filterGroupStyle, paddingBottom: 0 }}>
         <div style={filterLabelStyle}>Price</div>
-        {(["any", "under30", "30to50", "over50"] as PriceTier[]).map((p) => (
-          <DropdownOption key={p} label={PRICE_LABELS[p]} active={price === p} onClick={() => setPrice(p)} />
+        {(["under30", "30to50", "over50"] as PriceTier[]).map((p) => (
+          <DropdownCheckbox key={p} label={PRICE_LABELS[p]} checked={prices.includes(p)} onChange={() => setPrices((l) => toggle(l, p))} />
         ))}
       </div>
     </>
   );
 
   return (
-    <div style={{ animation: "fadeUp .35s ease backwards" }}>
-      <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "36px 24px 24px" }}>
+    <div className="fade-panel">
+      <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "36px 24px 16px" }}>
         <PageTitle>{config.title}</PageTitle>
         <p style={{ color: colors.mutedLight, fontSize: 15, margin: 0 }}>{config.subtitle}</p>
 
-        {/* Search / discovery card — a prominent free-text field on top,
-            compact county/when refinements below it. */}
-        <div style={{ border: `1px solid ${colors.border}`, borderRadius: radius.card, background: colors.surface, boxShadow: "0 8px 24px rgba(30,40,32,.05)", padding: 14, marginTop: 24, marginBottom: 16 }}>
-          <div style={{ position: "relative" }}>
+        {/* Search card (Batch 2, same pattern as Explore): the free-text field
+            and the area/when pickers in one row that wraps on phones, so the
+            pickers sit side by side under the field instead of stacking.
+            Results filter as you type, so there's no separate Search button. */}
+        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, border: `1px solid ${colors.border}`, borderRadius: radius.card, background: colors.surface, boxShadow: "0 8px 24px rgba(30,40,32,.05)", padding: 8, marginTop: 20, marginBottom: 14 }}>
+          <div style={{ position: "relative", flex: "1 1 260px", minWidth: 0 }}>
             <SearchIcon size={17} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: colors.faint }} />
             <input aria-label="Search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder={config.searchPlaceholder}
-              style={{ width: "100%", padding: "8px 8px 8px 36px", border: "none", background: "transparent", fontFamily: fonts.display, fontSize: 16.5, fontWeight: 600, color: colors.text, outline: "none", boxSizing: "border-box" }}
+              style={{ width: "100%", padding: "11px 8px 11px 36px", border: "none", background: "transparent", fontSize: 16, color: colors.text, outline: "none", boxSizing: "border-box" }}
             />
           </div>
-          <div style={{ height: 1, background: colors.border, margin: "10px 0" }} />
-          <div className="stack-mobile" style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <select aria-label="Area"
-              value={county}
-              onChange={(e) => setCounty(e.target.value)}
-              style={{ padding: "8px 12px", border: "none", borderRadius: radius.control, fontSize: 13.5, background: colors.panel, color: colors.text, fontWeight: 600 }}
-            >
-              <option value="All">Near: anywhere</option>
-              {countyOptions.map((c) => (
-                <option key={c} value={c}>Near: {c}</option>
-              ))}
-            </select>
-            <select aria-label="When"
-              value={when}
-              onChange={(e) => setWhen(e.target.value as WhenFilter)}
-              style={{ padding: "8px 12px", border: "none", borderRadius: radius.control, fontSize: 13.5, background: colors.panel, color: colors.text, fontWeight: 600 }}
-            >
-              {(Object.keys(WHEN_LABELS) as WhenFilter[]).map((w) => (
-                <option key={w} value={w}>{WHEN_LABELS[w]}</option>
-              ))}
-            </select>
-            <div style={{ marginLeft: "auto" }}>
-              <Button onClick={() => resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}>Search</Button>
-            </div>
-          </div>
+          <select aria-label="Area"
+            value={county}
+            onChange={(e) => setCounty(e.target.value)}
+            style={{ padding: "9px 12px", border: "none", borderRadius: radius.pill, fontSize: 13.5, background: colors.panel, color: colors.text, fontWeight: 600 }}
+          >
+            <option value="All">Near: anywhere</option>
+            {countyOptions.map((c) => (
+              <option key={c} value={c}>Near: {c}</option>
+            ))}
+          </select>
         </div>
 
-        {showTagFilter && (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", marginBottom: 20 }}>
-            <Chip label="All" active={tag === "All"} onClick={() => setTag("All")} />
-            {tagOptions.map((d) => (
-              <Chip key={d} label={d.charAt(0).toUpperCase() + d.slice(1)} active={tag === d} onClick={() => setTag(tag === d ? "All" : d)} />
-            ))}
-          </div>
-        )}
+        <CategoryChips state={taxonomy} subChips={false} />
       </section>
 
       <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "0 24px 32px" }}>
@@ -443,7 +533,7 @@ export function BrowseLayout({ config }: { config: BrowseConfig }) {
                   <div style={{ fontWeight: 700, fontSize: 16 }}>Loading…</div>
                 ) : loadFailed ? null : (
                   <>
-                    {sorted.length > 0 && (
+                    {sorted.length > visibleCount && (
                       <div style={{ fontSize: 12, color: colors.faint, marginBottom: 2 }}>
                         Showing 1-{Math.min(visibleCount, sorted.length)} of {sorted.length}
                       </div>
@@ -456,10 +546,12 @@ export function BrowseLayout({ config }: { config: BrowseConfig }) {
                     </div>
                   </>
                 )}
-                <div style={{ fontSize: 13, color: colors.mutedLight, marginTop: 2 }}>
-                  {county === "All" ? "Anywhere" : county} · {whenSummaryLabel}
-                  {query.trim() && ` for "${query.trim()}"`}
-                </div>
+                {(county !== "All" || whens.length > 0 || query.trim()) && (
+                  <div style={{ fontSize: 13, color: colors.mutedLight, marginTop: 2 }}>
+                    {county === "All" ? "Anywhere" : county} · {whenSummaryLabel}
+                    {query.trim() && ` for "${query.trim()}"`}
+                  </div>
+                )}
               </div>
               {/* Wraps at phone widths (sitemap audit P1-09: Filters + Sort + the
                   Grid/Map toggle overflowed the viewport by 59px at 320px). */}
@@ -506,15 +598,6 @@ export function BrowseLayout({ config }: { config: BrowseConfig }) {
               </div>
             </div>
 
-            {!loading && config.supportsFeatured && sort === "featured" && sorted.length > 0 && (
-              <div style={{ display: "flex", alignItems: "flex-start", gap: 10, background: "rgba(232,163,58,.12)", border: "1px solid rgba(232,163,58,.3)", borderRadius: radius.control, padding: "12px 16px", marginBottom: 20 }}>
-                <LightbulbIcon size={16} style={{ color: colors.gold, flex: "none", marginTop: 1 }} />
-                <div>
-                  <div style={{ fontSize: 13.5, fontWeight: 700, color: colors.text }}>Showing our top picks first</div>
-                  <div style={{ fontSize: 12.5, color: colors.mutedLight, marginTop: 1 }}>Featured listings, then whatever's departing soonest.</div>
-                </div>
-              </div>
-            )}
 
             {activeChips.length > 0 && (
               <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 20 }}>
@@ -534,22 +617,25 @@ export function BrowseLayout({ config }: { config: BrowseConfig }) {
             )}
 
             {loading ? (
-              <div className="grid-responsive-3" style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 20 }}>
-                {Array.from({ length: PAGE_SIZE }, (_, i) => <CardSkeleton key={i} photoHeight={150} />)}
+              <div className="listing-grid">
+                {Array.from({ length: PAGE_SIZE }, (_, i) => <CardSkeleton key={i} />)}
               </div>
             ) : loadFailed ? (
               <LoadErrorState title="We couldn't load these listings right now." onRetry={() => setAttempt((n) => n + 1)} />
             ) : sorted.length === 0 ? (
               <EmptyState
                 icon={<UsersIcon size={22} />}
-                title={items.length === 0 ? `No ${config.nounPlural} yet` : "Nothing matching that yet."}
-                subtitle={items.length === 0 ? "Check back soon — new listings go up all the time." : "Try widening your search or clearing a filter."}
+                title={items.length === 0 && !taxonomy.selected ? `No ${config.nounPlural} yet` : "Nothing matching that yet."}
+                subtitle={items.length === 0 && !taxonomy.selected ? "Check back soon — new listings go up all the time." : "Try widening your search or clearing a filter."}
                 action={
-                  items.length > 0 ? (
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center" }}>
-                      {county !== "All" && <Chip label="Expand to anywhere" active={false} onClick={() => setCounty("All")} />}
-                      {when !== "any" && <Chip label="Any time" active={false} onClick={() => setWhen("any")} />}
-                      {activeCount > 0 && <Chip label="Clear filters" active={false} onClick={clearAllFilters} />}
+                  items.length > 0 || taxonomy.selected ? (
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center" }}>
+                        {county !== "All" && <Chip label="Expand to anywhere" active={false} onClick={() => setCounty("All")} />}
+                        {whens.length > 0 && <Chip label="Any time" active={false} onClick={() => setWhens([])} />}
+                        {activeCount > 0 && <Chip label="Clear filters" active={false} onClick={clearAllFilters} />}
+                      </div>
+                      {config.categoryBasePath && <CategoryEmptyHint state={taxonomy} basePath={config.categoryBasePath} />}
                     </div>
                   ) : undefined
                 }
@@ -558,19 +644,27 @@ export function BrowseLayout({ config }: { config: BrowseConfig }) {
               <DiscoveryMap
                 pins={toPins(sorted)}
                 searchTypes={config.mapSearchTypes}
-                searchFilters={config.mapSearchTypes ? { q: query.trim() || undefined, ...priceTierToRange(price) } : undefined}
+                searchFilters={config.mapSearchTypes ? { q: query.trim() || undefined, ...pricesToRange(prices) } : undefined}
               />
             ) : (
               <>
-                <div className="grid-responsive-3" style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 20 }}>
-                  {visibleItems.map((e) => (
-                    <BrowseCard key={e.id} e={e} icon={config.icon} />
-                  ))}
-                </div>
-                {visibleCount < sorted.length && (
+                {featureRow.length > 0 && rowStyle && (
+                  <div className="listing-grid" style={{ marginBottom: 20 }}>
+                    {featureRow.map((e) => (
+                      <BrowseFeatureCard key={e.id} e={e} variant={rowStyle} category={boldWord} />
+                    ))}
+                  </div>
+                )}
+
+                  <CardGrid>
+                    {visibleItems.map((e) => (
+                      <BrowseCard key={e.id} e={e} icon={config.icon} kindLabel={config.kindLabel} />
+                    ))}
+                  </CardGrid>
+                {visibleCount < gridItems.length && (
                   <div style={{ display: "flex", justifyContent: "center", marginTop: 28 }}>
                     <Button variant="ghost" onClick={() => setVisibleCount((v) => v + PAGE_SIZE)}>
-                      Show more ({sorted.length - visibleCount} more)
+                      Show more ({gridItems.length - visibleCount} more)
                     </Button>
                   </div>
                 )}
@@ -587,9 +681,16 @@ export function BrowseLayout({ config }: { config: BrowseConfig }) {
         </div>
       </Drawer>
 
+      {config.featured && (
+        <div className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "0 24px" }}>
+          <FeaturedPicks kind={config.featured} />
+        </div>
+      )}
+
       {/* Closing CTA band — the shared CtaBand (same as Home's closing band). */}
       <CtaBand
         id="browse-cta-title"
+        panel={{ title: "Not quite right?", text: "Try something else nearby — or join an activity instead.", icon: <Compass size={20} strokeWidth={2} /> }}
         label={config.closing.label}
         lines={config.closing.lines ?? ["Didn't find", "the right", "one?"]}
         text={config.closing.text}

@@ -1,3 +1,4 @@
+import { ListFilterBar, NoMatches, useListFilters } from "./workspace/ListFilters";
 import { useEffect, useState } from "react";
 import { fetchClubParticipants } from "../api";
 import { UsersIcon } from "./icons";
@@ -17,11 +18,24 @@ export function ClubParticipantsTab({ clubId }: { clubId: string }) {
     fetchClubParticipants(clubId).then(setParticipants);
   }, [clubId]);
 
+  const teams = [...new Set((participants ?? []).flatMap((p) => p.teams))].sort();
+  const filters = useListFilters<ClubParticipant>({
+    param: "pq",
+    search: (p) => [`${p.childFirst} ${p.childLast}`, ...p.teams],
+    selects: [
+      ...(teams.length > 1 ? [{ param: "team", label: "Team", options: teams.map((t) => ({ value: t, label: t })), test: (p: ClubParticipant, team: string) => p.teams.includes(team) }] : []),
+      { param: "pstatus", label: "Status", options: [{ value: "active", label: "Active" }, { value: "inactive", label: "Inactive" }], get: (p) => (p.active ? "active" : "inactive") },
+    ],
+  });
+
   if (participants === null) return <PageSpinner />;
   if (participants.length === 0) return <EmptyState icon={<UsersIcon size={26} />} title="No participants yet" />;
+  const shown = filters.apply(participants);
 
   return (
     <Card>
+      {participants.length > 6 && <ListFilterBar state={filters} searchLabel="Search participants" placeholder="Name or team" />}
+      {shown.length === 0 && <NoMatches onClear={filters.clear} noun="participants" />}
       <div style={{ overflowX: "auto" }}>
         <StackTable>
           <thead>
@@ -33,7 +47,7 @@ export function ClubParticipantsTab({ clubId }: { clubId: string }) {
             </tr>
           </thead>
           <tbody>
-            {participants.map((p) => (
+            {shown.map((p) => (
               <tr key={`${p.childFirst}-${p.childLast}`}>
                 <td style={tdStyle}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>

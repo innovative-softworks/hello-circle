@@ -1,7 +1,11 @@
+import { FolderTree } from "lucide-react";
+import { fetchCategoriesEnabled, setCategoriesEnabled } from "../../api";
+import { ConfirmDialog } from "../ui";
 import { useState } from "react";
 import { useAdminCan } from "./adminPermissions";
-import { CheckCircle2, CircleAlert, Lock, Server, UserCog, CircleQuestionMark, Map as MapIcon, SlidersHorizontal } from "lucide-react";
-import { fetchMapsEnabled, fetchSystemStatus, setMapsEnabled } from "../../api";
+import { CheckCircle2, CircleAlert, CircleDot, Lock, Server, UserCog, CircleQuestionMark, Map as MapIcon, SlidersHorizontal } from "lucide-react";
+import { fetchCircleFeatureSettings, fetchMapsEnabled, fetchSystemStatus, setCircleFeatureSetting, setMapsEnabled } from "../../api";
+import { resetPaidCheckoutCache } from "../../paidCheckout";
 import { useToast } from "../Toast";
 import { HelpSection, RolesSection } from "../AdminFinance";
 import { AdminInvitesCard, AdminTwoStepCard } from "./AdminTeamAccess";
@@ -97,6 +101,107 @@ function MapsSwitch() {
   );
 }
 
+// Category system — the site-wide switch for category navigation (gap review
+// docs/hellocircle-category-gap-review.md §2). Off hides category chips,
+// Home "Popular", category pickers and category SEO pages; categories and
+// listing assignments are kept, so turning it back on restores everything.
+function CategoriesSwitch() {
+  const can = useAdminCan();
+  const toast = useToast();
+  const state = useAdminData(fetchCategoriesEnabled);
+  const [confirming, setConfirming] = useState<boolean | null>(null);
+  return (
+    <Box icon={FolderTree} title="Categories on the site" subtitle="Category chips, the Home “Popular right now” row, host and partner category pickers, and category search pages.">
+      <Loaded state={state} rows={1}>
+        {(m) => (
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            <div>
+              <strong>{m.enabled ? "Categories are shown" : "Categories are hidden"}</strong>
+              <div className="adm-note">
+                {m.liveCategories} {m.liveCategories === 1 ? "category is" : "categories are"} in use · {m.categorisedListings} listings have a category
+              </div>
+            </div>
+            {can("platform.settings") ? (
+              <AdminButton onClick={() => setConfirming(!m.enabled)}>{m.enabled ? "Hide categories" : "Show categories"}</AdminButton>
+            ) : (
+              <span className="adm-note">Only a super admin can change this.</span>
+            )}
+          </div>
+        )}
+      </Loaded>
+      <ConfirmDialog
+        open={confirming !== null}
+        tone={confirming === false ? "danger" : "neutral"}
+        title={confirming === false ? "Hide categories across the site?" : "Show categories across the site?"}
+        message={
+          confirming === false
+            ? "Category chips, the Home “Popular right now” row and category search pages disappear, and hosts and partners stop seeing the category field. No category or listing assignment is deleted — showing them again restores everything. Takes effect within a few seconds and is recorded in the audit log."
+            : "Category chips, the Home “Popular right now” row, category search pages and the host and partner category fields come back with the existing categories and assignments. Recorded in the audit log."
+        }
+        confirmLabel={confirming === false ? "Hide categories" : "Show categories"}
+        onCancel={() => setConfirming(null)}
+        onConfirm={async () => {
+          const next = await setCategoriesEnabled(confirming!);
+          state.setData({ ...(state.data ?? { liveCategories: 0, categorisedListings: 0 }), enabled: next.enabled });
+          toast.success(next.enabled ? "Categories are shown" : "Categories are hidden");
+          setConfirming(null);
+        }}
+      />
+    </Box>
+  );
+}
+
+// Circle Experience 2.0 — one runtime switch per new Circle feature
+// (server/src/circleFeatures.ts), all off by default until verified. Same
+// permission (platform.settings) and audit trail as the maps switch.
+function CircleFeaturesSwitches() {
+  const can = useAdminCan();
+  const toast = useToast();
+  const state = useAdminData(fetchCircleFeatureSettings);
+  const [busy, setBusy] = useState<string | null>(null);
+  const flip = async (key: string, enabled: boolean) => {
+    setBusy(key);
+    try {
+      const next = await setCircleFeatureSetting(key, enabled);
+      state.setData({ features: (state.data?.features ?? []).map((f) => (f.key === key ? { ...f, enabled: next.enabled } : f)) });
+      resetPaidCheckoutCache();
+      toast.success(`${state.data?.features.find((f) => f.key === key)?.label ?? "Feature"} is ${enabled ? "on" : "off"}`);
+    } catch (e) {
+      toast.error(errorMessage(e, "Couldn't change that switch"));
+    } finally {
+      setBusy(null);
+    }
+  };
+  return (
+    <Box icon={CircleDot} title="New features" subtitle="Circle and discovery tools. Off by default; each can be switched on or off on its own, within a few seconds, with no redeploy. Every change is recorded in the audit log.">
+      <Loaded state={state} rows={8}>
+        {(m) => (
+          <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>{(["circles", "experience"] as const).map((group) => (<section key={group}><h3 className="adm-note" style={{ textTransform: "uppercase", fontWeight: 800, margin: "0 0 10px" }}>{group === "circles" ? "Circles" : "Discovery and My Life"}</h3>
+          <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 14 }}>
+            {m.features.filter((f) => (f.group ?? "circles") === group).map((f) => (
+              <li key={f.key} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                <div style={{ minWidth: 0, flex: "1 1 320px" }}>
+                  <strong>
+                    {f.label} · {f.enabled ? "On" : "Off"}
+                  </strong>
+                  <div className="adm-note">{f.description}</div>
+                </div>
+                {can("platform.settings") ? (
+                  <AdminButton disabled={busy === f.key} onClick={() => flip(f.key, !f.enabled)}>
+                    {f.enabled ? `Turn ${f.label} off` : `Turn ${f.label} on`}
+                  </AdminButton>
+                ) : (
+                  <span className="adm-note">Only a super admin can change this.</span>
+                )}
+              </li>
+            ))}
+          </ul></section>))}</div>
+        )}
+      </Loaded>
+    </Box>
+  );
+}
+
 const SECTIONS = [
   { key: "status", label: "System status", icon: Server },
   { key: "roles", label: "Admin roles", icon: UserCog },
@@ -118,6 +223,8 @@ export function AdminSettingsPage() {
         <div className="adm-stack">
           <SystemStatus />
           <MapsSwitch />
+          <CategoriesSwitch />
+          <CircleFeaturesSwitches />
         </div>
       )}
       {section === "roles" &&

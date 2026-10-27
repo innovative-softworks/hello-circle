@@ -307,8 +307,11 @@ export function validateCoupon(
 
 // --- search (FUTURE, best-effort) -------------------------------------------
 
-export function search(q: string): Promise<SearchResult> {
-  return request(`/search?q=${encodeURIComponent(q)}`);
+export function search(q: string, taxonomy: { categorySlug?: string; subcategorySlug?: string } = {}): Promise<SearchResult> {
+  const qs = new URLSearchParams({ q });
+  if (taxonomy.categorySlug) qs.set("categorySlug", taxonomy.categorySlug);
+  if (taxonomy.subcategorySlug) qs.set("subcategorySlug", taxonomy.subcategorySlug);
+  return request(`/search?${qs.toString()}`);
 }
 
 // --- Ask HelloCircle (implementation plan Phase 12) -------------------------
@@ -398,8 +401,32 @@ export function fetchMarketCategories(county: string): Promise<Record<string, bo
 /** Free Time Mode (Phase 9) — duration → distance → mood → 3 options,
  * ranked by the exact same logic as fetchDiscover(); this is only a
  * narrower, filtered front door onto that same pool. */
-export function fetchFreeTimeOptions(opts: { county?: string; maxMinutes?: number; mood?: string; lat?: number; lng?: number; radiusKm?: number }): Promise<DiscoverItem[]> {
+/** Experience 3.0 — when / partOfDay / maxPriceCents / limit / surprise /
+ * exclude apply only while experience.smart_match is on, `solo` only while
+ * experience.go_solo is on (the server ignores them otherwise). */
+export function fetchFreeTimeOptions(opts: {
+  county?: string;
+  maxMinutes?: number;
+  mood?: string;
+  lat?: number;
+  lng?: number;
+  radiusKm?: number;
+  when?: string;
+  partOfDay?: string[];
+  maxPriceCents?: number;
+  solo?: boolean;
+  limit?: number;
+  surprise?: boolean;
+  exclude?: string[];
+}): Promise<DiscoverItem[]> {
   const params = new URLSearchParams();
+  if (opts.when) params.set("when", opts.when);
+  if (opts.partOfDay?.length) params.set("partOfDay", opts.partOfDay.join(","));
+  if (opts.maxPriceCents !== undefined) params.set("maxPriceCents", String(opts.maxPriceCents));
+  if (opts.solo) params.set("solo", "1");
+  if (opts.limit) params.set("limit", String(opts.limit));
+  if (opts.surprise) params.set("surprise", "1");
+  if (opts.exclude?.length) params.set("exclude", opts.exclude.join(","));
   if (opts.county) params.set("county", opts.county);
   if (opts.maxMinutes !== undefined) params.set("maxMinutes", String(opts.maxMinutes));
   if (opts.mood) params.set("mood", opts.mood);
@@ -482,10 +509,12 @@ export function fetchPrograms(listingType: "centre" | "club", listingId: string)
 }
 
 /** The /programs browse page — every published program with an upcoming session. */
-export function fetchProgramBrowse(county?: string, category?: string): Promise<ProgramSummary[]> {
+export function fetchProgramBrowse(county?: string, category?: string, taxonomy: { categorySlug?: string; subcategorySlug?: string } = {}): Promise<ProgramSummary[]> {
   const params = new URLSearchParams();
   if (county && county !== "All") params.set("county", county);
   if (category && category !== "All") params.set("category", category);
+  if (taxonomy.categorySlug) params.set("categorySlug", taxonomy.categorySlug);
+  if (taxonomy.subcategorySlug) params.set("subcategorySlug", taxonomy.subcategorySlug);
   const qs = params.toString();
   return request(`/programs${qs ? `?${qs}` : ""}`);
 }
@@ -516,10 +545,12 @@ export function fetchProgramEnrollmentStatus(ref: string): Promise<ProgramEnroll
 
 // --- Adventures & Experiences (guest-facing browsing + booking) -----------
 
-export function fetchExperiences(kind?: ExperienceKind, county?: string): Promise<Experience[]> {
+export function fetchExperiences(kind?: ExperienceKind, county?: string, taxonomy: { categorySlug?: string; subcategorySlug?: string } = {}): Promise<Experience[]> {
   const params = new URLSearchParams();
   if (kind) params.set("kind", kind);
   if (county && county !== "All") params.set("county", county);
+  if (taxonomy.categorySlug) params.set("categorySlug", taxonomy.categorySlug);
+  if (taxonomy.subcategorySlug) params.set("subcategorySlug", taxonomy.subcategorySlug);
   const qs = params.toString();
   return request(`/experiences${qs ? `?${qs}` : ""}`);
 }

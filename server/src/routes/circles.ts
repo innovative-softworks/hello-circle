@@ -1,3 +1,4 @@
+import { applyListingCategory, categoryFromBody, setListingTags, taxonomyFields, taxonomyFilter } from "../taxonomy.js";
 import crypto from "node:crypto";
 import { Router } from "express";
 import { logEvent, logView } from "../analytics.js";
@@ -6,6 +7,7 @@ import { db } from "../db/index.js";
 import { getCircleSuggestions } from "../db/queries.js";
 import { createGameRow } from "./games.js";
 import { irelandTodayIso } from "../irelandTime.js";
+import { cleanListingRef, resolvePlanListing, type PlanListing, type PlanListingRef } from "../circlePlanListings.js";
 import { notifyResident } from "../notifications.js";
 import { requireResident } from "../residents.js";
 import { generateSlug } from "../slugify.js";
@@ -15,6 +17,11 @@ import { writeAudit } from "../audit.js";
 import { PaginationError, parsePageParams, setNextCursor } from "../pagination.js";
 import { withdrawInviteNotifications } from "./invitations.js";
 import { discoverableGameSql, filterViewable, GAME_VISIBILITY_COLUMNS } from "../gameVisibility.js";
+import { DISCOVERABLE_LIFECYCLES_SQL } from "../lifecycle.js";
+import { viewerGameState } from "../gameCardFacts.js";
+import { circleFeatureOn } from "../circleFeatures.js";
+import { cleanTargetSize, planIdeaExpiry, planStage } from "../circlePlanning.js";
+import { clearCircleParticipation, isRestricted } from "./circleExperience.js";
 
 export const circlesRouter = Router();
 
@@ -70,6 +77,7 @@ interface CircleRow {
   image_url: string;
   what_we_do: string | null;
   who_can_join: string | null;
+  solo_welcome?: number | null;
   circle_values: string | null;
   join_mode: "open" | "approval" | "invite";
   join_questions?: string | null;
@@ -83,6 +91,12 @@ interface NextPlan {
   capacity: number;
   spotsLeft: number;
   source: "circle" | "nearby";
+  /** Meetup length in minutes when the host set one (null = not said). */
+  durationMinutes: number | null;
+  /** The viewer has joined this meetup (signed-in residents only). */
+  joinedByMe: boolean;
+  /** The viewer's place on its waitlist: waiting, or a place offered to them. */
+  waitlist: "waiting" | "offered" | null;
 }
 
 // Circle Experience Polish — Changeset 2A. "What's happening next" is the
@@ -100,8 +114,38 @@ interface NextPlan {
 // detail policy (canViewGame). The label-matched "nearby" fallback is a
 // public recommendation, never an association, so it only ever draws from
 // publicly discoverable activities (discoverableGameSql).
-const CIRCLE_PLAN_COLUMNS = `g.id, g.date, g.time, g.capacity,
+const CIRCLE_PLAN_COLUMNS = `g.id, g.date, g.time, g.capacity, g.duration_minutes as durationMinutes,
               (SELECT COUNT(*) FROM game_participants gp WHERE gp.game_id = g.id AND gp.status = 'joined') as joined`;
+
+type PlanRow = { id: string; date: string; time: string; capacity: number; durationMinutes: number | null; joined: number };
+
+/** "HH:MM" now in Ireland. */
+function irelandNowHhmm(): string {
+  return new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Dublin", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date());
+}
+
+/** A meetup earlier today whose length is known and which has already ended
+ * isn't the "next" one any more (card states, owner 2026-10-27). Without a
+ * length we can't tell, so it stays until the end of the day as before. */
+function endedToday(row: PlanRow, today: string, nowHhmm: string): boolean {
+  if (row.date !== today || !row.durationMinutes) return false;
+  const [h, m] = row.time.split(":").map(Number);
+  const end = h * 60 + m + Number(row.durationMinutes);
+  const [nh, nm] = nowHhmm.split(":").map(Number);
+  return nh * 60 + nm >= end;
+}
+
+/** Whether the viewer has joined / is waitlisted for one meetup. */
+async function viewerPlanState(gameId: string, viewerId: string | null): Promise<{ joinedByMe: boolean; waitlist: "waiting" | "offered" | null }> {
+  if (!viewerId) return { joinedByMe: false, waitlist: null };
+  const [joined, wait] = await Promise.all([
+    db.prepare(`SELECT 1 FROM game_participants WHERE game_id = ? AND resident_id = ? AND status = 'joined'`).get(gameId, viewerId),
+    db
+      .prepare(`SELECT status FROM waitlist_entries WHERE listing_type = 'game' AND listing_id = ? AND resident_id = ? AND status IN ('waiting', 'offered') ORDER BY id DESC LIMIT 1`)
+      .get(gameId, viewerId) as Promise<{ status: "waiting" | "offered" } | undefined>,
+  ]);
+  return { joinedByMe: !!joined, waitlist: wait?.status ?? null };
+}
 
 async function circleOwnGames<T extends Record<string, unknown>>(columns: string, where: string, params: unknown[], viewerId: string | null, order = "g.date, g.time"): Promise<T[]> {
   const rows = (await db
@@ -112,14 +156,26 @@ async function circleOwnGames<T extends Record<string, unknown>>(columns: string
 
 async function nextPlanFor(circleId: string, activityLabel: string, viewerId: string | null): Promise<NextPlan | null> {
   const today = irelandTodayIso();
-  const [real] = await circleOwnGames<{ id: string; date: string; time: string; capacity: number; joined: number }>(
+  const nowHhmm = irelandNowHhmm();
+  const own = await circleOwnGames<PlanRow>(
     CIRCLE_PLAN_COLUMNS,
     `g.status IN ('open', 'pending_participants') AND g.date >= ? AND g.circle_id = ?`,
     [today, circleId],
     viewerId
   );
+  const real = own.find((r) => !endedToday(r, today, nowHhmm));
   if (real) {
-    return { id: real.id, date: real.date, time: real.time, joined: real.joined, capacity: real.capacity, spotsLeft: computeCapacity(real.capacity, real.joined).spotsLeft ?? 0, source: "circle" };
+    return {
+      id: real.id,
+      date: real.date,
+      time: real.time,
+      joined: Number(real.joined),
+      capacity: real.capacity,
+      spotsLeft: computeCapacity(real.capacity, Number(real.joined)).spotsLeft ?? 0,
+      source: "circle",
+      durationMinutes: real.durationMinutes ? Number(real.durationMinutes) : null,
+      ...(await viewerPlanState(real.id, viewerId)),
+    };
   }
   if (!activityLabel) return null;
   const row = (await db
@@ -129,9 +185,37 @@ async function nextPlanFor(circleId: string, activityLabel: string, viewerId: st
        WHERE g.status IN ('open', 'pending_participants') AND g.date >= ? AND g.activity_label = ? AND ${discoverableGameSql("g")}
        ORDER BY g.date, g.time LIMIT 1`
     )
-    .get(today, activityLabel)) as { id: string; date: string; time: string; capacity: number; joined: number } | undefined;
+    .get(today, activityLabel)) as PlanRow | undefined;
   if (!row) return null;
-  return { id: row.id, date: row.date, time: row.time, joined: row.joined, capacity: row.capacity, spotsLeft: computeCapacity(row.capacity, row.joined).spotsLeft ?? 0, source: "nearby" };
+  return {
+    id: row.id,
+    date: row.date,
+    time: row.time,
+    joined: Number(row.joined),
+    capacity: row.capacity,
+    spotsLeft: computeCapacity(row.capacity, Number(row.joined)).spotsLeft ?? 0,
+    source: "nearby",
+    durationMinutes: row.durationMinutes ? Number(row.durationMinutes) : null,
+    ...(await viewerPlanState(row.id, viewerId)),
+  };
+}
+
+/** Members-only meetup teaser (card states, owner 2026-10-27): when the
+ * viewer can't see any of an open or ask-to-join Circle's own upcoming
+ * meetups because they're members-only, say when the next one is so the
+ * Circle reads as active. Date and time only: no id, no counts, no place.
+ * Never for invite-only Circles, never for drafts or unpublished meetups. */
+async function membersOnlyNextFor(circleId: string, joinMode: string, nextPlan: NextPlan | null): Promise<{ date: string; time: string } | null> {
+  if (nextPlan?.source === "circle" || joinMode === "invite") return null;
+  const row = (await db
+    .prepare(
+      `SELECT g.date, g.time FROM games g
+       WHERE g.circle_id = ? AND g.visibility <> 'public' AND g.status IN ('open', 'pending_participants') AND g.date >= ?
+         AND g.lifecycle IN ${DISCOVERABLE_LIFECYCLES_SQL} AND (g.publish_at IS NULL OR g.publish_at <= UTC_TIMESTAMP())
+       ORDER BY g.date, g.time LIMIT 1`
+    )
+    .get(circleId, irelandTodayIso())) as { date: string; time: string } | undefined;
+  return row ? { date: row.date, time: row.time } : null;
 }
 
 async function plansThisMonthFor(circleId: string, activityLabel: string, viewerId: string | null): Promise<number> {
@@ -185,6 +269,7 @@ async function toCircleJson(row: CircleRow, viewerId: string | null) {
     | { name: string; hostStatus: string }
     | undefined;
   const [nextPlan, plansThisMonth, activePlan] = await Promise.all([nextPlanFor(row.id, row.activity_label, viewerId), plansThisMonthFor(row.id, row.activity_label, viewerId), activePlanFor(row.id)]);
+  const membersOnlyNext = await membersOnlyNextFor(row.id, row.join_mode, nextPlan);
   return {
     id: row.id,
     name: row.name,
@@ -210,6 +295,7 @@ async function toCircleJson(row: CircleRow, viewerId: string | null) {
     imageUrl: row.join_mode === "open" ? row.image_url || null : null,
     hasImage: !!row.image_url,
     nextPlan,
+    membersOnlyNext,
     plansThisMonth,
     activePlan,
     joinMode: row.join_mode,
@@ -217,6 +303,8 @@ async function toCircleJson(row: CircleRow, viewerId: string | null) {
     whoCanJoin: row.who_can_join,
     values: row.circle_values,
     joinQuestions: row.join_mode === "approval" ? parseJoinQuestions(row.join_questions) : [],
+    // Circle Experience 4.0 — the organiser's own word; null = not said.
+    soloWelcome: row.solo_welcome === null || row.solo_welcome === undefined ? null : !!row.solo_welcome,
   };
 }
 
@@ -315,6 +403,9 @@ circlesRouter.get("/", async (req, res) => {
   const params: unknown[] = [];
   if (q.county) { where.push("county = ?"); params.push(q.county); }
   if (q.activity) { where.push("activity_label = ?"); params.push(q.activity); }
+  const tax = await taxonomyFilter("circle", "circles.id", q);
+  if (tax === "none") { setNextCursor(res, null); return res.json([]); }
+  if (tax) { where.push(tax.sql); params.push(...tax.params); }
   if (q.q && q.q.trim()) {
     const like = `%${q.q.trim().toLowerCase().replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
     where.push("(LOWER(name) LIKE ? OR LOWER(activity_label) LIKE ? OR LOWER(COALESCE(area, '')) LIKE ? OR LOWER(COALESCE(county, '')) LIKE ?)");
@@ -359,6 +450,39 @@ circlesRouter.get("/mine", requireResident, async (req, res) => {
     )
     .all(req.resident!.id)) as (CircleRow & { viewer_role: string })[];
   res.json(await Promise.all(rows.map(async (row) => ({ ...(await toCircleJson(row, req.resident!.id)), myRole: row.viewer_role }))));
+});
+
+// Circles 3.0 — My Life "Plans you're in": open plans this resident said
+// "I'm in" to, across every Circle they're still a member of. The same
+// listing (and date) planned in two Circles is one entry naming both, so a
+// schedule never shows it twice. Interest is never shown as a booking: the
+// listing's own booking state is read live for the viewer.
+circlesRouter.get("/my-plans", requireResident, async (req, res) => {
+  const rows = (await db
+    .prepare(
+      `SELECT p.*, c.name as circle_name, c.slug as circle_slug, c.id as viewer_circle_id FROM circle_plan_interest i
+       JOIN circle_plans p ON p.id = i.plan_id
+       JOIN circle_members cm ON (cm.circle_id = p.circle_id OR cm.circle_id = p.partner_circle_id) AND cm.resident_id = i.resident_id
+       JOIN circles c ON c.id = cm.circle_id AND c.status = 'active'
+       WHERE i.resident_id = ? AND p.status IN ('idea', 'confirmed') AND (p.expires_at IS NULL OR p.expires_at > NOW())
+       ORDER BY p.proposed_date = '', p.proposed_date, p.proposed_time
+       LIMIT 50`
+    )
+    .all(req.resident!.id)) as (CirclePlanRow & { circle_name: string; circle_slug: string | null; viewer_circle_id: string })[];
+  const byKey = new Map<string, { key: string; planId: string; title: string; status: string; proposedDate: string | null; proposedTime: string | null; circles: { id: string; slug: string | null; name: string; planId: string }[]; listing: Awaited<ReturnType<typeof resolvePlanListing>> | null }>();
+  for (const r of rows) {
+    const key = r.listing_type && r.listing_id ? `${r.listing_type}:${r.listing_id}:${r.listing_session_id ?? ""}` : `plan:${r.id}`;
+    const circle = { id: r.viewer_circle_id, slug: r.circle_slug, name: r.circle_name, planId: r.id };
+    const existing = byKey.get(key);
+    if (existing) {
+      if (!existing.circles.some((c) => c.id === circle.id)) existing.circles.push(circle);
+      if (r.status === "confirmed") existing.status = "confirmed";
+      continue;
+    }
+    const listing = r.listing_type && r.listing_id ? await resolvePlanListing({ type: r.listing_type as PlanListingRef["type"], id: r.listing_id, sessionId: r.listing_session_id ?? null }, req.resident!.id) : null;
+    byKey.set(key, { key, planId: r.id, title: r.title, status: r.status, proposedDate: r.proposed_date || null, proposedTime: r.proposed_time || null, circles: [circle], listing });
+  }
+  res.json([...byKey.values()]);
 });
 
 // Repetition-detection → "Make this a Circle?" (Phase 8) — activities where
@@ -460,12 +584,141 @@ circlesRouter.get("/:id", async (req, res) => {
   const viewerId = req.resident?.id ?? null;
   logView("circle_viewed", req, { kind: "circle", id: row.id });
   if (!(await canViewCircleFull(row.id, row.join_mode, viewerId))) {
-    return res.json(await toCircleTeaserJson(row, viewerId));
+    return res.json({ ...(await toCircleTeaserJson(row, viewerId)), ...(await taxonomyFields("circle", row.id)) });
   }
   const json = await toCircleJson(row, viewerId);
   const stats = await detailStatsFor(row.id, row.activity_label);
+  // Circle Experience 2.0 — "N activities together": this Circle's own past
+  // activities that at least one person confirmed attending. Verified only.
+  const together = (await db
+    .prepare(
+      `SELECT COUNT(*) as n FROM games g WHERE g.circle_id = ? AND g.date < ? AND g.status != 'cancelled'
+         AND EXISTS (SELECT 1 FROM game_participants gp WHERE gp.game_id = g.id AND gp.attended = 1)`
+    )
+    .get(row.id, irelandTodayIso())) as { n: number };
   const familiarMembers = req.resident ? await familiarMembersFor(row.id, req.resident.id) : 0;
-  res.json({ ...json, ...stats, familiarMembers });
+  res.json({ ...json, ...stats, familiarMembers, activitiesTogether: Number(together.n), ...(await taxonomyFields("circle", row.id)) });
+});
+
+// Circle Experience 4.0 (2026-10-24, docs/circle-visitor-experience-v4/) —
+// what a person who isn't a member may see, in one call, for the visitor
+// page. Behind circles.visitor_experience (404 while off). Never member
+// names, chat, memories, wishes or availability. Polls and plans only as
+// counts, and only for open Circles (owner decision 4). Approval Circles
+// share organiser text, upcoming activity titles/dates, venue photos and
+// past-activity totals (decision 2); invite-only Circles stay a teaser
+// (decision 5). The cover of a non-open Circle stays members-only.
+const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+circlesRouter.get("/:id/visitor", async (req, res) => {
+  if (!(await circleFeatureOn("circles.visitor_experience"))) return res.status(404).json({ error: "Not found" });
+  const row = (await db.prepare(`SELECT * FROM circles WHERE slug = ? OR id = ?`).get(req.params.id, req.params.id)) as CircleRow | undefined;
+  if (!row) return res.status(404).json({ error: "Circle not found" });
+  const viewerId = req.resident?.id ?? null;
+  const open = row.join_mode === "open";
+  const teaserOnly = row.join_mode === "invite";
+  const today = irelandTodayIso();
+
+  const [{ n: members }, creator] = await Promise.all([
+    db.prepare(`SELECT COUNT(*) as n FROM circle_members WHERE circle_id = ?`).get(row.id) as Promise<{ n: number }>,
+    db.prepare(`SELECT name, host_status as hostStatus FROM residents WHERE id = ?`).get(row.created_by_resident_id) as Promise<{ name: string; hostStatus: string } | undefined>,
+  ]);
+  const verified = creator?.hostStatus === "verified";
+
+  const upcoming = teaserOnly
+    ? []
+    : (await circleOwnGames<UpcomingRow & { durationMinutes: number | null } & Record<string, unknown>>(
+        `${UPCOMING_SELECT}, g.duration_minutes as durationMinutes`,
+        `g.status IN ('open', 'pending_participants') AND g.date >= ? AND g.circle_id = ?`,
+        [today, row.id],
+        viewerId
+      ))
+        .slice(0, 10)
+        .map((r) => ({
+          id: r.id,
+          activityLabel: r.activityLabel,
+          date: r.date,
+          time: r.time,
+          place: r.centreName || r.locationText || null,
+          durationMinutes: r.durationMinutes ?? null,
+          priceCents: r.priceCents,
+          joined: Number(r.joined),
+          spotsLeft: computeCapacity(r.capacity, Number(r.joined)).spotsLeft ?? 0,
+          imageUrl: r.imageUrl || null,
+          soloFriendly: !!r.soloFriendly,
+          experienceRequired: r.experienceRequired || null,
+        }));
+
+  const pastRows = teaserOnly
+    ? []
+    : await circleOwnGames<{ id: string; activityLabel: string; date: string; time: string; imageUrl: string; soloFriendly: number; attended: number }>(
+        `g.id, g.activity_label as activityLabel, g.date, g.time, g.image_url as imageUrl, g.solo_friendly as soloFriendly,
+         (SELECT COUNT(*) FROM game_participants gp WHERE gp.game_id = g.id AND gp.attended = 1) as attended`,
+        `g.circle_id = ? AND g.date < ? AND g.date >= ? AND g.status != 'cancelled'`,
+        [row.id, today, new Date(Date.now() - 180 * 86400000).toISOString().slice(0, 10)],
+        viewerId,
+        "g.date DESC"
+      );
+  const past = pastRows.filter((r) => Number(r.attended) > 0);
+
+  const venuePhotos = teaserOnly || !row.centre_id
+    ? []
+    : ((await db.prepare(`SELECT url as imageUrl FROM centre_images WHERE centre_id = ? ORDER BY sort_order LIMIT 4`).all(row.centre_id)) as { imageUrl: string }[]).map((r) => r.imageUrl);
+
+  // "Usually Saturday mornings" — only when one day and time of day account
+  // for at least half of three or more real activities.
+  const sample = [...pastRows.map((r) => ({ date: r.date, time: r.time })), ...upcoming.map((u) => ({ date: u.date, time: u.time }))];
+  let pattern: { weekday: string; partOfDay: string } | null = null;
+  if (sample.length >= 3) {
+    const counts = new Map<string, number>();
+    for (const g of sample) {
+      const wd = WEEKDAYS[new Date(`${g.date}T12:00:00Z`).getUTCDay()];
+      const h = Number(g.time.slice(0, 2));
+      const part = h < 12 ? "morning" : h < 17 ? "afternoon" : "evening";
+      counts.set(`${wd}|${part}`, (counts.get(`${wd}|${part}`) ?? 0) + 1);
+    }
+    const [key, n] = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
+    if (n / sample.length >= 0.5) {
+      const [weekday, partOfDay] = key.split("|");
+      pattern = { weekday, partOfDay };
+    }
+  }
+
+  // "Coming on your own?" — the organiser's own word first; otherwise only
+  // when most of the Circle's real activities say people come alone.
+  const soloSample = [...pastRows.map((r) => !!r.soloFriendly), ...upcoming.map((u) => u.soloFriendly)];
+  const soloWelcome =
+    row.solo_welcome === 1
+      ? { source: "organiser" as const }
+      : row.solo_welcome === 0
+        ? null
+        : soloSample.length >= 2 && soloSample.filter(Boolean).length / soloSample.length >= 0.5
+          ? { source: "activities" as const }
+          : null;
+
+  const community = open
+    ? {
+        openPolls: Number(((await db.prepare(`SELECT COUNT(*) as n FROM circle_polls WHERE circle_id = ? AND status = 'open'`).get(row.id)) as { n: number }).n),
+        livePlans: Number(((await db.prepare(`SELECT COUNT(*) as n FROM circle_plans WHERE circle_id = ? AND status IN ('idea', 'confirmed') AND (expires_at IS NULL OR expires_at > NOW())`).get(row.id)) as { n: number }).n),
+      }
+    : null;
+
+  res.json({
+    joinMode: row.join_mode,
+    members: Number(members),
+    organiser: creator ? { name: creator.name, verified, residentId: verified ? row.created_by_resident_id : null } : null,
+    about: teaserOnly
+      ? { about: row.about || null, whatWeDo: null, whoCanJoin: null, values: null }
+      : { about: row.about || null, whatWeDo: row.what_we_do, whoCanJoin: row.who_can_join, values: row.circle_values },
+    coverUrl: open ? row.image_url || null : null,
+    upcoming,
+    past: past.slice(0, 3).map((r) => ({ id: r.id, activityLabel: r.activityLabel, date: r.date, attended: Number(r.attended), imageUrl: r.imageUrl || null })),
+    activitiesTogether: past.length,
+    venuePhotos,
+    pattern,
+    soloWelcome,
+    community,
+  });
 });
 
 const MEMBERS_PREVIEW_LIMIT = 8;
@@ -525,6 +778,9 @@ circlesRouter.get("/:id/members", async (req, res) => {
 interface UpcomingRow {
   id: string;
   activityLabel: string;
+  imageUrl: string;
+  soloFriendly: number;
+  experienceRequired: string | null;
   date: string;
   time: string;
   locationText: string;
@@ -534,7 +790,10 @@ interface UpcomingRow {
   joined: number;
 }
 
+// Circle Experience 2.0 — image and the two first-time hints (come alone,
+// experience needed) so the Activities tab can mark first-time-friendly plans.
 const UPCOMING_SELECT = `g.id, g.activity_label as activityLabel, g.date, g.time, g.location_text as locationText, g.capacity, g.price_cents as priceCents,
+              g.image_url as imageUrl, g.solo_friendly as soloFriendly, g.experience_required as experienceRequired,
               c.name as centreName,
               (SELECT COUNT(*) FROM game_participants gp WHERE gp.game_id = g.id AND gp.status = 'joined') as joined`;
 
@@ -553,8 +812,9 @@ circlesRouter.get("/:id/upcoming", async (req, res) => {
   const today = irelandTodayIso();
   const real = (await circleOwnGames<UpcomingRow & Record<string, unknown>>(
     UPCOMING_SELECT,
-    `g.status IN ('open', 'pending_participants') AND g.date >= ? AND g.circle_id = ?`,
-    [today, circle.id],
+    // Experience 3.0 — shared Circle-to-Circle activities count for the partner too.
+    `g.status IN ('open', 'pending_participants') AND g.date >= ? AND (g.circle_id = ? OR g.partner_circle_id = ?)`,
+    [today, circle.id, circle.id],
     req.resident?.id ?? null
   )).slice(0, 10) as UpcomingRow[];
 
@@ -573,7 +833,20 @@ circlesRouter.get("/:id/upcoming", async (req, res) => {
   }
 
   const rows = [...real.map((r) => ({ ...r, source: "circle" as const })), ...nearby.map((r) => ({ ...r, source: "nearby" as const }))];
-  res.json(rows.map((r) => ({ ...r, spotsLeft: computeCapacity(r.capacity, r.joined).spotsLeft ?? 0 })));
+  // The viewer's own state on each, for the card labels ("You're going").
+  const mine = await viewerGameState(rows.map((r) => String(r.id)), req.resident?.id ?? null);
+  res.json(
+    rows.map((r) => ({
+      ...r,
+      imageUrl: r.imageUrl || null,
+      soloFriendly: !!r.soloFriendly,
+      experienceRequired: r.experienceRequired || null,
+      spotsLeft: computeCapacity(r.capacity, r.joined).spotsLeft ?? 0,
+      joinedByMe: mine.joined.has(String(r.id)),
+      waitlistedByMe: mine.waiting.has(String(r.id)),
+      joinRequested: mine.requested.has(String(r.id)),
+    }))
+  );
 });
 
 // HelloCircle Manage Phase 4 — organiser-only, real plans (games.circle_id)
@@ -621,6 +894,14 @@ interface CirclePlanRow {
   created_at: string;
   confirmed_at: string | null;
   cancelled_at: string | null;
+  target_size?: number | null;
+  expires_at?: string | null;
+  source_pulse_key?: string | null;
+  decline_reason?: string | null;
+  listing_type?: string | null;
+  listing_id?: string | null;
+  listing_session_id?: string | null;
+  partner_circle_id?: string | null;
 }
 
 /** Once a plan-idea is converted (activity_source_* set), the linked Game is
@@ -628,7 +909,13 @@ interface CirclePlanRow {
  * stale copy on the plan row itself (Phase 2 plan's Owner Decision #3).
  * `completed` is a derived display value (the linked game's date has
  * passed), never a stored transition — no background job flips it. */
-async function toCirclePlanJson(row: CirclePlanRow) {
+/** Circles 3.0 — seen from a partner Circle, a shared plan never names the
+ * member who suggested it (member identities stay inside their own Circle). */
+function forViewingCircle<T extends { createdByName: string; createdByResidentId: string }>(json: T, row: CirclePlanRow, viewingCircleId: string): T {
+  return row.circle_id === viewingCircleId ? json : { ...json, createdByName: "", createdByResidentId: "" };
+}
+
+async function toCirclePlanJson(row: CirclePlanRow, viewerId: string | null = null) {
   const creator = (await db.prepare(`SELECT name FROM residents WHERE id = ?`).get(row.created_by_resident_id)) as { name: string } | undefined;
 
   let activity: { id: string; date: string; time: string; status: string; spotsLeft: number | null; joined: number | null } | null = null;
@@ -650,7 +937,37 @@ async function toCirclePlanJson(row: CirclePlanRow) {
     }
   }
 
+  // Circle Experience 2.0, Make It Happen — interest counts and the derived
+  // stage. Only with the feature on; otherwise the response is unchanged.
+  let interest: Record<string, unknown> = {};
+  if (await circleFeatureOn("circles.make_it_happen")) {
+    const [{ n }, mine] = await Promise.all([
+      db.prepare(`SELECT COUNT(*) as n FROM circle_plan_interest WHERE plan_id = ?`).get(row.id) as Promise<{ n: number }>,
+      viewerId ? db.prepare(`SELECT 1 FROM circle_plan_interest WHERE plan_id = ? AND resident_id = ?`).get(row.id, viewerId) : Promise.resolve(undefined),
+    ]);
+    const interestCount = Number(n);
+    interest = {
+      interestCount,
+      interestedByMe: !!mine,
+      targetSize: row.target_size ?? null,
+      expiresAt: row.expires_at ?? null,
+      stage: planStage({ status: displayStatus, interestCount, targetSize: row.target_size ?? null, expiresAt: row.expires_at ?? null }),
+      sourcePulseKey: row.source_pulse_key ?? null,
+      declineReason: row.status === "cancelled" ? row.decline_reason ?? null : null,
+    };
+  }
+
+  // Circles 3.0 — the listing this plan is about, read live for this viewer.
+  const listing = row.listing_type && row.listing_id ? await resolvePlanListing({ type: row.listing_type as PlanListingRef["type"], id: row.listing_id, sessionId: row.listing_session_id ?? null }, viewerId) : null;
+
+  // Circles 3.0 — a plan shared between two Circles names both (never members).
+  const nameOf = async (id: string) => ((await db.prepare(`SELECT id, slug, name FROM circles WHERE id = ?`).get(id)) as { id: string; slug: string | null; name: string } | undefined) ?? null;
+  const shared = row.partner_circle_id ? { homeCircle: await nameOf(row.circle_id), partnerCircle: await nameOf(row.partner_circle_id) } : null;
+
   return {
+    ...interest,
+    listing,
+    shared,
     id: row.id,
     circleId: row.circle_id,
     createdByResidentId: row.created_by_resident_id,
@@ -676,9 +993,63 @@ circlesRouter.get("/:id/plan-ideas", async (req, res) => {
   if (!(await canViewCircleFull(circle.id, circle.join_mode, req.resident?.id ?? null))) {
     return res.status(403).json({ error: "Only circle members can view plan ideas" });
   }
-  const rows = (await db.prepare(`SELECT * FROM circle_plans WHERE circle_id = ? ORDER BY created_at DESC`).all(circle.id)) as CirclePlanRow[];
-  res.json(await Promise.all(rows.map(toCirclePlanJson)));
+  // Circles 3.0 — includes plans another Circle shared with this one.
+  const rows = (await db.prepare(`SELECT * FROM circle_plans WHERE circle_id = ? OR partner_circle_id = ? ORDER BY created_at DESC`).all(circle.id, circle.id)) as CirclePlanRow[];
+  const viewerId = req.resident?.id ?? null;
+  res.json(await Promise.all(rows.map(async (r) => forViewingCircle(await toCirclePlanJson(r, viewerId), r, circle.id))));
 });
+
+/** Circles 3.0 — the rules for suggesting a listing in a Circle, shared by
+ * the Plans tab and "share to Circle": the proposer must be able to see it,
+ * it mustn't have finished or been cancelled, a private activity only goes
+ * to its own Circle, and the same listing (and date) isn't suggested twice
+ * while an earlier suggestion is still open. */
+type ListingSuggestionCheck = { listing: PlanListing } | { status: number; error: string; planId?: string };
+async function checkListingSuggestion(circleId: string, residentId: string, ref: PlanListingRef): Promise<ListingSuggestionCheck> {
+  const listing = await resolvePlanListing(ref, residentId);
+  if (listing.availability === "unavailable" && !listing.title) return { status: 404, error: "That listing isn't available to suggest" };
+  if (listing.availability === "cancelled" || listing.availability === "past") return { status: 409, error: "That listing has already finished or been cancelled" };
+  if (listing.restricted) {
+    const game = (await db.prepare(`SELECT circle_id as circleId FROM games WHERE id = ?`).get(listing.id)) as { circleId: string | null } | undefined;
+    if (game?.circleId !== circleId) return { status: 409, error: "A private activity can only be suggested in its own Circle" };
+  }
+  const dup = (await db
+    .prepare(`SELECT id FROM circle_plans WHERE circle_id = ? AND listing_type = ? AND listing_id = ? AND COALESCE(listing_session_id, '') = ? AND status IN ('idea', 'confirmed') AND (expires_at IS NULL OR expires_at > NOW()) LIMIT 1`)
+    .get(circleId, listing.type, listing.id, ref.sessionId ?? "")) as { id: string } | undefined;
+  if (dup) return { status: 409, error: "This is already suggested in the Circle", planId: dup.id };
+  return { listing };
+}
+
+/** "Share to Circle" with "also add it to the plans": the same rules as a
+ * suggestion; an open suggestion for the same listing is reused. Members
+ * were already notified by the share itself, so no second notification. */
+async function createListingPlan(circleIdOrSlug: string, residentId: string, ref: PlanListingRef, note: string): Promise<{ planId: string | null }> {
+  const circle = (await db.prepare(`SELECT id, status FROM circles WHERE slug = ? OR id = ?`).get(circleIdOrSlug, circleIdOrSlug)) as { id: string; status: string } | undefined;
+  if (!circle || circle.status === "closed") return { planId: null };
+  const checked = await checkListingSuggestion(circle.id, residentId, ref);
+  if ("error" in checked) return { planId: checked.planId ?? null };
+  const l = checked.listing;
+  const mih = await circleFeatureOn("circles.make_it_happen");
+  const date = l.date && (ref.sessionId || l.type === "game") ? l.date : "";
+  const time = l.time && (ref.sessionId || l.type === "game") ? l.time : "";
+  const id = crypto.randomUUID();
+  const existing = await db.transaction(async (tx) => {
+    await tx.prepare(`SELECT id FROM circles WHERE id = ? FOR UPDATE`).get(circle.id);
+    const again = (await tx
+      .prepare(`SELECT id FROM circle_plans WHERE circle_id = ? AND listing_type = ? AND listing_id = ? AND COALESCE(listing_session_id, '') = ? AND status IN ('idea', 'confirmed') AND (expires_at IS NULL OR expires_at > NOW()) LIMIT 1`)
+      .get(circle.id, l.type, l.id, ref.sessionId ?? "")) as { id: string } | undefined;
+    if (again) return again.id;
+    await tx
+      .prepare(
+        `INSERT INTO circle_plans (id, circle_id, created_by_resident_id, title, note, proposed_date, proposed_time, location_text, expires_at, listing_type, listing_id, listing_session_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?)`
+      )
+      .run(id, circle.id, residentId, l.title.slice(0, 255), note.slice(0, 2000), date, time, mih ? planIdeaExpiry(date || undefined) : null, l.type, l.id, ref.sessionId ?? null);
+    if (mih) await tx.prepare(`INSERT IGNORE INTO circle_plan_interest (plan_id, resident_id) VALUES (?, ?)`).run(id, residentId);
+    return null;
+  });
+  return { planId: existing ?? id };
+}
 
 circlesRouter.post("/:id/plan-ideas", requireResident, async (req, res) => {
   const circle = (await db.prepare(`SELECT id, name, status FROM circles WHERE slug = ? OR id = ?`).get(req.params.id, req.params.id)) as { id: string; name: string; status: string } | undefined;
@@ -686,22 +1057,70 @@ circlesRouter.post("/:id/plan-ideas", requireResident, async (req, res) => {
   if (circle.status === "closed") return res.status(409).json({ error: "This Circle is closed — new plans can't be started" });
   if (!(await isMember(circle.id, req.resident!.id))) return res.status(403).json({ error: "Only circle members can propose a plan" });
 
-  const { title, note, proposedDate, proposedTime, locationText } = req.body as {
+  const { title: rawTitle, note, proposedDate: rawDate, proposedTime: rawTime, locationText, targetSize: rawTarget, sourcePulseKey: rawPulseKey, listing: rawListing } = req.body as {
     title?: string;
     note?: string;
     proposedDate?: string;
     proposedTime?: string;
     locationText?: string;
+    targetSize?: unknown;
+    sourcePulseKey?: unknown;
+    listing?: unknown;
   };
+  // Circles 3.0 — a suggestion can be about a real listing. The proposer
+  // must be able to see it; a private activity can only be suggested in its
+  // own Circle; the same listing (and date) can't be suggested twice while
+  // an earlier suggestion is still open — that one is returned instead.
+  const ref = cleanListingRef(rawListing);
+  if (ref && "error" in ref) return res.status(400).json({ error: ref.error });
+  let title = rawTitle;
+  let proposedDate = rawDate;
+  let proposedTime = rawTime;
+  if (ref) {
+    const checked = await checkListingSuggestion(circle.id, req.resident!.id, ref);
+    if ("error" in checked) return res.status(checked.status).json({ error: checked.error, ...(checked.planId ? { planId: checked.planId } : {}) });
+    const listing = checked.listing;
+    ref.id = listing.id;
+    if (!title || !title.trim()) title = listing.title;
+    if (!proposedDate && listing.date && (ref.sessionId || listing.type === "game")) proposedDate = listing.date;
+    if (!proposedTime && listing.time && (ref.sessionId || listing.type === "game")) proposedTime = listing.time;
+  }
   if (!title || !title.trim()) return res.status(400).json({ error: "What should the Circle do? is required" });
+  if (title.trim().length > 255) return res.status(400).json({ error: "Keep the plan title under 255 characters" });
+  if (proposedDate && !/^\d{4}-\d{2}-\d{2}$/.test(proposedDate)) return res.status(400).json({ error: "Choose a valid date" });
+  if (proposedDate && proposedDate < irelandTodayIso()) return res.status(400).json({ error: "Choose a date that hasn't passed" });
+
+  // Circle Experience 2.0, Make It Happen — group size, where it came from,
+  // and how long it gathers interest. Ignored while the feature is off, so
+  // the stored row is exactly what it used to be.
+  const mih = await circleFeatureOn("circles.make_it_happen");
+  const targetSize = mih ? cleanTargetSize(rawTarget) : null;
+  if (targetSize && typeof targetSize === "object") return res.status(400).json({ error: targetSize.error });
+  const sourcePulseKey = mih && typeof rawPulseKey === "string" && /^\d{4}-\d{2}-\d{2}\|.{2,80}$/.test(rawPulseKey) ? rawPulseKey : null;
+  const expiresAt = mih ? planIdeaExpiry(proposedDate) : null;
 
   const id = crypto.randomUUID();
-  await db
-    .prepare(
-      `INSERT INTO circle_plans (id, circle_id, created_by_resident_id, title, note, proposed_date, proposed_time, location_text)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-    )
-    .run(id, circle.id, req.resident!.id, title.trim(), note ?? "", proposedDate ?? "", proposedTime ?? "", locationText ?? "");
+  // The duplicate check is repeated under a lock on the Circle row, so two
+  // members suggesting the same listing at once still make one plan.
+  const dupId = await db.transaction(async (tx) => {
+    if (ref) {
+      await tx.prepare(`SELECT id FROM circles WHERE id = ? FOR UPDATE`).get(circle.id);
+      const again = (await tx
+        .prepare(`SELECT id FROM circle_plans WHERE circle_id = ? AND listing_type = ? AND listing_id = ? AND COALESCE(listing_session_id, '') = ? AND status IN ('idea', 'confirmed') AND (expires_at IS NULL OR expires_at > NOW()) LIMIT 1`)
+        .get(circle.id, ref.type, ref.id, ref.sessionId ?? "")) as { id: string } | undefined;
+      if (again) return again.id;
+    }
+    await tx
+      .prepare(
+        `INSERT INTO circle_plans (id, circle_id, created_by_resident_id, title, note, proposed_date, proposed_time, location_text, target_size, expires_at, source_pulse_key, listing_type, listing_id, listing_session_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(id, circle.id, req.resident!.id, title!.trim(), note ?? "", proposedDate ?? "", proposedTime ?? "", locationText ?? "", targetSize, expiresAt, sourcePulseKey, ref?.type ?? null, ref?.id ?? null, ref?.sessionId ?? null);
+    return null;
+  });
+  if (dupId) return res.status(409).json({ error: "This is already suggested in the Circle", planId: dupId });
+  // Whoever suggests it is the first person in.
+  if (mih) await db.prepare(`INSERT IGNORE INTO circle_plan_interest (plan_id, resident_id) VALUES (?, ?)`).run(id, req.resident!.id);
 
   const proposer = (await db.prepare(`SELECT name FROM residents WHERE id = ?`).get(req.resident!.id)) as { name: string } | undefined;
   const members = (await db.prepare(`SELECT resident_id FROM circle_members WHERE circle_id = ? AND resident_id != ?`).all(circle.id, req.resident!.id)) as { resident_id: string }[];
@@ -718,7 +1137,7 @@ circlesRouter.post("/:id/plan-ideas", requireResident, async (req, res) => {
   }
 
   const row = (await db.prepare(`SELECT * FROM circle_plans WHERE id = ?`).get(id)) as CirclePlanRow;
-  res.status(201).json(await toCirclePlanJson(row));
+  res.status(201).json(await toCirclePlanJson(row, req.resident!.id));
 });
 
 circlesRouter.get("/:id/plan-ideas/:planId", async (req, res) => {
@@ -727,9 +1146,9 @@ circlesRouter.get("/:id/plan-ideas/:planId", async (req, res) => {
   if (!(await canViewCircleFull(circle.id, circle.join_mode, req.resident?.id ?? null))) {
     return res.status(403).json({ error: "Only circle members can view this" });
   }
-  const row = (await db.prepare(`SELECT * FROM circle_plans WHERE id = ? AND circle_id = ?`).get(req.params.planId, circle.id)) as CirclePlanRow | undefined;
+  const row = (await db.prepare(`SELECT * FROM circle_plans WHERE id = ? AND (circle_id = ? OR partner_circle_id = ?)`).get(req.params.planId, circle.id, circle.id)) as CirclePlanRow | undefined;
   if (!row) return res.status(404).json({ error: "Plan not found" });
-  res.json(await toCirclePlanJson(row));
+  res.json(forViewingCircle(await toCirclePlanJson(row, req.resident?.id ?? null), row, circle.id));
 });
 
 circlesRouter.patch("/:id/plan-ideas/:planId", requireResident, async (req, res) => {
@@ -746,22 +1165,34 @@ circlesRouter.patch("/:id/plan-ideas/:planId", requireResident, async (req, res)
     return res.status(403).json({ error: "You can't edit this plan" });
   }
 
-  const { title, note, proposedDate, proposedTime, locationText } = req.body as {
+  const { title, note, proposedDate, proposedTime, locationText, targetSize: rawTarget } = req.body as {
     title?: string;
     note?: string;
     proposedDate?: string;
     proposedTime?: string;
     locationText?: string;
+    targetSize?: unknown;
   };
+  if (title !== undefined && !title.trim()) return res.status(400).json({ error: "What should the Circle do? is required" });
+  if (proposedDate && !/^\d{4}-\d{2}-\d{2}$/.test(proposedDate)) return res.status(400).json({ error: "Choose a valid date" });
   await db
     .prepare(
       `UPDATE circle_plans SET title = COALESCE(?, title), note = COALESCE(?, note), proposed_date = COALESCE(?, proposed_date),
        proposed_time = COALESCE(?, proposed_time), location_text = COALESCE(?, location_text) WHERE id = ?`
     )
     .run(title?.trim(), note, proposedDate, proposedTime, locationText, plan.id);
+  if (await circleFeatureOn("circles.make_it_happen")) {
+    if (rawTarget !== undefined) {
+      const t = cleanTargetSize(rawTarget);
+      if (t && typeof t === "object") return res.status(400).json({ error: t.error });
+      await db.prepare(`UPDATE circle_plans SET target_size = ? WHERE id = ?`).run(t, plan.id);
+    }
+    // A new date moves the end of interest-gathering with it.
+    if (proposedDate !== undefined) await db.prepare(`UPDATE circle_plans SET expires_at = ? WHERE id = ?`).run(planIdeaExpiry(proposedDate), plan.id);
+  }
 
   const updated = (await db.prepare(`SELECT * FROM circle_plans WHERE id = ?`).get(plan.id)) as CirclePlanRow;
-  res.json(await toCirclePlanJson(updated));
+  res.json(await toCirclePlanJson(updated, req.resident!.id));
 });
 
 circlesRouter.post("/:id/plan-ideas/:planId/confirm", requireResident, async (req, res) => {
@@ -772,7 +1203,10 @@ circlesRouter.post("/:id/plan-ideas/:planId/confirm", requireResident, async (re
   if (!plan) return res.status(404).json({ error: "Plan not found" });
   if (plan.status !== "idea") return res.status(409).json({ error: "Only an idea can be confirmed" });
 
-  await db.prepare(`UPDATE circle_plans SET status = 'confirmed', confirmed_at = NOW() WHERE id = ?`).run(req.params.planId);
+  // Conditional, so two organisers confirming at once can't both notify.
+  const confirmed = await db.prepare(`UPDATE circle_plans SET status = 'confirmed', confirmed_at = NOW() WHERE id = ? AND status = 'idea'`).run(req.params.planId);
+  if (confirmed.changes !== 1) return res.status(409).json({ error: "Only an idea can be confirmed" });
+  await writeAudit({ actorUserId: req.resident!.id, actorKind: "resident", action: "circle.plan_confirmed", objectType: "circle", objectId: circle.id, newValue: { planId: req.params.planId } });
 
   const members = (await db.prepare(`SELECT resident_id FROM circle_members WHERE circle_id = ?`).all(circle.id)) as { resident_id: string }[];
   for (const m of members) {
@@ -788,7 +1222,7 @@ circlesRouter.post("/:id/plan-ideas/:planId/confirm", requireResident, async (re
   }
 
   const updated = (await db.prepare(`SELECT * FROM circle_plans WHERE id = ?`).get(req.params.planId)) as CirclePlanRow;
-  res.json(await toCirclePlanJson(updated));
+  res.json(await toCirclePlanJson(updated, req.resident!.id));
 });
 
 circlesRouter.post("/:id/plan-ideas/:planId/cancel", requireResident, async (req, res) => {
@@ -807,7 +1241,16 @@ circlesRouter.post("/:id/plan-ideas/:planId/cancel", requireResident, async (req
     return res.status(403).json({ error: "You can't cancel this plan" });
   }
 
-  await db.prepare(`UPDATE circle_plans SET status = 'cancelled', cancelled_at = NOW() WHERE id = ?`).run(req.params.planId);
+  // Circle Experience 2.0 — an organiser declining a suggestion can say why
+  // (optional, shown to members). Conditional on the status read above.
+  const reason = typeof req.body?.reason === "string" ? req.body.reason.trim().slice(0, 500) : "";
+  const cancelled = await db
+    .prepare(`UPDATE circle_plans SET status = 'cancelled', cancelled_at = NOW(), decline_reason = ? WHERE id = ? AND status IN ('idea', 'confirmed')`)
+    .run(reason || null, req.params.planId);
+  if (cancelled.changes !== 1) return res.status(409).json({ error: "This plan can no longer be cancelled here — cancel the activity instead" });
+  if (organiser && !isCreator) {
+    await writeAudit({ actorUserId: req.resident!.id, actorKind: "resident", action: "circle.plan_declined", objectType: "circle", objectId: circle.id, newValue: { planId: req.params.planId }, reason: reason || undefined });
+  }
 
   const members = (await db.prepare(`SELECT resident_id FROM circle_members WHERE circle_id = ? AND resident_id != ?`).all(circle.id, req.resident!.id)) as { resident_id: string }[];
   for (const m of members) {
@@ -815,7 +1258,7 @@ circlesRouter.post("/:id/plan-ideas/:planId/cancel", requireResident, async (req
       residentId: m.resident_id,
       kind: "circle",
       title: `${plan.title} was cancelled`,
-      body: `This plan won't be happening.`,
+      body: reason ? `This plan won't be happening: ${reason}` : `This plan won't be happening.`,
       listingType: "circle",
       listingId: circle.id,
       ref: req.params.planId,
@@ -954,12 +1397,16 @@ interface CreateCircleInput {
   whoCanJoin?: string;
   values?: string;
   joinMode?: JoinMode;
+  /** Circle Experience 4.0 — "people often come on their own"; omitted = not said. */
+  soloWelcome?: boolean;
 }
 
 circlesRouter.post("/", requireResident, async (req, res) => {
   const b = req.body as CreateCircleInput;
   if (!b.name) return res.status(400).json({ error: "A name is required" });
   if (b.joinMode && !JOIN_MODES.includes(b.joinMode)) return res.status(400).json({ error: "Invalid joinMode" });
+  const category = await categoryFromBody(res, "circle", null, req.body);
+  if (category === false) return;
   const id = crypto.randomUUID();
   const slug = await generateSlug("circles", b.name);
   await db.transaction(async (tx) => {
@@ -985,7 +1432,10 @@ circlesRouter.post("/", requireResident, async (req, res) => {
       });
     await tx.prepare(`INSERT INTO circle_members (circle_id, resident_id, role) VALUES (?, ?, 'organiser')`).run(id, req.resident!.id);
   });
-  void logEvent("circle_created", { residentId: req.resident!.id, metadata: { circleId: id, activityLabel: b.activityLabel ?? "", county: b.county ?? "" } });
+  await applyListingCategory("circle", id, category, "host");
+  if (typeof b.soloWelcome === "boolean") await db.prepare(`UPDATE circles SET solo_welcome = ? WHERE id = ?`).run(b.soloWelcome ? 1 : 0, id);
+  await setListingTags("circle", id, (req.body as { tags?: unknown }).tags);
+  void logEvent("circle_created", { residentId: req.resident!.id, metadata: { circleId: id, activityLabel: b.activityLabel ?? "", county: b.county ?? "", categoryId: category ? category.categoryId : null, subcategoryId: category ? category.subcategoryId : null } });
   res.status(201).json({ id, slug });
 });
 
@@ -1004,6 +1454,8 @@ circlesRouter.post("/:id/join", requireResident, async (req, res) => {
   // so an outstanding invite can't be used to join a Circle that's since
   // closed either.
   if (circle.status === "closed") return res.status(409).json({ error: "This Circle is closed and isn't accepting new members" });
+  // D5 — removed by an organiser: no way back in until an organiser lifts it.
+  if (await isRestricted(req.params.id, req.resident!.id)) return res.status(403).json({ error: "You can't join this Circle", restricted: true });
 
   const existingInvite = (await db
     .prepare(`SELECT initiated_by as initiatedBy, status FROM circle_invites WHERE circle_id = ? AND resident_id = ?`)
@@ -1096,6 +1548,9 @@ circlesRouter.delete("/:id/join", requireResident, async (req, res) => {
     }
   }
   await db.prepare(`DELETE FROM circle_members WHERE circle_id = ? AND resident_id = ?`).run(req.params.id, req.resident!.id);
+  // Circle Experience 2.0 — leaving takes your Pulse, shared free time and
+  // "I'm in"s with you (memories you added stay until you remove them).
+  await clearCircleParticipation(req.params.id, req.resident!.id);
   // Withdraws a still-pending request too, so re-requesting later starts
   // fresh rather than tripping the uniq_circle_invite key on a stale row.
   await db.prepare(`DELETE FROM circle_invites WHERE circle_id = ? AND resident_id = ? AND status = 'pending' AND initiated_by = 'resident'`).run(req.params.id, req.resident!.id);
@@ -1103,13 +1558,24 @@ circlesRouter.delete("/:id/join", requireResident, async (req, res) => {
 });
 
 circlesRouter.get("/:id/membership", requireResident, async (req, res) => {
-  const [row, pendingRequest] = await Promise.all([
-    db.prepare(`SELECT role FROM circle_members WHERE circle_id = ? AND resident_id = ?`).get(req.params.id, req.resident!.id) as Promise<{ role: string } | undefined>,
+  const [row, pendingRequest, restricted] = await Promise.all([
+    db.prepare(`SELECT role, welcomed_at as welcomedAt FROM circle_members WHERE circle_id = ? AND resident_id = ?`).get(req.params.id, req.resident!.id) as Promise<{ role: string; welcomedAt: string | null } | undefined>,
     db
       .prepare(`SELECT 1 FROM circle_invites WHERE circle_id = ? AND resident_id = ? AND status = 'pending' AND initiated_by = 'resident'`)
       .get(req.params.id, req.resident!.id),
+    isRestricted(req.params.id, req.resident!.id),
   ]);
-  res.json({ member: !!row, role: row?.role ?? null, requested: !!pendingRequest });
+  // Circle Experience 2.0 — welcomed (the welcome step was seen) and whether
+  // they've ever taken part in one of this Circle's activities, from real
+  // participation history only (null when not a member).
+  let firstCircleActivity: boolean | null = null;
+  if (row) {
+    const done = await db
+      .prepare(`SELECT 1 FROM game_participants gp JOIN games g ON g.id = gp.game_id WHERE g.circle_id = ? AND gp.resident_id = ? AND gp.status = 'joined' AND g.date < ? AND g.status != 'cancelled' LIMIT 1`)
+      .get(req.params.id, req.resident!.id, irelandTodayIso());
+    firstCircleActivity = !done;
+  }
+  res.json({ member: !!row, role: row?.role ?? null, requested: !!pendingRequest, restricted, welcomed: row ? !!row.welcomedAt : null, firstCircleActivity });
 });
 
 // Organiser's pending join-requests inbox — resident-initiated
@@ -1190,7 +1656,11 @@ circlesRouter.put("/:id/status", requireResident, async (req, res) => {
   const { status } = req.body as { status?: string };
   if (status !== "closed" && status !== "active") return res.status(400).json({ error: "status must be active or closed" });
   if (!(await isOrganiser(req.params.id, req.resident!.id))) return res.status(403).json({ error: "Only the organiser can change this" });
-  await db.prepare(`UPDATE circles SET status = ? WHERE id = ?`).run(status, req.params.id);
+  const current = (await db.prepare(`SELECT status, closed_by as closedBy FROM circles WHERE id = ?`).get(req.params.id)) as { status: string; closedBy: string | null } | undefined;
+  if (status === "active" && current?.status === "closed" && current.closedBy === "helloCircle") {
+    return res.status(403).json({ error: "HelloCircle closed this Circle after a review. Contact us if you think that's wrong." });
+  }
+  await db.prepare(`UPDATE circles SET status = ?, closed_by = ? WHERE id = ?`).run(status, status === "closed" ? "organiser" : null, req.params.id);
 
   if (status === "closed") {
     const circle = (await db.prepare(`SELECT name FROM circles WHERE id = ?`).get(req.params.id)) as { name: string } | undefined;
@@ -1231,6 +1701,8 @@ interface UpdateCircleInput {
   joinMode?: JoinMode;
   /** Booking UX Phase 5 — omitted leaves the questions untouched; [] clears them. */
   joinQuestions?: string[];
+  /** Circle Experience 4.0 — omitted leaves it; null clears it. */
+  soloWelcome?: boolean | null;
 }
 
 circlesRouter.put("/:id", requireResident, async (req, res) => {
@@ -1238,6 +1710,8 @@ circlesRouter.put("/:id", requireResident, async (req, res) => {
   if (!b.name) return res.status(400).json({ error: "A name is required" });
   if (b.joinMode && !JOIN_MODES.includes(b.joinMode)) return res.status(400).json({ error: "Invalid joinMode" });
   if (!(await isOrganiser(req.params.id, req.resident!.id))) return res.status(403).json({ error: "Only the organiser can edit this Circle" });
+  const category = await categoryFromBody(res, "circle", req.params.id, req.body);
+  if (category === false) return;
   const questions = b.joinQuestions === undefined ? undefined : cleanJoinQuestions(b.joinQuestions);
   if (questions && "error" in questions) return res.status(400).json({ error: questions.error });
 
@@ -1268,9 +1742,12 @@ circlesRouter.put("/:id", requireResident, async (req, res) => {
       req.params.id
     );
   if (questions) await db.prepare(`UPDATE circles SET join_questions = ? WHERE id = ?`).run(questions.length ? JSON.stringify(questions) : null, req.params.id);
+  if (b.soloWelcome !== undefined) await db.prepare(`UPDATE circles SET solo_welcome = ? WHERE id = ?`).run(b.soloWelcome === null ? null : b.soloWelcome ? 1 : 0, req.params.id);
+  await applyListingCategory("circle", req.params.id, category, "host");
+  await setListingTags("circle", req.params.id, (req.body as { tags?: unknown }).tags);
 
   const row = (await db.prepare(`SELECT * FROM circles WHERE id = ?`).get(req.params.id)) as CircleRow;
-  res.json(await toCircleJson(row, req.resident!.id));
+  res.json({ ...(await toCircleJson(row, req.resident!.id)), ...(await taxonomyFields("circle", row.id)) });
 });
 
 // HelloCircle Manage Phase 4 — organiser removes a non-organiser member.
@@ -1281,10 +1758,21 @@ circlesRouter.put("/:id", requireResident, async (req, res) => {
 circlesRouter.post("/:id/members/:residentId/remove", requireResident, async (req, res) => {
   if (!(await isOrganiser(req.params.id, req.resident!.id))) return res.status(403).json({ error: "Only the organiser can remove a member" });
 
-  const info = await db
-    .prepare(`DELETE FROM circle_members WHERE circle_id = ? AND resident_id = ? AND role = 'member'`)
-    .run(req.params.id, req.params.residentId);
-  if (info.changes === 0) return res.status(404).json({ error: "That resident isn't a member of this Circle" });
+  const reason = typeof req.body?.reason === "string" ? req.body.reason.trim().slice(0, 500) : "";
+  const removed = await db.transaction(async (tx) => {
+    const info = await tx.prepare(`DELETE FROM circle_members WHERE circle_id = ? AND resident_id = ? AND role = 'member'`).run(req.params.id, req.params.residentId);
+    if (info.changes === 0) return false;
+    // D5 — removal also stops them rejoining or requesting again until an
+    // organiser lifts it, and withdraws anything still pending for them.
+    await tx
+      .prepare(`INSERT INTO circle_restrictions (circle_id, resident_id, restricted_by, reason) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE restricted_by = VALUES(restricted_by), reason = VALUES(reason), created_at = NOW()`)
+      .run(req.params.id, req.params.residentId, req.resident!.id, reason || null);
+    await tx.prepare(`UPDATE circle_invites SET status = 'revoked' WHERE circle_id = ? AND resident_id = ? AND status = 'pending'`).run(req.params.id, req.params.residentId);
+    return true;
+  });
+  if (!removed) return res.status(404).json({ error: "That resident isn't a member of this Circle" });
+  await clearCircleParticipation(req.params.id, req.params.residentId);
+  await writeAudit({ actorUserId: req.resident!.id, actorKind: "resident", action: "circle.member_removed", objectType: "circle", objectId: req.params.id, newValue: { residentId: req.params.residentId, restricted: true }, reason: reason || undefined });
 
   const circle = (await db.prepare(`SELECT name FROM circles WHERE id = ?`).get(req.params.id)) as { name: string } | undefined;
   await notifyResident({
@@ -1403,6 +1891,7 @@ circlesRouter.post("/:id/invite", requireResident, async (req, res) => {
   if (!invitee) return res.status(404).json({ error: "We couldn't find that person" });
   const alreadyMember = await db.prepare(`SELECT 1 FROM circle_members WHERE circle_id = ? AND resident_id = ?`).get(req.params.id, residentId);
   if (alreadyMember) return res.status(409).json({ error: "Already a member" });
+  if (await isRestricted(req.params.id, residentId)) return res.status(409).json({ error: "This person was removed from the Circle. Lift that in Members before inviting them again." });
   const id = crypto.randomUUID();
   await db
     .prepare(
@@ -1449,6 +1938,7 @@ circlesRouter.post("/invitations/:id/respond", requireResident, async (req, res)
   if (accept && circle?.status === "closed") {
     return res.status(409).json({ error: "This Circle is closed and isn't accepting new members" });
   }
+  if (accept && (await isRestricted(invite.circleId, req.resident!.id))) return res.status(403).json({ error: "You can't join this Circle", restricted: true });
 
   // Phase 11B — conditional transition so a concurrent revoke (or a second
   // response) can't be overwritten; only the winner adds membership/notifies.
@@ -1521,6 +2011,8 @@ interface ShareToCircleBody {
   entityType?: string;
   entityId?: string;
   message?: string;
+  /** Circles 3.0 — also add it to the Circle's plans (opt-in). */
+  addAsPlan?: boolean;
 }
 
 circlesRouter.post("/:id/share", requireResident, async (req, res) => {
@@ -1554,7 +2046,20 @@ circlesRouter.post("/:id/share", requireResident, async (req, res) => {
   );
 
   void logEvent("share_to_circle", { residentId: req.resident!.id, metadata: { circleId: req.params.id, entityType, entityId: b.entityId } });
-  res.status(201).json({ ok: true, notified: members.length });
+
+  // Circles 3.0 — "Also add it to the Circle's plans" (opt-in). Goes through
+  // the same suggestion rules as the Plans tab (visibility, private-activity
+  // and duplicate checks); an existing open suggestion is reused, not doubled.
+  let planId: string | null = null;
+  if (b.addAsPlan) {
+    const listingType = entityType === "adventure" ? "experience" : entityType;
+    const ref = cleanListingRef({ type: listingType, id: b.entityId });
+    if (ref && !("error" in ref)) {
+      const created = await createListingPlan(req.params.id, req.resident!.id, ref, b.message ?? "");
+      planId = created.planId;
+    }
+  }
+  res.status(201).json({ ok: true, notified: members.length, planId });
 });
 
 // --- Circle planning / availability poll (IA spec §10) ---------------------

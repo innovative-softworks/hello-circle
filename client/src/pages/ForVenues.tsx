@@ -4,6 +4,7 @@ import { useAuth } from "../AuthContext";
 import { ChooseYourPathSection } from "../components/forVenues/ChooseYourPathSection";
 import { ComingSoonBanner } from "../components/forVenues/ComingSoonBanner";
 import { ComingSoonSection } from "../components/forVenues/ComingSoonSection";
+import { LAUNCH_GATE_ENABLED } from "../launchMode";
 import { FoundingVenueSection } from "../components/forVenues/FoundingVenueSection";
 import { ProviderTypeGrid } from "../components/forVenues/ProviderTypeGrid";
 import { VendorBenefitStrip } from "../components/forVenues/VendorBenefitStrip";
@@ -45,9 +46,11 @@ export function ForVenues() {
 
   return (
     <div className="fade-panel" ref={revealRef}>
-      <ComingSoonBanner />
+      {/* PUB-10 — the "launches soon" waitlist moments only while the site is
+          still behind the launch gate; once public, the page is the partner pitch. */}
+      {LAUNCH_GATE_ENABLED && <ComingSoonBanner />}
       <VendorHero onPrimaryCta={() => goToCta("hero")} onBecomeHostCta={() => goToBecomeHost("hero")} />
-      <ComingSoonSection />
+      {LAUNCH_GATE_ENABLED && <ComingSoonSection />}
       <VendorBenefitStrip />
       <ProviderTypeGrid onLearnMore={() => goToCta("provider_types")} />
       <ChooseYourPathSection onListVenueCta={() => goToCta("choose_your_path")} onBecomeHostCta={() => goToBecomeHost("choose_your_path")} />

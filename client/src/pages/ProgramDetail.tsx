@@ -1,33 +1,46 @@
+import { Euro } from "lucide-react";
+import { Pass, passDate, passTime } from "../components/pass/Pass";
+import { PlanWithCircle } from "../components/circle/PlanWithCircle";
+import { ExploreWithOthers } from "../components/circle/ExploreWithOthers";
+import { UsersRound } from "lucide-react";
+import { BookingActions, BookingFacts, BookingGlance, BookingPrice, directionsHref, IconAction, QuietAction, startsIn, type GlanceItem } from "../components/BookingFacts";
+import { CategoryBreadcrumb } from "../components/categories/CategoryChips";
 import { UnavailableListing, isUnavailable, type Unavailable } from "../components/UnavailableListing";
 import { usePageTitle } from "../pageTitle";
 import { PAID_CLOSED_MESSAGE, usePaidCheckoutOpen } from "../paidCheckout";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { ApiError, enrollInProgram, fetchHousehold, fetchProgram, fetchProgramBrowse, quoteProgram, type PriceQuote } from "../api";
+import { ApiError, enrollInProgram, isNotFound, fetchHousehold, fetchProgram, fetchProgramBrowse, quoteProgram, type PriceQuote } from "../api";
 import { BookingSurface, CheckoutSummary, CouponField, CouponRejectedError, couponErrorCopy, couponReasonFromCode } from "../components/booking";
 import { openCheckout } from "../native";
 import { ListingChatButton } from "../components/ListingChats";
-import { BackLink } from "../components/BackLink";
 import { BrowseCard } from "../components/BrowseLayout";
-import { AwardIcon, CalendarIcon, CheckIcon, ClockIcon, GridIcon, PinIcon, UsersIcon } from "../components/icons";
+import { AwardIcon, CalendarIcon, CheckIcon, ClockIcon, GraduationCapIcon, ShieldIcon, GridIcon, PersonIcon, PinIcon, ShareIcon, UsersIcon } from "../components/icons";
 import { IntentCaptureForm } from "../components/IntentCaptureForm";
 import { InviteSheetButton } from "../components/InviteSheetButton";
+import { ShareButton } from "../components/ShareButton";
 import { OfficialCircleLink } from "../components/OfficialCircleLink";
 import { ParticipationBlock } from "../components/ParticipationBlock";
 import { Photo } from "../components/Photo";
+import { PhotoGallery } from "../components/PhotoGallery";
 import { Reviews } from "../components/Reviews";
-import { ShareButton } from "../components/ShareButton";
-import { SinglePinMap } from "../components/SinglePinMap";
 import { Button, Card, Modal, PageSpinner, inputStyle, labelStyle } from "../components/ui";
 import { useGuest } from "../GuestContext";
 import { dateLabel } from "../euro";
 import { formatPrice } from "../formatters";
 import { programToBrowseItem } from "./Programs";
-import { cardImageRatio, colors, fonts, photoOverlay, radius } from "../theme";
+import { cardImageRatio, colors, fonts, maxWidth, photoOverlay, radius } from "../theme";
 import { isValidEmail } from "../validate";
 import type { HouseholdMember, Program, ProgramSession, ProgramSummary } from "../types";
 import { irelandToday } from "../irelandDate";
 import { CtaBand } from "../components/CtaBand";
+import { VENUE_PAGES_PUBLIC } from "../venueLaunch";
+import { DetailSection, HostRow, LocationBlock, ScheduleList } from "../components/detail/DetailSections";
+import { KeyFacts, PAID_PRICE_NOTE, Requirements } from "../components/detail/KeyFacts";
+import { FieldError, FormErrorSummary, useFormErrors, type FormError } from "../components/form";
+import { DetailTopBar, detailActionStyle } from "../components/detail/DetailTopBar";
+import { DetailUnavailable } from "../components/detail/DetailUnavailable";
+import { scrollToInterest } from "../components/detail/scrollToInterest";
 
 // Resident-facing Program detail — the "8-week course, one sign-up"
 // counterpart to Experience detail, laid out the same way (ExperienceDetail
@@ -39,21 +52,9 @@ import { CtaBand } from "../components/CtaBand";
 // the enrol form (in a popup, like the experience booking form) has no
 // session picker.
 
-const outlineButtonStyle: React.CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  gap: 6,
-  background: colors.surface,
-  border: `1px solid ${colors.borderStrong}`,
-  borderRadius: radius.control,
-  padding: "9px 16px",
-  fontSize: 13.5,
-  fontWeight: 600,
-  color: colors.text,
-  cursor: "pointer",
-};
-const factLabelStyle: React.CSSProperties = { fontSize: 11.5, color: colors.mutedLight, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0 };
 const sectionDividerStyle: React.CSSProperties = { height: 1, background: colors.border, margin: "28px 0" };
+
+const factLabelStyle: React.CSSProperties = { fontSize: 11.5, color: colors.mutedLight, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0 };
 
 function SectionHeading({ title }: { title: string }) {
   return <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 18, margin: "0 0 14px" }}>{title}</h2>;
@@ -91,6 +92,8 @@ export function ProgramDetail() {
   const [form, setForm] = useState({ participantName: "", participantDob: "", email: resident?.email ?? "", phone: "" });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // DP-41 — the site's form-error pattern (per-field messages + linked summary).
+  const fe = useFormErrors();
   // Booking UX Phase 4 (UX plan S4) — reuse household members, and record the
   // booking terms acknowledgement with the enrolment.
   const [household, setHousehold] = useState<HouseholdMember[]>([]);
@@ -148,9 +151,15 @@ export function ProgramDetail() {
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
   const [showPast, setShowPast] = useState(false);
 
+  // PUB-14: a failed load (network/5xx) is retryable; only a 404 means the
+  // programme isn't available.
+  const [loadError, setLoadError] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
+
   useEffect(() => {
     if (!id) return;
     setLoading(true);
+    setLoadError(false);
     fetchProgram(id)
       .then((p) => {
         if (isUnavailable(p)) return setUnavailable(p);
@@ -161,9 +170,12 @@ export function ProgramDetail() {
           .then((rows) => setSimilar(rows.filter((r) => r.id !== p.id).slice(0, 8)))
           .catch(() => setSimilar([]));
       })
-      .catch(() => setProgram(null))
+      .catch((e) => {
+        setProgram(null);
+        if (!isNotFound(e)) setLoadError(true);
+      })
       .finally(() => setLoading(false));
-  }, [id]);
+  }, [id, reloadKey]);
 
   useEffect(() => {
     if (resident?.email) setForm((f) => ({ ...f, email: resident.email }));
@@ -174,11 +186,17 @@ export function ProgramDetail() {
   const past = useMemo<ProgramSession[]>(() => (program?.sessions ?? []).filter((s) => s.date < today), [program, today]);
 
   const submit = async () => {
-    if (!id || !form.participantName || !isValidEmail(form.email)) {
-      setError("A participant name and a valid email are required");
+    if (!id) return;
+    const problems: FormError[] = [];
+    if (!form.participantName.trim()) problems.push({ field: "name", fieldId: "prog-participant", message: "Enter the participant's name" });
+    if (!isValidEmail(form.email)) problems.push({ field: "email", fieldId: "prog-email", message: "Enter an email address like name@example.ie" });
+    if (!acceptedTerms) problems.push({ field: "terms", fieldId: "prog-terms", message: "Tick the box to agree to the booking terms" });
+    if (problems.length) {
+      setError(null);
+      fe.fail(problems);
       return;
     }
-    if (!acceptedTerms) return setError("Tick the box to agree to the booking terms");
+    fe.clear();
     setError(null);
     setSubmitting(true);
     try {
@@ -207,24 +225,46 @@ export function ProgramDetail() {
 
   if (loading) return <PageSpinner />;
   if (unavailable) return <UnavailableListing item={unavailable} />;
-  if (!program) {
+  if (loadError) {
     return (
       <section className="section-pad" style={{ maxWidth: 560, margin: "0 auto", padding: "80px 24px", textAlign: "center" }}>
-        <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(24px, 2.4vw, 30px)", margin: "0 0 10px" }}>This program isn't available.</h1>
-        <p style={{ color: colors.mutedLight, marginBottom: 20 }}>It may have finished or been taken down by the venue.</p>
-        <Button onClick={() => navigate("/programs")}>Browse programs</Button>
+        <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(24px, 2.4vw, 30px)", margin: "0 0 10px" }}>We couldn't load this programme.</h1>
+        <p style={{ color: colors.mutedLight, margin: "0 0 16px" }}>Check your connection and try again.</p>
+        <Button onClick={() => setReloadKey((k) => k + 1)}>Try again</Button>
       </section>
     );
   }
+  if (!program) return <DetailUnavailable noun="programme" listPath="/programs" listLabel="Browse programmes" />;
 
   if (confirmed) {
     return (
-      <section className="section-pad" style={{ maxWidth: 560, margin: "0 auto", padding: "64px 24px", textAlign: "center" }}>
-        <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: "clamp(32px, 3.8vw, 52px)", margin: "0 0 10px" }}>You're enrolled.</h1>
-        <p style={{ color: colors.mutedLight, marginBottom: 20 }}>
-          {program.title} · Reference {confirmed.ref}
-        </p>
-        <Button onClick={() => navigate("/bookings")}>View my bookings</Button>
+      <section className="section-pad" style={{ maxWidth: 560, margin: "0 auto", padding: "56px 24px 64px", display: "grid", gap: 20 }}>
+        <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: "clamp(32px, 3.8vw, 52px)", margin: 0, textAlign: "center" }}>You're enrolled.</h1>
+        {/* The pass, ticket look (owner 2026-10-27), with the run of sessions. */}
+        <Pass
+          look="ticket"
+          kind="programme"
+          tone="ok"
+          status="Enrolled"
+          title={program.title}
+          who={form.participantName.trim() || null}
+          date={upcoming[0] ? `Starts ${passDate(upcoming[0].date)}` : null}
+          time={upcoming[0] ? passTime(upcoming[0].time, upcoming[0].durationMinutes) : null}
+          where={[program.listingName, program.venueArea].filter(Boolean).join(", ")}
+          progress={{ done: 0, total: program.sessions.length }}
+          fields={[
+            ["Sessions", String(program.sessions.length)],
+            ["Paid", program.priceCents ? formatPrice(program.priceCents) : "Free"],
+          ]}
+          reference={confirmed.ref}
+        >
+          <BookingActions>
+            <InviteSheetButton entityType="program" entityId={program.id} title={program.title} render={(open) => <IconAction label="Invite someone" short="Invite" onClick={open}><UsersIcon size={18} /></IconAction>} />
+            <ShareButton entityType="program" entityId={program.id} render={(open) => <IconAction label="Share" onClick={open}><ShareIcon size={18} /></IconAction>} />
+            <IconAction label="Directions" href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${program.listingName}, ${program.venueArea ?? ""}, ${program.venueCounty ?? ""}`)}`}><PinIcon size={18} /></IconAction>
+          </BookingActions>
+        </Pass>
+        <Button full onClick={() => navigate("/bookings")}>View my bookings</Button>
       </section>
     );
   }
@@ -241,29 +281,25 @@ export function ProgramDetail() {
   const description = program.description || "";
   const descriptionIsLong = description.length > 320;
   const visibleDescription = descriptionExpanded || !descriptionIsLong ? description : `${description.slice(0, 320).trimEnd()}…`;
+  const similarPath = program.taxonomy ? `/programs?category=${program.taxonomy.categorySlug}${program.taxonomy.subcategorySlug ? `&sub=${program.taxonomy.subcategorySlug}` : ""}` : "/programs";
+  // At a glance (owner 2026-10-27): only what the venue filled in. "One
+  // sign-up, every session" moved in here from its own grey card.
+  const glance: GlanceItem[] = [];
+  if (program.sessions.length > 1) glance.push({ key: "sessions", icon: <CalendarIcon size={16} />, value: `${program.sessions.length} sessions`, sub: "one sign-up books them all" });
+  if (typicalDuration || program.skillLevel)
+    glance.push({
+      key: "length",
+      icon: typicalDuration ? <ClockIcon size={16} /> : <AwardIcon size={16} />,
+      value: typicalDuration ? `${formatDuration(typicalDuration)} each` : program.skillLevel,
+      sub: typicalDuration ? program.skillLevel || undefined : undefined,
+    });
+  if (program.ageRange) glance.push({ key: "age", icon: <PersonIcon size={16} />, value: `Ages ${program.ageRange}` });
+  if (program.equipment.length) glance.push({ key: "bring", icon: <ShieldIcon size={16} />, value: "Bring", sub: program.equipment.join(", ") });
   const directionsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${program.listingName}, ${program.venueArea ?? ""}, ${program.venueCounty ?? ""}`)}`;
 
   const joinHeadline = !upcoming.length ? "No dates yet" : full ? "Full" : program.spotsLeft === null ? "Spaces available" : program.spotsLeft === 1 ? "1 spot left" : `${program.spotsLeft} spots left`;
   const joinHeadlineColor = !upcoming.length || full ? colors.muted : program.spotsLeft !== null && program.spotsLeft <= 3 ? colors.orangeDark : colors.text;
 
-  const quickFacts = [
-    upcoming.length ? `${upcoming.length} session${upcoming.length === 1 ? "" : "s"}` : null,
-    typicalDuration ? `${formatDuration(typicalDuration)} each` : null,
-    program.ageRange ? `Ages ${program.ageRange}` : null,
-    program.skillLevel || null,
-  ].filter((v): v is string => !!v);
-
-  const detailFields: { label: string; value: string }[] = [
-    { label: "Starts", value: next ? `${dateLabel(next.date)} · ${next.time}` : "No upcoming dates" },
-    ...(last && last !== next ? [{ label: "Last session", value: dateLabel(last.date) }] : []),
-    { label: "Where", value: venueLine || program.listingName },
-    ...(program.ageRange ? [{ label: "Ages", value: program.ageRange }] : []),
-    ...(program.skillLevel ? [{ label: "Level", value: program.skillLevel }] : []),
-    ...(program.category ? [{ label: "Category", value: program.category }] : []),
-    ...(program.instructorName ? [{ label: "Instructor", value: program.instructorName }] : []),
-    ...(program.capacity !== null ? [{ label: "Group size", value: `Up to ${program.capacity}` }] : []),
-    { label: "Price", value: program.priceCents ? `${formatPrice(program.priceCents)} for the whole program` : "Free" },
-  ];
 
   // Enrol popup — context in the header, the form in the body, and the
   // price + button pinned in the footer so they never scroll away.
@@ -284,7 +320,7 @@ export function ProgramDetail() {
         </div>
       </div>
       <Button onClick={submit} disabled={submitting || programPaidClosed} style={{ flex: "none" }}>
-        {submitting ? "Please wait…" : program.priceCents ? "Continue to pay" : "Enroll"}
+        {submitting ? "Please wait…" : program.priceCents ? "Continue to pay" : "Enrol"}
       </Button>
     </div>
   );
@@ -296,6 +332,7 @@ export function ProgramDetail() {
           {PAID_CLOSED_MESSAGE}
         </p>
       )}
+      <FormErrorSummary errors={fe.errors} focusKey={fe.focusKey} />
       <div style={{ fontSize: 13.5, color: colors.muted, marginBottom: 16, background: colors.panel, borderRadius: radius.control, padding: "10px 12px" }}>
         One enrolment covers every session — you don't book them one by one.
       </div>
@@ -324,7 +361,8 @@ export function ProgramDetail() {
         )}
         <div>
           <label htmlFor="prog-participant" style={labelStyle}>Participant name</label>
-          <input id="prog-participant" autoComplete="name" value={form.participantName} onChange={(e) => setForm((f) => ({ ...f, participantName: e.target.value }))} style={inputStyle} />
+          <input {...fe.control("prog-participant")} autoComplete="name" value={form.participantName} onChange={(e) => { setForm((f) => ({ ...f, participantName: e.target.value })); fe.clearField("prog-participant"); }} style={inputStyle} />
+          <FieldError fieldId="prog-participant" message={fe.messageFor("prog-participant")} />
         </div>
         <div>
           <label htmlFor="prog-dob" style={labelStyle}>Participant date of birth (optional)</label>
@@ -332,7 +370,8 @@ export function ProgramDetail() {
         </div>
         <div>
           <label htmlFor="prog-email" style={labelStyle}>Email</label>
-          <input id="prog-email" type="email" autoComplete="email" inputMode="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} style={inputStyle} aria-describedby="prog-email-help" />
+          <input {...fe.control("prog-email", "prog-email-help")} type="email" autoComplete="email" inputMode="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} style={inputStyle} />
+          <FieldError fieldId="prog-email" message={fe.messageFor("prog-email")} />
           <div id="prog-email-help" style={{ fontSize: 12, color: colors.faint, marginTop: 4 }}>We'll send your confirmation here.</div>
         </div>
         <div>
@@ -355,11 +394,12 @@ export function ProgramDetail() {
           </BookingSurface>
         )}
         <label style={{ display: "flex", gap: 10, alignItems: "flex-start", fontSize: 14, lineHeight: 1.45, minHeight: 44, cursor: "pointer" }}>
-          <input type="checkbox" checked={acceptedTerms} onChange={(e) => setAcceptedTerms(e.target.checked)} style={{ width: 20, height: 20, margin: "1px 0 0", flex: "none" }} />
+          <input type="checkbox" id="prog-terms" aria-invalid={fe.messageFor("prog-terms") ? true : undefined} aria-describedby={fe.messageFor("prog-terms") ? "prog-terms-error" : undefined} checked={acceptedTerms} onChange={(e) => { setAcceptedTerms(e.target.checked); fe.clearField("prog-terms"); }} style={{ width: 20, height: 20, margin: "1px 0 0", flex: "none" }} />
           <span>
             I agree to the <Link to="/policies/customer-booking-terms" target="_blank">booking terms</Link>
           </span>
         </label>
+        <FieldError fieldId="prog-terms" message={fe.messageFor("prog-terms")} />
       </div>
       {error && (
         <p role="alert" style={{ color: colors.danger, fontSize: 13, margin: "12px 0 0" }}>
@@ -370,34 +410,34 @@ export function ProgramDetail() {
   );
 
   return (
-    <div className="experience-detail-mobile-pad" style={{ animation: "fadeUp .3s ease backwards" }}>
-      <section className="section-pad" style={{ maxWidth: 1280, margin: "0 auto", padding: "26px 24px 90px" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18, flexWrap: "wrap", gap: 12 }}>
-          <BackLink onClick={() => navigate("/programs")} marginBottom={0}>All programs</BackLink>
-          <div style={{ display: "flex", gap: 10 }}>
-            <ListingChatButton scopeType="program" listingId={program.id} style={outlineButtonStyle} refreshKey={program.enrolled} />
-            <ShareButton entityType="program" entityId={program.id} render={(onClick) => <button onClick={onClick} style={outlineButtonStyle}>Share</button>} />
-            <InviteSheetButton entityType="program" entityId={program.id} title={program.title} />
-          </div>
-        </div>
+    <div className="experience-detail-mobile-pad fade-panel">
+      <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "26px 24px 90px" }}>
+        <DetailTopBar
+            backTo="/programs"
+            backLabel="All programmes"
+            extra={<>
+              <ListingChatButton scopeType="program" listingId={program.id} style={detailActionStyle} refreshKey={program.enrolled} />
+              <InviteSheetButton entityType="program" entityId={program.id} title={program.title} />
+            </>}
+            share={{ entityType: "program", entityId: program.id }}
+            save={{ kind: "program", id: program.id }}
+            report={{ type: "program", id: program.id, what: "this programme" }}
+          />
 
-        <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 380px", gap: 32, alignItems: "start" }}>
-          {/* LEFT COLUMN */}
-          <div>
+        {/* Detail-page redesign: 70/30; on phones the booking column follows the head. */}
+        <div className="detail-grid">
+          <div className="detail-head">
             {/* HERO — same badge-overlaid Photo treatment as ExperienceDetail:
                 next session top-left, spots top-right. */}
-            <Photo
-              src={program.imageUrl || undefined}
+            {/* Batch 2 — the shared cover (same frame and slides on every detail page). */}
+            <PhotoGallery
+              images={[program.imageUrl]}
               alt={program.title}
               ph={tone === "green" ? colors.greenBg : colors.orangeBg}
               icon={<GridIcon size={40} />}
               iconColor={accent}
-              variant="hero"
-              eager
-              sharedHero
-              style={{ aspectRatio: cardImageRatio.hero, borderRadius: radius.card, marginBottom: 24 }}
-              contentStyle={{ padding: 16, display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}
-            >
+              style={{ marginBottom: 24 }}
+              overlay={<>
               {next ? (
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 6, background: photoOverlay.whiteBg, color: colors.text, borderRadius: radius.pill, padding: "6px 12px", fontSize: 13, fontWeight: 700 }}>
                   <CalendarIcon size={13} /> Starts {dateLabel(next.date)} · {next.time}
@@ -405,58 +445,63 @@ export function ProgramDetail() {
               ) : (
                 <span />
               )}
-              {upcoming.length > 0 && program.spotsLeft !== null && (
-                <span
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 6,
-                    borderRadius: radius.pill,
-                    padding: "6px 12px",
-                    fontSize: 13,
-                    fontWeight: 700,
-                    background: full ? photoOverlay.whiteBg : photoOverlay.goldBg,
-                    color: full ? colors.muted : photoOverlay.goldText,
-                  }}
-                >
-                  {full ? "Full" : `${program.spotsLeft} spot${program.spotsLeft === 1 ? "" : "s"} left`}
+              {/* Availability lives in the booking panel; the cover only flags "Full". */}
+              {upcoming.length > 0 && full && (
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 6, borderRadius: radius.pill, padding: "6px 12px", fontSize: 13, fontWeight: 700, background: photoOverlay.whiteBg, color: colors.muted }}>
+                  Full
                 </span>
               )}
-            </Photo>
+              </>}
+            />
 
+            <div style={{ marginBottom: 8 }}>
+              <CategoryBreadcrumb taxonomy={program.taxonomy} tags={program.tags} basePath="/programs" typeLabel="Programmes" />
+            </div>
             {/* Eyebrow + title + price row — same as ExperienceDetail/GameDetail. */}
             <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: 0, textTransform: "uppercase", color: colors.mutedLight, marginBottom: 6 }}>
-              Program{program.category ? ` · ${program.category}` : ""}
+              Programme{program.category ? ` · ${program.category}` : ""}
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16 }}>
               <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(32px, 3.8vw, 52px)", margin: 0, letterSpacing: 0 }}>{program.title}</h1>
-              <div style={{ flex: "none", textAlign: "right" }}>
-                {program.priceCents ? (
+
+            </div>
+            {/* When and where, once, under the title (owner 2026-10-27, booking
+                box option 2): the booking box no longer repeats them. */}
+            <div className="detail-when-where">
+              <span>
+                <CalendarIcon size={15} />
+                {next ? (
                   <>
-                    <div style={{ fontWeight: 800, fontSize: 22, color: colors.text }}>€{(program.priceCents / 100).toFixed(2)}</div>
-                    <div style={{ fontSize: 12, color: colors.mutedLight }}>whole program</div>
+                    <b>Starts {dateLabel(next.date)} · {next.time}</b>
+                    {upcoming.length > 1 ? <> · {upcoming.length} sessions{last ? ` until ${dateLabel(last.date)}` : ""}</> : null}
                   </>
                 ) : (
-                  <div style={{ fontWeight: 700, fontSize: 14, color: colors.greenText, background: colors.greenBg, borderRadius: radius.pill, padding: "4px 12px" }}>Free</div>
+                  <b>No upcoming sessions yet</b>
                 )}
-              </div>
+              </span>
+              {(program.listingName || venueLine) && <span>
+                <PinIcon size={15} />
+                <a href={venueHref} onClick={(e) => { e.preventDefault(); navigate(venueHref); }} style={{ fontWeight: 700 }}>
+                  {program.listingName || venueLine}
+                </a>
+                {[program.venueArea, program.venueCounty].filter(Boolean).length ? <>, {[program.venueArea, program.venueCounty].filter(Boolean).join(", ")}</> : null}
+                {" · "}
+                <a href={directionsHref([program.listingName, program.venueArea, program.venueCounty].filter(Boolean).join(", "), program.venueLat, program.venueLng)} target="_blank" rel="noreferrer">
+                  Directions
+                </a>
+              </span>}
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 5, color: colors.mutedLight, fontSize: 13.5, marginTop: 8 }}>
-              <PinIcon size={13} />
-              <button onClick={() => navigate(venueHref)} style={{ background: "none", border: "none", padding: 0, color: colors.mutedLight, fontSize: 13.5, cursor: "pointer", textDecoration: "underline" }}>
-                {venueLine || program.listingName}
-              </button>
-            </div>
-            {quickFacts.length > 0 && (
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, fontSize: 13.5, color: colors.muted, marginTop: 10 }}>
-                {quickFacts.map((item, i) => (
-                  <span key={item}>
-                    {i > 0 && <span style={{ margin: "0 8px 0 0", color: colors.faint }}>·</span>}
-                    {item}
-                  </span>
-                ))}
-              </div>
-            )}
+            {program.vendorName && <div style={{ color: colors.mutedLight, fontSize: 14, marginTop: 4 }}>Hosted by {program.vendorName}</div>}
+            <KeyFacts
+              facts={[
+                upcoming.length > 0 && { icon: <CalendarIcon size={17} />, value: `${upcoming.length} session${upcoming.length === 1 ? "" : "s"}`, label: last && last !== next ? `Until ${dateLabel(last.date)}` : "Sessions to go" },
+                !!typicalDuration && { icon: <ClockIcon size={17} />, value: formatDuration(typicalDuration), label: "Per session" },
+                !!program.ageRange && { icon: <PersonIcon size={17} />, value: program.ageRange, label: "Ages" },
+                !!program.skillLevel && { icon: <AwardIcon size={17} />, value: program.skillLevel, label: "Level" },
+                program.capacity !== null && { icon: <UsersIcon size={17} />, value: `Up to ${program.capacity}`, label: "Group size" },
+                !!program.instructorName && { icon: <GraduationCapIcon size={17} />, value: program.instructorName, label: "Instructor" },
+              ]}
+            />
 
             <ParticipationBlock attributes={program.participationAttributes} going={program.enrolled || undefined} />
             <OfficialCircleLink circleId={program.circleId} circleName={program.circleName} circleSlug={program.circleSlug} />
@@ -472,11 +517,14 @@ export function ProgramDetail() {
               </div>
             )}
 
+          </div>
+
+          <div className="detail-body">
             <div style={sectionDividerStyle} />
 
             {description && (
               <div style={{ marginBottom: 28 }}>
-                <SectionHeading title="About this program" />
+                <SectionHeading title="About this programme" />
                 <p style={{ margin: 0, fontSize: 15, color: colors.textSoft, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{visibleDescription}</p>
                 {descriptionIsLong && (
                   <button
@@ -488,52 +536,6 @@ export function ProgramDetail() {
                 )}
               </div>
             )}
-
-            {/* What to expect — same Swiss-style data blocks as ExperienceDetail. */}
-            <div style={{ marginBottom: 28 }}>
-              <SectionHeading title="What to expect" />
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 40 }}>
-                <div>
-                  <CalendarIcon size={17} style={{ color: colors.mutedLight, marginBottom: 6 }} />
-                  <div style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 20 }}>{upcoming.length || "—"}</div>
-                  <div style={{ fontSize: 12.5, color: colors.mutedLight, marginTop: 1 }}>Sessions to go</div>
-                </div>
-                {typicalDuration && (
-                  <div>
-                    <ClockIcon size={17} style={{ color: colors.mutedLight, marginBottom: 6 }} />
-                    <div style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 20 }}>{formatDuration(typicalDuration)}</div>
-                    <div style={{ fontSize: 12.5, color: colors.mutedLight, marginTop: 1 }}>Per session</div>
-                  </div>
-                )}
-                {program.capacity !== null && (
-                  <div>
-                    <UsersIcon size={17} style={{ color: colors.mutedLight, marginBottom: 6 }} />
-                    <div style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 20 }}>Up to {program.capacity}</div>
-                    <div style={{ fontSize: 12.5, color: colors.mutedLight, marginTop: 1 }}>Group size</div>
-                  </div>
-                )}
-                {program.skillLevel && (
-                  <div>
-                    <AwardIcon size={17} style={{ color: colors.mutedLight, marginBottom: 6 }} />
-                    <div style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 20 }}>{program.skillLevel}</div>
-                    <div style={{ fontSize: 12.5, color: colors.mutedLight, marginTop: 1 }}>Level</div>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Program details — structured label/value grid. */}
-            <div style={{ marginBottom: 28 }}>
-              <SectionHeading title="Program details" />
-              <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }}>
-                {detailFields.map((f) => (
-                  <div key={f.label}>
-                    <div style={factLabelStyle}>{f.label}</div>
-                    <div style={{ fontSize: 14, fontWeight: 700, marginTop: 3, lineHeight: 1.4 }}>{f.value}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
 
             {program.equipment.length > 0 && (
               <div style={{ marginBottom: 28 }}>
@@ -548,99 +550,51 @@ export function ProgramDetail() {
               </div>
             )}
 
-            <InfoBlock heading="Accessibility" body={program.accessibilityInfo} />
+            <Requirements rows={[{ label: "Accessibility", value: program.accessibilityInfo }]} />
             <InfoBlock heading="Guardian rules" body={program.guardianRules} />
             <InfoBlock heading="Safeguarding" body={program.safeguardingInfo} />
 
-            {/* Full schedule — upcoming first; past sessions behind a toggle. */}
-            <div style={{ marginBottom: 28 }}>
-              <SectionHeading title="Schedule" />
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {upcoming.map((s, i) => (
-                  <div key={s.id} style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.control, padding: "12px 16px", display: "flex", flexWrap: "wrap", gap: 16, fontSize: 13.5, color: colors.muted }}>
-                    <span style={{ fontWeight: 700, color: colors.text, minWidth: 24 }}>{i + 1}</span>
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><CalendarIcon size={13} /> {dateLabel(s.date)}</span>
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><ClockIcon size={13} /> {s.time} · {formatDuration(s.durationMinutes)}</span>
-                    {s.instructorName && <span>{s.instructorName}</span>}
-                    {s.roomName && <span>{s.roomName}</span>}
-                  </div>
-                ))}
-                {upcoming.length === 0 && <p style={{ color: colors.faint, fontSize: 13.5, margin: 0 }}>No upcoming sessions scheduled yet.</p>}
-                {past.length > 0 && (
-                  <button onClick={() => setShowPast((v) => !v)} style={{ alignSelf: "flex-start", background: "none", border: "none", padding: 0, marginTop: 4, fontSize: 13, fontWeight: 700, color: colors.muted, cursor: "pointer", textDecoration: "underline" }}>
-                    {showPast ? "Hide past sessions" : `Show ${past.length} past session${past.length === 1 ? "" : "s"}`}
-                  </button>
-                )}
-                {showPast &&
-                  past.map((s) => (
-                    <div key={s.id} style={{ borderRadius: radius.control, padding: "10px 16px", display: "flex", flexWrap: "wrap", gap: 16, fontSize: 13, color: colors.faint, background: colors.panel }}>
-                      <span>{dateLabel(s.date)}</span>
-                      <span>{s.time}</span>
-                    </div>
+            {/* Schedule — upcoming first; past sessions behind a toggle. */}
+            <DetailSection title="Schedule">
+              {upcoming.length > 0 ? (
+                <ScheduleList
+                  rows={upcoming.map((s) => ({
+                    id: s.id,
+                    date: dateLabel(s.date),
+                    time: `${s.time} · ${formatDuration(s.durationMinutes)}`,
+                    extra: [s.roomName, s.instructorName].filter(Boolean).join(" · ") || null,
+                  }))}
+                />
+              ) : (
+                <p style={{ color: colors.mutedLight, fontSize: 14, margin: 0 }}>No upcoming sessions scheduled yet.</p>
+              )}
+              {past.length > 0 && (
+                <button className="tap-target" onClick={() => setShowPast((v) => !v)} aria-expanded={showPast} style={{ background: "none", border: "none", padding: 0, marginTop: 8, fontSize: 13.5, fontWeight: 700, color: colors.muted, cursor: "pointer", textDecoration: "underline" }}>
+                  {showPast ? "Hide past sessions" : `Show ${past.length} past session${past.length === 1 ? "" : "s"}`}
+                </button>
+              )}
+              {showPast && (
+                <ul style={{ listStyle: "none", margin: "8px 0 0", padding: 0, display: "flex", flexDirection: "column", gap: 4 }}>
+                  {past.map((s) => (
+                    <li key={s.id} style={{ fontSize: 13.5, color: colors.faint }}>{dateLabel(s.date)} · {s.time}</li>
                   ))}
-              </div>
-            </div>
-
-            {/* Hosted by — the provider behind this listing. */}
-            {program.vendorName && (
-              <div style={{ marginBottom: 28 }}>
-                <SectionHeading title="Hosted by" />
-                <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                    <span style={{ fontWeight: 700, fontSize: 14.5 }}>{program.vendorName}</span>
-                    {program.vendorVerified && (
-                      <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: radius.pill, padding: "2px 8px" }}>
-                        <AwardIcon size={11} /> Verified provider
-                      </span>
-                    )}
-                  </div>
-                  {program.vendorId && (
-                    <button
-                      onClick={() => navigate(`/provider/${program.vendorId}`)}
-                      style={{ background: "none", border: "none", padding: 0, fontSize: 13, fontWeight: 700, color: colors.text, cursor: "pointer", textDecoration: "underline" }}
-                    >
-                      View provider
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* Where — the venue, with a map when it has coordinates. */}
-            <div style={{ marginBottom: 28 }}>
-              <SectionHeading title="Where" />
-              <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "16px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <PinIcon size={16} style={{ color: colors.mutedLight, flex: "none" }} />
-                  <div>
-                    <button onClick={() => navigate(venueHref)} style={{ background: "none", border: "none", padding: 0, fontWeight: 700, fontSize: 14.5, color: colors.text, cursor: "pointer", textAlign: "left" }}>
-                      {program.listingName}
-                    </button>
-                    {(program.venueArea || program.venueCounty) && (
-                      <div style={{ fontSize: 12.5, color: colors.mutedLight, marginTop: 2 }}>
-                        {[program.venueArea, program.venueCounty].filter(Boolean).join(", ")}
-                      </div>
-                    )}
-                  </div>
-                </div>
-                <a href={directionsUrl} target="_blank" rel="noreferrer" style={{ fontSize: 13, fontWeight: 700, color: colors.text, textDecoration: "underline", flex: "none" }}>
-                  Get directions
-                </a>
-              </div>
-              {program.venueLat != null && program.venueLng != null && <SinglePinMap lat={program.venueLat} lng={program.venueLng} label={program.listingName} height={240} />}
-            </div>
+                </ul>
+              )}
+            </DetailSection>
 
             <div style={{ marginBottom: 28 }}>
               <Reviews listingType="program" listingId={program.id} accent={tone} />
             </div>
 
+            <ExploreWithOthers taxonomy={program.taxonomy} county={program.venueCounty} noun="programme" excludeCircleId={program.circleId} />
             {similar.length > 0 && (
               <div>
                 <SectionHeading title="More like this" />
-                <div style={{ display: "flex", gap: 14, overflowX: "auto", paddingBottom: 6 }}>
+                {/* The shared photo card (owner 2026-10-27), same as every "More like this". */}
+                <div className="lc-grid--b" style={{ display: "flex", gap: 16, overflowX: "auto", paddingBottom: 6 }}>
                   {similar.map((p) => (
-                    <div key={p.id} style={{ flex: "none", width: 260 }}>
-                      <BrowseCard e={programToBrowseItem(p)} icon={<GridIcon size={24} />} />
+                    <div key={p.id} style={{ flex: "none", width: 260, display: "flex" }}>
+                      <BrowseCard e={programToBrowseItem(p)} icon={<GridIcon size={24} />} kindLabel="Programme" />
                     </div>
                   ))}
                 </div>
@@ -649,54 +603,81 @@ export function ProgramDetail() {
           </div>
 
           {/* RIGHT COLUMN — sticky enrol card, same rhythm as ExperienceDetail's. */}
-          <div className="sticky-aside" style={{ position: "sticky", top: 90 }}>
+          <div className="detail-aside">
             <Card>
               <div style={{ marginBottom: 16 }}>
                 <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 22, margin: 0, color: joinHeadlineColor }}>{joinHeadline}</h2>
-                {program.enrolled > 0 && program.capacity !== null && (
-                  <p style={{ margin: "4px 0 0", fontSize: 12.5, color: colors.mutedLight }}>
-                    {program.enrolled} of {program.capacity} enrolled
+                {next ? (
+                  <p style={{ margin: "4px 0 0", fontSize: 13.5, color: colors.mutedLight }}>
+                    {[startsIn(next.date, next.time), program.enrolled > 0 && program.capacity !== null ? `${program.enrolled} of ${program.capacity} enrolled` : null].filter(Boolean).join(" · ")}
                   </p>
+                ) : (
+                  <p style={{ margin: "4px 0 0", fontSize: 13.5, color: colors.mutedLight }}>The venue hasn't set the next start date. We can tell you when they do.</p>
                 )}
               </div>
 
               <div style={{ height: 1, background: colors.border, margin: "0 0 16px" }} />
 
-              <div style={{ display: "flex", flexDirection: "column", gap: 8, fontSize: 13.5, color: colors.muted, marginBottom: 16 }}>
-                {next ? (
-                  <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                    <CalendarIcon size={14} /> Starts {dateLabel(next.date)} · {next.time}
-                  </span>
-                ) : (
-                  <span style={{ color: colors.faint }}>No upcoming sessions scheduled yet.</span>
-                )}
-                {upcoming.length > 1 && (
-                  <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                    <ClockIcon size={14} /> {upcoming.length} sessions{last ? ` · until ${dateLabel(last.date)}` : ""}
-                  </span>
-                )}
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                  <PinIcon size={14} /> {venueLine || program.listingName}
-                </span>
-                <span style={{ fontWeight: 700, color: program.priceCents ? colors.text : colors.greenText }}>
-                  {program.priceCents ? `${formatPrice(program.priceCents)} for the whole program` : "Free"}
-                </span>
-              </div>
+              <BookingGlance items={glance} />
+              <BookingFacts
+                // Date and place live under the title (owner 2026-10-27).
+                facts={[
+                  {
+                    key: "price",
+                    label: "Price",
+                    icon: <Euro size={18} strokeWidth={2} />,
+                    value: <BookingPrice cents={program.priceCents} unit={program.sessions.length > 1 ? `for ${program.sessions.length} sessions` : "for the programme"} />,
+                    sub: program.priceCents ? PAID_PRICE_NOTE : undefined,
+                    emphasis: program.priceCents ? "price" : "free",
+                  },
+                ]}
+              />
 
-              {upcoming.length > 0 && (
-                <Button full disabled={!canEnroll} onClick={() => setEnrollOpen(true)}>
-                  {full ? "Full" : "Enroll"}
-                </Button>
+              {canEnroll ? (
+                <Button full onClick={() => setEnrollOpen(true)}>Enrol</Button>
+              ) : upcoming.length === 0 ? (
+                // No dates yet: pick the days and times that suit, right here.
+                <IntentCaptureForm variant="box" activityLabel={program.category || program.title} county={program.venueCounty ?? ""} />
+              ) : (
+                <Button full variant="ghost" onClick={() => scrollToInterest("program-cta-title")}>Tell me about new dates</Button>
               )}
               {canEnroll && !program.priceCents && <div style={{ textAlign: "center", fontSize: 12, color: colors.faint, marginTop: 8 }}>No payment required</div>}
+              <div style={{ marginTop: 10 }}>
+                <BookingActions>
+                  <ShareButton entityType="program" entityId={program.id} render={(open) => <IconAction label="Share" onClick={open}><ShareIcon size={18} /></IconAction>} />
+                  <InviteSheetButton entityType="program" entityId={program.id} title={program.title} render={(open) => <IconAction label="Invite someone" short="Invite" onClick={open}><UsersIcon size={18} /></IconAction>} />
+                  <IconAction label="Directions" href={directionsUrl}><PinIcon size={18} /></IconAction>
+                  {/* Circles 3.0 — suggest it in a Circle; enrolment stays programme-level. */}
+                  <PlanWithCircle
+                    listing={{ type: "program", id: program.id, title: program.title, sessions: upcoming.slice(0, 12).map((s) => ({ id: s.id, label: `${dateLabel(s.date)} · ${s.time}` })) }}
+                    render={(open) => <IconAction label="Plan with my Circle" short="Circle" onClick={open}><UsersRound size={18} /></IconAction>}
+                  />
+                </BookingActions>
+              </div>
+              {upcoming.length === 0 && <QuietAction onClick={() => navigate(similarPath)}>See similar programmes</QuietAction>}
             </Card>
+            <div style={{ marginTop: 24 }} />
+            {program.vendorName && (
+              <DetailSection title="Hosted by">
+                <HostRow
+                  name={program.vendorName}
+                  verifiedLabel={program.vendorVerified ? "Verified provider" : null}
+                  href={program.vendorId ? `/provider/${program.vendorId}` : null}
+                  linkLabel="View provider"
+                />
+              </DetailSection>
+            )}
 
-            <Card style={{ marginTop: 16, background: colors.panel, border: "none" }}>
-              <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 14, margin: "0 0 6px" }}>One sign-up, every session</h3>
-              <p style={{ margin: 0, fontSize: 13, color: colors.mutedLight, lineHeight: 1.5 }}>
-                Enrolling books a place on the whole program. You'll find it, and any updates from the venue, in My bookings.
-              </p>
-            </Card>
+            <DetailSection title="Where">
+              <LocationBlock
+                name={program.listingName}
+                nameHref={VENUE_PAGES_PUBLIC ? venueHref : null}
+                area={[program.venueArea, program.venueCounty].filter(Boolean).join(", ") || null}
+                directionsUrl={directionsUrl}
+                map={program.venueLat != null && program.venueLng != null ? { lat: program.venueLat, lng: program.venueLng, label: program.listingName } : null}
+              />
+            </DetailSection>
+
           </div>
         </div>
       </section>
@@ -704,7 +685,7 @@ export function ProgramDetail() {
       <Modal
         open={enrollOpen}
         onClose={() => setEnrollOpen(false)}
-        title={`Enroll in ${program.title}`}
+        title={`Enrol in ${program.title}`}
         subtitle={enrollSubtitle}
         footer={enrollFooter}
         confirmClose={enrollDirty ? { title: "Discard this enrolment?", message: "The details you've entered won't be saved." } : undefined}
@@ -716,26 +697,32 @@ export function ProgramDetail() {
           programme's own copy and the interest form. */}
       <CtaBand
         id="program-cta-title"
-        label="Keep going."
+        label="Not this time?"
         lines={["Can't", "make this", "one?"]}
-        text="Tell HelloCircle when you'd like to do this. We'll let you know when a programme like it starts."
-        action={{ label: "Browse more programmes", to: "/programs" }}
+        text="No worries — we'll let you know about similar programmes and new start dates near you."
+        panel={{ title: "Another time works better?", text: "Tell us when suits you. We'll let you know when a similar programme starts." }}
+        action={{
+          label: "Explore similar programmes",
+          to: program.taxonomy ? `/programs?category=${program.taxonomy.categorySlug}${program.taxonomy.subcategorySlug ? `&sub=${program.taxonomy.subcategorySlug}` : ""}` : "/programs",
+        }}
       >
-        <IntentCaptureForm activityLabel={program.category || program.title} county={program.venueCounty ?? ""} startHref="/programs" startLabel="Or browse more programs →" />
+        <IntentCaptureForm variant="panel" activityLabel={program.category || program.title} county={program.venueCounty ?? ""} />
       </CtaBand>
 
       {/* Mobile sticky bar — opens the same enrol popup as the desktop CTA. */}
-      {canEnroll && (
-        <div className="mobile-join-bar">
-          <div>
-            <div style={{ fontWeight: 800, fontSize: 15, fontFamily: fonts.display, color: joinHeadlineColor }}>{joinHeadline}</div>
-            <div style={{ fontSize: 12.5, color: colors.mutedLight }}>{formatPrice(program.priceCents)}</div>
+      <div className="mobile-join-bar">
+        <div>
+          <div style={{ fontWeight: 800, fontSize: 15, fontFamily: fonts.display, color: joinHeadlineColor }}>{joinHeadline}</div>
+          <div style={{ fontSize: 12.5, color: colors.mutedLight }}>
+            {canEnroll && next ? `Starts ${dateLabel(next.date)} · ${formatPrice(program.priceCents)}` : "We can let you know"}
           </div>
-          <Button onClick={() => setEnrollOpen(true)} style={{ flex: "none" }}>
-            Enroll
-          </Button>
         </div>
-      )}
+        {canEnroll ? (
+          <Button onClick={() => setEnrollOpen(true)} style={{ flex: "none" }}>Enrol</Button>
+        ) : (
+          <Button onClick={() => scrollToInterest("program-cta-title")} style={{ flex: "none" }}>Notify me</Button>
+        )}
+      </div>
     </div>
   );
 }

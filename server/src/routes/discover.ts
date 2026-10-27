@@ -1,9 +1,12 @@
+import { withGameCardFacts } from "../gameCardFacts.js";
 import { Router } from "express";
 import { db } from "../db/index.js";
 import { haversineKm, resolveRadiusFilter } from "../geo.js";
 import { irelandTodayIso, irelandWallTimeToUtc } from "../irelandTime.js";
 import { getLocalMomentum, getMarketCategories, listMapMarkers, listScheduledActivities, type MapMarkerType, type ScheduledActivity } from "../db/queries.js";
-import { loadResidentProfile, loadScoringContext, RANK_BONUS_PER_POINT, scoreFit, type FitLabel, type ScoringContext } from "../personalization.js";
+import { loadAttributes, loadResidentProfile, loadScoringContext, RANK_BONUS_PER_POINT, scoreFit, type FitLabel, type ScoringContext } from "../personalization.js";
+import { featureOn, requireFeature } from "../circleFeatures.js";
+import { buildCollections, datesFor, matchListings, PARTS_OF_DAY, pickSurprise, type PartOfDay } from "../discoveryMatch.js";
 
 export const discoverRouter = Router();
 
@@ -20,6 +23,9 @@ export type DiscoverItem = ScheduledActivity & { matchReasons: string[]; fitLabe
 export interface DiscoverFeed {
   today: DiscoverItem[];
   weekend: DiscoverItem[];
+  /** Set when a radius was asked for but nothing with a confirmed location
+   * was inside it, so the feed shows this county instead (no distance claim). */
+  radiusFallback?: { county: string };
 }
 
 /** Ranking, not just chronological sort — deliberately rule-based (no ML,
@@ -138,15 +144,27 @@ discoverRouter.get("/map", async (req, res) => {
 // resolveRadiusFilter's own comment; strictly opt-in via ?radiusKm=, zero
 // change to the default nationwide/by-county feed otherwise.
 discoverRouter.get("/", async (req, res) => {
-  const county = typeof req.query.county === "string" && req.query.county !== "All" ? req.query.county : undefined;
-  const radius = resolveRadiusFilter(req.query, req.resident?.homeCounty ?? null);
+  let county = typeof req.query.county === "string" && req.query.county !== "All" ? req.query.county : undefined;
+  let radius = resolveRadiusFilter(req.query, req.resident?.homeCounty ?? null);
   const now = new Date();
   const todayIso = irelandTodayIso();
   const weekFromNow = new Date(now);
   weekFromNow.setUTCDate(now.getUTCDate() + 7);
   const weekFromNowIso = weekFromNow.toISOString().slice(0, 10);
 
-  const activities = await listScheduledActivities({ county, from: now, to: weekFromNow, radius, includeExperiences: true });
+  let activities = await listScheduledActivities({ county, from: now, to: weekFromNow, radius, includeExperiences: true });
+  // A radius only counts listings with a confirmed location (see
+  // applyRadiusFilter). When that leaves nothing, show the county the radius
+  // was measured from instead, and say so, rather than an empty page
+  // (owner 2026-10-27). No distance is claimed for these.
+  let radiusFallback: { county: string } | undefined;
+  const fallbackCounty = county ?? (typeof req.query.lat === "string" ? undefined : req.resident?.homeCounty?.trim() || undefined);
+  if (radius && activities.length === 0 && fallbackCounty) {
+    radius = undefined;
+    county = fallbackCounty;
+    radiusFallback = { county: fallbackCounty };
+    activities = await listScheduledActivities({ county, from: now, to: weekFromNow, includeExperiences: true });
+  }
   const scored = await scoreActivities(activities, now, req.resident?.id ?? null, req.resident?.homeCounty ?? null);
 
   const today: { item: DiscoverItem; score: number }[] = [];
@@ -162,9 +180,11 @@ discoverRouter.get("/", async (req, res) => {
   today.sort(byScore);
   weekend.sort(byScore);
 
+  const residentId = req.resident?.id ?? null;
   res.json({
-    today: today.map((e) => e.item),
-    weekend: weekend.map((e) => e.item),
+    today: await withGameCardFacts(today.map((e) => e.item), residentId),
+    weekend: await withGameCardFacts(weekend.map((e) => e.item), residentId),
+    ...(radiusFallback ? { radiusFallback } : {}),
   } satisfies DiscoverFeed);
 });
 
@@ -226,14 +246,31 @@ discoverRouter.get("/free-time", async (req, res) => {
   const lng = typeof req.query.lng === "string" ? parseFloat(req.query.lng) : undefined;
   const radiusKm = typeof req.query.radiusKm === "string" ? parseFloat(req.query.radiusKm) : undefined;
 
+  // Experience 3.0 — "Find something for me" (when / budget / alone) and
+  // "Surprise me", each only while its switch is on; otherwise the query
+  // params are ignored and this endpoint behaves as before.
+  const [smart, goSolo] = await Promise.all([featureOn("experience.smart_match"), featureOn("experience.go_solo")]);
+  const q = req.query as Record<string, string | undefined>;
+  const dates = smart && q.when ? datesFor(q.when, irelandTodayIso()) : null;
+  if (smart && q.when && !dates) return res.status(400).json({ error: "Choose today, tomorrow, this weekend or a date that hasn't passed" });
+  const partsOfDay = smart && q.partOfDay ? (q.partOfDay.split(",").filter((p) => (PARTS_OF_DAY as string[]).includes(p)) as PartOfDay[]) : [];
+  const maxPriceCents = smart && q.maxPriceCents !== undefined && /^\d+$/.test(q.maxPriceCents) ? Number(q.maxPriceCents) : null;
+  const solo = goSolo && q.solo === "1";
+  const surprise = smart && q.surprise === "1";
+  const exclude = new Set((q.exclude ?? "").split(",").filter(Boolean).slice(0, 100));
+  const limit = smart && q.limit && /^\d+$/.test(q.limit) ? Math.min(12, Math.max(1, Number(q.limit))) : 3;
+
   const now = new Date();
-  const weekFromNow = new Date(now);
-  weekFromNow.setUTCDate(now.getUTCDate() + 7);
+  const horizon = new Date(now);
+  // A chosen date can be up to two weeks out; otherwise the next 7 days, as before.
+  horizon.setUTCDate(now.getUTCDate() + (dates ? 15 : 7));
 
-  let activities = await listScheduledActivities({ county, from: now, to: weekFromNow, includeExperiences: true });
+  let activities = await listScheduledActivities({ county, from: now, to: horizon, includeExperiences: true });
 
+  // Experience 3.0 fix: only a stated length can "fit" a time window. Games
+  // and club sessions without one used to pass on an assumed 2h / 90 min.
   if (maxMinutes !== undefined && !Number.isNaN(maxMinutes)) {
-    activities = activities.filter((a) => a.durationMinutes <= maxMinutes);
+    activities = activities.filter((a) => a.durationKnown && a.durationMinutes <= maxMinutes);
   }
   if (mood) {
     const keywords = MOOD_KEYWORDS[mood] ?? [];
@@ -245,11 +282,47 @@ discoverRouter.get("/free-time", async (req, res) => {
     // rationale (Maps cost-control follow-up pass, review point #4).
     activities = activities.filter((a) => a.lat !== null && a.lng !== null && a.locationSource === "confirmed" && haversineKm(lat, lng, a.lat, a.lng) <= radiusKm);
   }
+  // Only things that can still be joined: a full game/departure isn't offered.
+  if (smart || solo) activities = activities.filter((a) => a.spotsLeft === null || a.spotsLeft > 0);
 
-  const scored = await scoreActivities(activities, now, req.resident?.id ?? null, req.resident?.homeCounty ?? null);
+  const ctx = await loadScoringContext(activities, req.resident?.id ?? null, req.resident?.homeCounty ?? null);
+  const extra = new Map<string, string[]>();
+  if (dates || partsOfDay.length || maxPriceCents !== null || solo) {
+    // Signed-out visitors have no scoring context; host-set attributes are public.
+    const attributes = ctx.attributes.size ? ctx.attributes : await loadAttributes(activities);
+    const attrsOf = (a: ScheduledActivity) => (a.listingType && a.listingId && attributes.get(`${a.listingType}:${a.listingId}`)) || [];
+    const matched = matchListings(activities, { dates, partsOfDay, maxPriceCents, solo }, attrsOf);
+    activities = matched.map((m) => m.item);
+    for (const m of matched) extra.set(`${m.item.kind}:${m.item.id}`, m.reasons);
+  }
+
+  const scored = (await scoreActivities(activities, now, req.resident?.id ?? null, req.resident?.homeCounty ?? null, ctx)).map((e) => ({
+    ...e,
+    item: { ...e.item, matchReasons: [...(extra.get(`${e.item.kind}:${e.item.id}`) ?? []), ...e.item.matchReasons] },
+  }));
   scored.sort((a, b) => b.score - a.score || a.item.time.localeCompare(b.item.time));
 
-  res.json(scored.slice(0, 3).map((e) => e.item));
+  if (surprise) {
+    const pick = pickSurprise(scored.map((e) => e.item), exclude);
+    return res.json(pick ? [pick] : []);
+  }
+  res.json(scored.filter((e) => !exclude.has(e.item.id)).slice(0, limit).map((e) => e.item));
+});
+
+// Experience 3.0 — Explore collections and occasions, from real eligible
+// listings over the next two weeks; every collection is a stated fact
+// (price, host-set attribute, kind, date) and an empty one isn't returned.
+discoverRouter.get("/collections", requireFeature("experience.collections"), async (req, res) => {
+  const county = typeof req.query.county === "string" && req.query.county !== "All" ? req.query.county : undefined;
+  const now = new Date();
+  const twoWeeks = new Date(now);
+  twoWeeks.setUTCDate(now.getUTCDate() + 14);
+  const pool = (await listScheduledActivities({ county, from: now, to: twoWeeks, includeExperiences: true })).filter((a) => a.spotsLeft === null || a.spotsLeft > 0);
+  const ctx = await loadScoringContext(pool, req.resident?.id ?? null, req.resident?.homeCounty ?? null);
+  const ranked = (await scoreActivities(pool, now, req.resident?.id ?? null, req.resident?.homeCounty ?? null, ctx)).sort((a, b) => b.score - a.score || a.item.date.localeCompare(b.item.date)).map((e) => e.item);
+  const attributes = ctx.attributes.size ? ctx.attributes : await loadAttributes(pool);
+  const attrsOf = (a: ScheduledActivity) => (a.listingType && a.listingId && attributes.get(`${a.listingType}:${a.listingId}`)) || [];
+  res.json({ collections: buildCollections(ranked, attrsOf, irelandTodayIso()) });
 });
 
 // "Next Best Participation" (implementation backlog #4, P3 intelligence

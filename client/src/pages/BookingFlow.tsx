@@ -28,6 +28,7 @@ import {
   type ContactValue,
 } from "../components/booking";
 import { PageSpinner } from "../components/ui";
+import { Pass, passDate } from "../components/pass/Pass";
 import { DURATION_OPTIONS, EVENT_TYPES, TIME_SLOTS } from "../constants";
 import { dateLabel } from "../euro";
 import { useGuest } from "../GuestContext";
@@ -285,9 +286,26 @@ export function BookingFlow() {
       <BookingSurface page>
         <ConfirmationPanel
           variant="success"
-          bookingRef={confirmed.ref}
           lead={`Pay ${formatCents(confirmed.totalCents)} at the venue — nothing is charged online. We've emailed the details to ${confirmed.email}.`}
-          summary={<ListingSummary title={title} when={when} details={details} imageUrl={centre.image || null} />}
+          summary={
+            // The pass, ticket look (owner 2026-10-27): show the reference at the desk.
+            <Pass
+              look="ticket"
+              kind="room"
+              tone="ok"
+              status="Booked · pay at the venue"
+              title={room && centre.rooms.length > 1 ? room.name : centre.name}
+              who={draft.contact.name.trim() || null}
+              date={draft.date ? passDate(draft.date) : null}
+              time={when?.split(" · ")[1] ?? null}
+              where={centre.name}
+              fields={[
+                ["Guests", String(draft.guests)],
+                ["Pay", `${formatCents(confirmed.totalCents)} at the desk`],
+              ]}
+              reference={confirmed.ref}
+            />
+          }
           actions={
             <>
               <BkButton variant="dark" onClick={() => navigate("/bookings")}>View my bookings</BkButton>

@@ -46,6 +46,8 @@ export function SinglePinMap({ lat, lng, label, height = 260, zoom = 12 }: { lat
     <div style={{ borderRadius: radius.card, overflow: "hidden", border: `1px solid ${colors.border}`, height }}>
       <Map
         mapboxAccessToken={MAPBOX_TOKEN}
+        // DP-18 — no optional performance telemetry to Mapbox.
+        collectResourceTiming={false}
         initialViewState={{ longitude: lng, latitude: lat, zoom }}
         mapStyle={MAPBOX_STYLE}
         style={{ width: "100%", height: "100%" }}

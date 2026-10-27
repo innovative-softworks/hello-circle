@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { fetchChatInbox } from "../api";
 import { useAuth } from "../AuthContext";
 import { useGuest } from "../GuestContext";
@@ -22,6 +22,7 @@ export function ListingChatButton({
   style,
   iconOnly,
   refreshKey,
+  render,
 }: {
   scopeType: ChatScopeType;
   listingId: string;
@@ -30,6 +31,8 @@ export function ListingChatButton({
   iconOnly?: boolean;
   /** Bump to re-check membership (e.g. right after joining). */
   refreshKey?: unknown;
+  /** Own trigger (e.g. the booking box's labelled icon). */
+  render?: (open: () => void, unread: number) => ReactNode;
 }) {
   const { resident } = useGuest();
   const { user } = useAuth();
@@ -66,10 +69,12 @@ export function ListingChatButton({
   if (items.length === 0) return null;
   const unread = items.reduce((n, i) => n + i.unread, 0);
 
+  const openChat = () => (items.length === 1 ? setOpenItem(items[0]) : setPicker(true));
+
   return (
     <>
-      <button
-        onClick={() => (items.length === 1 ? setOpenItem(items[0]) : setPicker(true))}
+      {render ? render(openChat, unread) : <button
+        onClick={openChat}
         aria-label={unread > 0 ? `Group chat, ${unread} unread` : "Group chat"}
         title="Group chat"
         style={{ display: "inline-flex", alignItems: "center", gap: 6, position: "relative", cursor: "pointer", ...style }}
@@ -84,7 +89,7 @@ export function ListingChatButton({
               {unread > 99 ? "99+" : unread}
             </span>
           ))}
-      </button>
+      </button>}
 
       <Modal open={picker} onClose={() => setPicker(false)} title="Which chat?" subtitle="Pick a departure.">
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>

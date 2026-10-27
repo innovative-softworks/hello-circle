@@ -1,8 +1,7 @@
-// The app's shared theme.ts `maxWidth` (1440) stays as-is for every other
-// page — this page alone narrows to ~1240px, matching the grid spec this
-// page's design direction was built against, without touching the shared
-// token every other page still reads.
-export const FV_MAX_WIDTH = 1440;
+import { maxWidth } from "../../theme";
+// Batch 2 (2026-10-22): the same page width as the header and every other
+// page (theme.ts maxWidth), so these sections line up with the logo.
+export const FV_MAX_WIDTH = maxWidth;
 
 // This page runs its own bolder editorial visual language (see the 2026-08-30
 // redesign brief) — a single vivid accent distinct from the app's semantic

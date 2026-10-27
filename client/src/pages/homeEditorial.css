@@ -21,7 +21,8 @@
   --hx-grey: #737a74;
   --hx-rule: rgba(23, 32, 25, 0.14);
   --hx-rule-dark: rgba(247, 244, 236, 0.2);
-  --hx-gutter: clamp(16px, 3.4vw, 48px);
+  /* Same gutter as the header and every page (Batch 2, 2026-10-22). */
+  --hx-gutter: var(--page-gutter);
   --hx-gap: clamp(12px, 1.6vw, 24px);
   /* Corner radii — the app's own tokens (design-tokens radius.control /
      radius.card / radius.pill), as in the reference: pill buttons and
@@ -45,7 +46,7 @@
 /* ---------- primitives ---------- */
 
 .hx-wrap {
-  max-width: 1440px;
+  max-width: var(--page-max);
   margin: 0 auto;
   padding-left: var(--hx-gutter);
   padding-right: var(--hx-gutter);
@@ -138,7 +139,8 @@
   min-height: 48px;
   padding: 0 22px;
   border: 1.5px solid var(--hx-forest);
-  border-radius: var(--hx-r-pill);
+  border-radius: var(--radius-button);
+  min-width: var(--button-min-width);
   background: var(--hx-forest);
   color: var(--hx-cream);
   font: inherit;
@@ -150,15 +152,23 @@
   transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
 }
 
+/* Main action — the shared button orange with white text (owner,
+   2026-10-22; tokens in index.css). Secondary = .hx-btn--ghost outline. */
 .hx-btn--orange {
-  background: var(--hx-orange);
-  border-color: var(--hx-orange);
-  color: var(--hx-forest);
+  background: var(--color-cta);
+  border-color: var(--color-cta);
+  color: var(--color-on-cta);
 }
 
 .hx-btn--ghost {
   background: transparent;
+  border-color: var(--hx-forest);
   color: var(--hx-forest);
+}
+
+.hx-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .hx-btn--outline-light {
@@ -170,19 +180,20 @@
 /* Hover colours only where hovering exists — on touch screens :hover sticks
    after a tap and made a just-tapped button look disabled. */
 @media (hover: hover) {
-  .hx-btn:hover {
-    background: var(--hx-orange);
-    border-color: var(--hx-orange);
-    color: var(--hx-forest);
-  }
-
-  .hx-btn--orange:hover {
-    background: var(--hx-forest);
-    border-color: var(--hx-forest);
+  .hx-btn:hover:not(:disabled) {
+    background: #2b342d;
+    border-color: #2b342d;
     color: var(--hx-cream);
   }
 
-  .hx-btn--ghost:hover {
+  /* Hover keeps it orange — just deeper — with white text. */
+  .hx-btn--orange:hover:not(:disabled) {
+    background: var(--color-cta-hover);
+    border-color: var(--color-cta-hover);
+    color: var(--color-on-cta);
+  }
+
+  .hx-btn--ghost:hover:not(:disabled) {
     background: var(--hx-forest);
     border-color: var(--hx-forest);
     color: var(--hx-cream);
@@ -360,7 +371,8 @@ a:focus-visible .hx-round {
 }
 
 .hx-hero-title {
-  font-size: clamp(54px, 8.4vw, 136px);
+  /* Owner, 2026-10-22: 6rem (phones keep their own smaller size below). */
+  font-size: 6rem;
   line-height: 0.86;
   letter-spacing: 0;
   color: var(--hx-white);
@@ -1106,7 +1118,8 @@ a:focus-visible .hx-round {
   justify-content: center;
   min-height: 40px;
   border: 1px solid var(--hx-rule);
-  border-radius: var(--hx-r-pill);
+  border-radius: var(--radius-button);
+  min-width: var(--button-min-width);
   font-size: 13.5px;
   font-weight: 700;
   transition: background 0.2s ease, color 0.2s ease;
@@ -2010,7 +2023,6 @@ a:focus-visible .hx-round {
   }
 
   .hx-near-head > .hx-btn {
-    width: 100%;
     margin: 0;
   }
 
@@ -2074,9 +2086,6 @@ a:focus-visible .hx-round {
     padding-left: 1.2em;
   }
 
-  .hx-close-side .hx-btn {
-    width: 100%;
-  }
 }
 
 /* Short phones (≤ 640px tall, e.g. 320×568) on a first visit: the cookie
@@ -2209,9 +2218,159 @@ a:focus-visible .hx-round {
   color: #b8320f;
 }
 
-/* Orange buttons keep forest text in both themes (the page palette flips in
-   dark mode, but orange-on-orange contrast must not). */
+/* Orange buttons keep WHITE text in both themes (owner, 2026-10-22: the
+   deeper button orange carries white at 4.7:1). The Grid/List toggle sits on
+   the bright accent orange, so it keeps forest text. */
 .hx .hx-btn--orange,
+.hx .hx-btn--orange:hover {
+  color: var(--color-on-cta);
+}
 .hx .cx-view .is-on {
   color: #172019;
+}
+
+/* "Happening near you" uses the shared photo card (CardGrid look, owner
+   2026-10-27). The band is forest green in both themes, so the text under
+   each photo takes the band's light colours instead of the page's. */
+.hx-near .lc-grid--b .lc-title {
+  color: var(--hx-cream);
+}
+.hx-near .lc-grid--b .lc-detail,
+.hx-near .lc-grid--b .lc-going {
+  color: rgba(247, 244, 236, 0.72);
+}
+.hx-near .lc-grid--b .lc-kicker {
+  color: #ff9a76;
+}
+/* the price tag on the dark band: a light tint, cream figures */
+.hx-near .lc-grid--b .lc-price {
+  background: rgba(247, 244, 236, 0.1);
+  color: rgba(247, 244, 236, 0.75);
+}
+.hx-near .lc-grid--b .lc-price b {
+  color: var(--hx-cream);
+}
+.hx-near .lc-grid--b .lc-price.is-free b {
+  color: #9fdcb6;
+}
+.hx-near .lc-grid--b .lc-avail[data-tone="good"] {
+  color: #9fdcb6;
+}
+.hx-near .lc-grid--b .lc-avail[data-tone="few"] {
+  color: #ffb39f;
+}
+.hx-near .lc-grid--b .lc-avail[data-tone="full"] {
+  color: rgba(247, 244, 236, 0.6);
+}
+.hx-near .lc-grid--b .listing-card:focus-within > div:not(.lc-body) {
+  outline-color: var(--hx-cream);
+}
+
+/* "Ireland experiences", Home's featured picks: C · Title on the photo
+   (card styles, owner 2026-10-27). A taller 4:5 photo with a small category
+   line, the title and one line written on it over a dark fade; the arrow is
+   a white circle. Fixed light colours: the text always sits on a photo. */
+.hx-ocard .hx-img {
+  aspect-ratio: 4 / 5;
+}
+.hx-ocard .hx-img::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(0deg, rgba(10, 12, 10, 0.84) 0%, rgba(10, 12, 10, 0.38) 42%, rgba(10, 12, 10, 0) 70%);
+  pointer-events: none;
+}
+.hx-ocard-cap {
+  left: 18px;
+  right: 18px;
+  bottom: 18px;
+  z-index: 1;
+  gap: 4px 14px;
+  align-items: end;
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  color: #ffffff;
+}
+.hx-ocard-k {
+  grid-column: 1;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #bfe8cf;
+}
+.hx-ocard-cap strong {
+  grid-column: 1;
+  font-size: clamp(22px, 2vw, 26px);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  color: #ffffff;
+}
+.hx-ocard-cap small {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.9);
+}
+.hx-ocard-cap .hx-round {
+  grid-row: 1 / span 3;
+  align-self: end;
+  background: #ffffff;
+  color: #172019;
+  border-color: transparent;
+}
+
+/* "Find your people, find your place" tiles: C · Title on the photo (owner
+   2026-10-27). The photo fills a taller 4:5 tile; the name, the short line
+   and the arrow sit on it over a dark fade. No box, no white panel. */
+.hx-catcard {
+  position: relative;
+  border: 0;
+  background: #172019;
+}
+.hx-catcard .hx-img {
+  aspect-ratio: 4 / 5;
+}
+.hx-catcard .hx-img::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(0deg, rgba(10, 12, 10, 0.86) 0%, rgba(10, 12, 10, 0.4) 45%, rgba(10, 12, 10, 0) 72%);
+  pointer-events: none;
+}
+.hx-catcard-body {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1;
+  align-items: end;
+  padding: 12px 12px 14px;
+  color: #ffffff;
+}
+.hx-catcard-name {
+  font-family: var(--hx-display);
+  font-size: clamp(15px, 1.15vw, 17px);
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: #ffffff;
+}
+.hx-catcard-desc {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.86);
+}
+.hx-catcard .hx-round {
+  width: 30px;
+  height: 30px;
+  background: #ffffff;
+  color: #172019;
+  border-color: transparent;
+}
+.hx-catcard:hover {
+  border-color: transparent;
+}
+.hx-catcard:focus-visible {
+  outline: 3px solid var(--hx-orange);
+  outline-offset: 3px;
 }

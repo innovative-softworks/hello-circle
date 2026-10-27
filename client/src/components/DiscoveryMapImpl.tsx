@@ -177,6 +177,8 @@ export function DiscoveryMap({ pins, searchTypes, searchFilters }: { pins: Disco
       <Map
         ref={mapRef}
         mapboxAccessToken={MAPBOX_TOKEN}
+        // DP-18 — no optional performance telemetry to Mapbox.
+        collectResourceTiming={false}
         initialViewState={{ longitude: IRELAND_CENTER[0], latitude: IRELAND_CENTER[1], zoom: IRELAND_DEFAULT_ZOOM }}
         mapStyle={MAPBOX_STYLE}
         style={{ width: "100%", height: "100%" }}

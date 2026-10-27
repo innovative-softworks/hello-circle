@@ -2,6 +2,7 @@ import { Router } from "express";
 import { getSetting } from "../db/index.js";
 import { paidCheckoutOpen } from "../commerce/releaseGates.js";
 import { commerceSwitch } from "../commerce/switches.js";
+import { circleFeatureStates, experienceFeatureStates } from "../circleFeatures.js";
 
 // Public, non-sensitive app config the client needs before it's decided
 // anything about auth/session — currently just the maps kill switch (Maps
@@ -20,5 +21,8 @@ configRouter.get("/", async (_req, res) => {
   // Commercial release gate — lets the client say "free bookings only" up
   // front instead of failing at payment. Display only: the server refuses a
   // paid checkout regardless (checkoutService.createCheckoutSession).
-  res.json({ mapsEnabled, paidCheckoutOpen: paidCheckoutOpen(), openBooking });
+  // Circle Experience 2.0 switches — display only, the Circle routes refuse
+  // a switched-off feature themselves.
+  const [circleFeatures, experienceFeatures] = await Promise.all([circleFeatureStates(), experienceFeatureStates()]);
+  res.json({ mapsEnabled, paidCheckoutOpen: paidCheckoutOpen(), openBooking, circleFeatures, experienceFeatures });
 });

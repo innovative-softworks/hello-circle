@@ -336,12 +336,15 @@ residentsRouter.get("/me/needs-attention", async (req, res) => {
     }
   }
 
+  // mysql2 hands DATETIME columns back as Date objects (or null), not
+  // strings, so compare on epoch millis rather than string-compare.
+  const timeOf = (v: unknown) => (v ? new Date(v as string | Date).getTime() || 0 : 0);
   items.sort((a, b) => {
     const byPriority = ACTION_TYPE_PRIORITY[a.actionType] - ACTION_TYPE_PRIORITY[b.actionType];
     if (byPriority !== 0) return byPriority;
     // Within the same actionType, an earlier expiry/creation surfaces first.
-    if (a.dueAt && b.dueAt) return a.dueAt.localeCompare(b.dueAt);
-    return a.createdAt.localeCompare(b.createdAt);
+    if (a.dueAt && b.dueAt) return timeOf(a.dueAt) - timeOf(b.dueAt);
+    return timeOf(a.createdAt) - timeOf(b.createdAt);
   });
 
   res.json(items);

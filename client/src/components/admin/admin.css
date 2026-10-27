@@ -30,7 +30,7 @@
   --adm-focus: #ff4b24;
   --adm-active-bg: #ffffff;
   --adm-display: "Bricolage Grotesque Variable", "Bricolage Grotesque", system-ui, sans-serif;
-  /* Secondary/body font for the admin workspace only — Figtree elsewhere. */
+  /* Secondary/body font — Inter, the same as the rest of the app (2026-10-22). */
   --adm-body: "Inter Variable", "Inter", system-ui, sans-serif;
   font-family: var(--adm-body);
   font-size: 14px;
@@ -1511,6 +1511,8 @@ body.in-workspace {
   --radius-pill: 8px;
   --radius-small: 8px;
   --radius-manage-card: 8px;
+  /* Public buttons went to 12px (2026-10-24); workspace buttons stay as they were. */
+  --radius-button: 4px;
 }
 
 /* ---------- record pages (UI completion 2026-10-14) ---------- */
@@ -4987,4 +4989,25 @@ body.in-workspace .hc-header-row {
   .adm .wd-stat {
     padding-left: 16px !important;
   }
+}
+
+/* Admin → Categories → Uncategorised (2026-10-22): listing · suggestion ·
+   actions; one column at tablet and phone widths, so nothing is clipped. */
+.cat-review { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--adm-rule, var(--color-border)); }
+.cat-review-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr) auto;
+  gap: 8px 20px;
+  align-items: start;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--adm-rule, var(--color-border));
+}
+.cat-review-id { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11.5px; overflow-wrap: anywhere; }
+.cat-review-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+@media (max-width: 1024px) {
+  .cat-review-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); }
+  .cat-review-actions { grid-column: 1 / -1; justify-content: flex-start; }
+}
+@media (max-width: 640px) {
+  .cat-review-row { grid-template-columns: minmax(0, 1fr); }
 }

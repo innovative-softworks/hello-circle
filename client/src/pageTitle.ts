@@ -47,7 +47,8 @@ const STATIC_TITLES: Record<string, string> = {
   "/adventures": "Adventures",
   "/volunteer": "Volunteer",
   "/experiences": "Experiences",
-  "/payment/success": "Payment confirmed",
+  // PUB-04: neutral until PaymentSuccess sets the title from the real state.
+  "/payment/success": "Payment status",
   "/payment/cancel": "Payment cancelled",
   "/login": "Log in",
   "/forgot-password": "Forgot password",
@@ -77,6 +78,7 @@ const STATIC_TITLES: Record<string, string> = {
 // Neutral placeholders for entity routes until the page knows (and may show)
 // the entity's real name.
 const PATTERN_TITLES: [RegExp, string][] = [
+  [/^\/bookings\/[^/]+\/[^/]+$/, "Booking"],
   [/^\/games\/host\/[^/]+$/, "Edit activity"],
   [/^\/games\/[^/]+$/, "Activity"],
   [/^\/circles\/[^/]+$/, "Circle"],

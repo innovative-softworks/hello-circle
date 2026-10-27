@@ -1,3 +1,4 @@
+import { listPublicCategories, type Family } from "./taxonomy.js";
 import { orgActiveSql } from "./orgSql.js";
 import { CORPORATE_BRAND, CORPORATE_BRAND_URL, LEGAL_OPERATOR, PRODUCT_BRAND } from "./companyIdentity.js";
 import { venuePagesPublic, isVenuePath } from "./venueLaunch.js";
@@ -640,6 +641,7 @@ export async function generateSitemapUrls(): Promise<string[]> {
     const activitySlug = slugifyActivity(p.activityLabel);
     if (activitySlug) urls.push(`${CLIENT_URL}/${encodeURIComponent(p.county)}/${activitySlug}`);
   }
+  urls.push(...(await categorySitemapUrls()));
 
   return urls;
 }
@@ -647,4 +649,43 @@ export async function generateSitemapUrls(): Promise<string[]> {
 export function buildSitemapXml(urls: string[]): string {
   const entries = urls.map((u) => `  <url><loc>${escapeHtml(u)}</loc></url>`).join("\n");
   return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${entries}\n</urlset>\n`;
+}
+
+// Category system (2026-10-22) — list pages filtered by ?category=<slug>.
+// Indexable only for a category on its own (no subcategory or other filter)
+// that has live listings in that page's family; every other combination is
+// noindex with its canonical pointing at the category page. Unknown or empty
+// categories fall back to the plain list page's meta.
+const CATEGORY_LIST_PAGES: Record<string, { family: Family; kind?: "adventure" | "experience"; noun: string }> = {
+  "/games": { family: "activity", noun: "activities" },
+  "/circles": { family: "circle", noun: "Circles" },
+  "/programs": { family: "programme", noun: "programmes" },
+  "/adventures": { family: "experience", kind: "adventure", noun: "adventures" },
+  "/experiences": { family: "experience", kind: "experience", noun: "experiences" },
+  "/volunteer": { family: "volunteer", noun: "volunteering" },
+};
+
+export async function resolveCategoryOgMeta(pathName: string, query: Record<string, unknown>): Promise<OgMeta | null> {
+  const page = CATEGORY_LIST_PAGES[pathName];
+  const slug = typeof query.category === "string" ? query.category : null;
+  if (!page || !slug) return null;
+  const cat = (await listPublicCategories(page.family, page.kind)).find((c) => c.slug === slug);
+  if (!cat) return null;
+  const canonical = `${CLIENT_URL}${pathName}?category=${encodeURIComponent(cat.slug)}`;
+  const onlyCategory = Object.keys(query).every((k) => k === "category");
+  return {
+    title: `${cat.seoTitle || `${cat.name} ${page.noun} in Ireland`} — HelloCircle`,
+    description: cat.seoDescription || `${cat.description ?? cat.name} — ${cat.count} ${page.noun} on HelloCircle across Ireland.`,
+    url: canonical,
+    robots: onlyCategory ? "index, follow" : "noindex, nofollow",
+  };
+}
+
+/** Sitemap entries for category list pages with live listings (never empty ones). */
+export async function categorySitemapUrls(): Promise<string[]> {
+  const out: string[] = [];
+  for (const [pathName, page] of Object.entries(CATEGORY_LIST_PAGES)) {
+    for (const c of await listPublicCategories(page.family, page.kind)) if (c.count > 0) out.push(`${CLIENT_URL}${pathName}?category=${encodeURIComponent(c.slug)}`);
+  }
+  return out;
 }

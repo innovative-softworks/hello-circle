@@ -2255,6 +2255,12 @@ export async function initSchema() {
   }
 
   await initCommerceSchema(ensureColumn, ensureIndex);
+
+  // Category system (approved 2026-10-22) — three additive tables, seed and a
+  // once-per-database backfill. Dynamic import: taxonomy.ts imports this
+  // module, so a static import would be circular.
+  const { initTaxonomySchema } = await import("../taxonomy.js");
+  await initTaxonomySchema();
 }
 
 /** Commerce Engine Phase 1 — versioned commercial rules (commerce/rules.ts,
@@ -4123,6 +4129,262 @@ async function initCommerceSchema(
   // OG-05 — each money exception is announced to the partner once.
   await ensureColumn("connected_payouts", "failure_notified_at", "failure_notified_at DATETIME NULL");
   await ensureColumn("partner_subscriptions", "past_due_notified_at", "past_due_notified_at DATETIME NULL");
+
+  // --- Circle Experience 2.0 (2026-10-23, docs/circle-experience-2-audit.md) ---
+  // Every feature below sits behind a circles.* flag (circleFeatures.ts).
+  // Relationships are enforced in routes/circles*.ts like every other table.
+
+  // First-Time Friendly — the welcome step is shown once per membership.
+  // Members who joined before this release have already settled in, so the
+  // backfill marks them welcomed (once per database, never per boot).
+  await ensureColumn("circle_members", "welcomed_at", "welcomed_at DATETIME NULL");
+  if (!(await db.prepare("SELECT 1 AS done FROM app_settings WHERE `key` = 'migration.circle_welcomed_backfill'").get())) {
+    await db.prepare(`UPDATE circle_members SET welcomed_at = joined_at WHERE welcomed_at IS NULL`).run();
+    await db.prepare("INSERT IGNORE INTO app_settings (`key`, value) VALUES ('migration.circle_welcomed_backfill', 'done')").run();
+  }
+
+  // D5 — a member an organiser removed can't rejoin or request again until
+  // an organiser lifts it. Lifting deletes the row; both actions are audited.
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS circle_restrictions (
+      circle_id VARCHAR(191) NOT NULL,
+      resident_id VARCHAR(191) NOT NULL,
+      restricted_by VARCHAR(191) NOT NULL,
+      reason VARCHAR(500) NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (circle_id, resident_id)
+    );
+  `);
+
+  // Circle Pulse — one member's "I'd like to do this, this week". Aggregated
+  // for everyone else; never listed per person. interest_key is the
+  // normalised label, so "Hiking" and "hiking " count together, and the
+  // unique key stops a duplicate active interest for the same week.
+  // slots is a comma list of day:slot tokens (participationVocab.ts); empty
+  // means "any time that week". Expires at the end of that Ireland week.
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS circle_pulses (
+      id VARCHAR(191) PRIMARY KEY,
+      circle_id VARCHAR(191) NOT NULL,
+      resident_id VARCHAR(191) NOT NULL,
+      interest VARCHAR(80) NOT NULL,
+      interest_key VARCHAR(80) NOT NULL,
+      week_start VARCHAR(10) NOT NULL,
+      slots VARCHAR(300) NOT NULL DEFAULT '',
+      note VARCHAR(280) NULL,
+      expires_at DATETIME NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_circle_pulse (circle_id, resident_id, interest_key, week_start),
+      KEY idx_circle_pulse_week (circle_id, week_start, expires_at)
+    );
+  `);
+  // The one "enough people are interested" notice per interest per week.
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS circle_pulse_notices (
+      circle_id VARCHAR(191) NOT NULL,
+      interest_key VARCHAR(80) NOT NULL,
+      week_start VARCHAR(10) NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (circle_id, interest_key, week_start)
+    );
+  `);
+
+  // Free Time Match — opt-in, per Circle, per Ireland week. Submitting it is
+  // the consent; withdrawing deletes the row. Only aggregate counts leave
+  // the server.
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS circle_availability (
+      circle_id VARCHAR(191) NOT NULL,
+      resident_id VARCHAR(191) NOT NULL,
+      week_start VARCHAR(10) NOT NULL,
+      slots VARCHAR(300) NOT NULL,
+      expires_at DATETIME NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (circle_id, resident_id, week_start),
+      KEY idx_circle_availability_week (circle_id, week_start)
+    );
+  `);
+
+  // Make It Happen — interest on an existing plan idea (circle_plans). A plan
+  // still only becomes real through the normal activity flow (games.ts).
+  // target_size: how many people make it worth doing (organiser review is
+  // suggested once reached). expires_at: an unconfirmed idea stops collecting
+  // interest after this. source_pulse_key: week|interest_key of the Pulse it
+  // came from. ready_notified_at: the once-only "ready for review" notice.
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS circle_plan_interest (
+      plan_id VARCHAR(191) NOT NULL,
+      resident_id VARCHAR(191) NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (plan_id, resident_id),
+      KEY idx_circle_plan_interest_resident (resident_id)
+    );
+  `);
+  await ensureColumn("circle_plans", "target_size", "target_size INT NULL");
+  await ensureColumn("circle_plans", "expires_at", "expires_at DATETIME NULL");
+  await ensureColumn("circle_plans", "source_pulse_key", "source_pulse_key VARCHAR(100) NULL");
+  await ensureColumn("circle_plans", "ready_notified_at", "ready_notified_at DATETIME NULL");
+  await ensureColumn("circle_plans", "decline_reason", "decline_reason VARCHAR(500) NULL");
+  // Circles 3.0 — a plan may reference a real listing (circlePlanListings.ts).
+  // A reference only: no copy of the listing, its price or its capacity.
+  await ensureColumn("circle_plans", "listing_type", "listing_type VARCHAR(20) NULL");
+  await ensureColumn("circle_plans", "listing_id", "listing_id VARCHAR(191) NULL");
+  await ensureColumn("circle_plans", "listing_session_id", "listing_session_id VARCHAR(191) NULL");
+  await ensureIndex("circle_plans", "idx_circle_plans_listing", "(circle_id, listing_type, listing_id)");
+  await ensureColumn("circle_plans", "listing_notice_at", "listing_notice_at DATETIME NULL");
+  // Circles 3.0 — who closed a closed Circle: an organiser can reopen their
+  // own closure; a HelloCircle closure is reopened only by HelloCircle.
+  await ensureColumn("circles", "closed_by", "closed_by VARCHAR(20) NULL");
+  await ensureColumn("circle_plans", "reminder_sent_at", "reminder_sent_at DATETIME NULL");
+  // Circles 3.0 — one plan shared with a partner Circle (owner, 2026-10-28):
+  // the same plan record shows in both; the home Circle's organisers own it.
+  await ensureColumn("circle_plans", "partner_circle_id", "partner_circle_id VARCHAR(191) NULL");
+  await ensureIndex("circle_plans", "idx_circle_plans_partner", "(partner_circle_id)");
+
+  // Circle Memories — a photo or short reflection from a past Circle
+  // activity the contributor joined. Members-only in every join mode (D4).
+  // image_url is the stored location; responses only ever carry the
+  // protected delivery route. Removal keeps the row as a record.
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS circle_memories (
+      id VARCHAR(191) PRIMARY KEY,
+      circle_id VARCHAR(191) NOT NULL,
+      game_id VARCHAR(191) NOT NULL,
+      resident_id VARCHAR(191) NOT NULL,
+      kind VARCHAR(20) NOT NULL,
+      image_url VARCHAR(500) NULL,
+      caption VARCHAR(280) NULL,
+      body VARCHAR(1000) NULL,
+      consent_confirmed TINYINT NOT NULL DEFAULT 0,
+      status VARCHAR(20) NOT NULL DEFAULT 'visible',
+      removed_at DATETIME NULL,
+      removed_by VARCHAR(191) NULL,
+      removed_by_kind VARCHAR(20) NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      KEY idx_circle_memories_circle (circle_id, status, created_at),
+      KEY idx_circle_memories_game (game_id)
+    );
+  `);
+
+  // --- Circle Experience 4.0 (2026-10-24, docs/circle-visitor-experience-v4/) ---
+  // The organiser's own "people often come on their own" (NULL = not said).
+  await ensureColumn("circles", "solo_welcome", "solo_welcome TINYINT(1) NULL");
+
+  // --- Experience 3.0 (2026-10-23, docs/experience-3/) ---
+  // Spot alerts (experience.spot_alerts): "tell me if a place opens" on a full
+  // experience departure. Never a hold. One row per person per departure;
+  // notified_at makes it once-only; expires when the departure starts.
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS experience_spot_alerts (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      session_id VARCHAR(191) NOT NULL,
+      resident_id VARCHAR(191) NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      expires_at DATETIME NOT NULL,
+      notified_at DATETIME NULL,
+      cancelled_at DATETIME NULL,
+      UNIQUE KEY uniq_spot_alert (session_id, resident_id),
+      KEY idx_spot_alert_open (session_id, notified_at, cancelled_at, expires_at)
+    );
+  `);
+  // Plan My Day (experience.plan_my_day): a resident's saved day plans. items
+  // is a JSON list of up to four stops (a snapshot of what was suggested);
+  // every read re-checks each stop against what's listed now. TEXT with no
+  // DEFAULT (MySQL rejects TEXT defaults).
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS day_plans (
+      id VARCHAR(191) PRIMARY KEY,
+      resident_id VARCHAR(191) NOT NULL,
+      title VARCHAR(120) NOT NULL,
+      date VARCHAR(10) NOT NULL,
+      items TEXT NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      KEY idx_day_plans_resident (resident_id, date)
+    );
+  `);
+  // Circle-to-Circle activities (circles.collaboration, owner decision D2).
+  // An organiser of the proposer Circle asks the partner Circle; an organiser
+  // there accepts or declines; then the proposer's organiser creates the
+  // activity through the normal form (games.collaborationId → game_id). The
+  // activity belongs to the proposer Circle; games.partner_circle_id lets the
+  // partner's members see and join it. Nothing about either Circle's
+  // members or permissions is merged.
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS circle_collaborations (
+      id VARCHAR(191) PRIMARY KEY,
+      proposer_circle_id VARCHAR(191) NOT NULL,
+      partner_circle_id VARCHAR(191) NOT NULL,
+      proposed_by VARCHAR(191) NOT NULL,
+      title VARCHAR(255) NOT NULL,
+      note VARCHAR(1000) NULL,
+      proposed_date VARCHAR(10) NULL,
+      proposed_time VARCHAR(5) NULL,
+      location_text VARCHAR(255) NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'proposed',
+      decided_by VARCHAR(191) NULL,
+      decided_at DATETIME NULL,
+      decline_reason VARCHAR(500) NULL,
+      game_id VARCHAR(191) NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      KEY idx_collab_proposer (proposer_circle_id, status),
+      KEY idx_collab_partner (partner_circle_id, status)
+    );
+  `);
+  await ensureColumn("games", "partner_circle_id", "partner_circle_id VARCHAR(191) NULL");
+  // Circles 3.0 — a Circle-to-Circle invitation can share an existing plan.
+  await ensureColumn("circle_collaborations", "plan_id", "plan_id VARCHAR(191) NULL");
+
+  // Circles 3.1 — a listing linked to a Circle (not a plan, not a copy):
+  // one row per Circle + listing, so the same listing can be linked to many
+  // Circles but never twice to one. A member's link waits for an organiser;
+  // removing a link keeps the row (status 'removed') and never touches the
+  // listing. Relationships are checked in circleLinks.ts (no foreign keys,
+  // project convention).
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS circle_listing_links (
+      id VARCHAR(191) PRIMARY KEY,
+      circle_id VARCHAR(191) NOT NULL,
+      listing_type VARCHAR(20) NOT NULL,
+      listing_id VARCHAR(191) NOT NULL,
+      relationship VARCHAR(20) NOT NULL DEFAULT 'shared',
+      status VARCHAR(20) NOT NULL DEFAULT 'pending',
+      note VARCHAR(500) NULL,
+      linked_by VARCHAR(191) NOT NULL,
+      decided_by VARCHAR(191) NULL,
+      decided_at DATETIME NULL,
+      removed_by VARCHAR(191) NULL,
+      removed_at DATETIME NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_circle_listing (circle_id, listing_type, listing_id),
+      KEY idx_circle_links_status (circle_id, status),
+      KEY idx_circle_links_listing (listing_type, listing_id)
+    );
+  `);
+
+  // My Life 3.0 (owner 2026-10-25, docs/my-life-3/). mylife_dismissals: a
+  // resident hid a Pulse item or a suggestion ("not for me"), so it follows
+  // them across devices (decision D4). mylife_alerts_seen: which saved-item
+  // sessions and routine days an opted-in resident has already been told
+  // about, so the alerts sweep never repeats itself (decision D5).
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS mylife_dismissals (
+      resident_id VARCHAR(191) NOT NULL,
+      item_key VARCHAR(191) NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (resident_id, item_key)
+    );
+    CREATE TABLE IF NOT EXISTS mylife_alerts_seen (
+      resident_id VARCHAR(191) NOT NULL,
+      alert_key VARCHAR(191) NOT NULL,
+      notified TINYINT(1) NOT NULL DEFAULT 0,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (resident_id, alert_key)
+    );
+  `);
 }
 
 export const COUNTY_CENTROIDS: Record<string, { lat: number; lng: number }> = {

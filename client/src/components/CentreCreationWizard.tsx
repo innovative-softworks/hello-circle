@@ -1,3 +1,4 @@
+import { emptyCategoryDraft, ListingCategoryFields, saveListingCategory, useSavedClassification, type ListingCategoryDraft } from "./categories/ListingCategoryFields";
 import { useEffect, useState } from "react";
 import { useConfirm } from "./ConfirmProvider";
 import { useNavigate } from "react-router-dom";
@@ -86,6 +87,13 @@ export function CentreCreationWizard({
   // (which is missing rollup fields like capacity/from that only the
   // server computes from real room rows).
   const [previewCentre, setPreviewCentre] = useState<Centre | null>(null);
+  // Category system — chosen on Basics, stored right after the draft is saved.
+  const [category, setCategoryRaw] = useState<ListingCategoryDraft>(emptyCategoryDraft);
+  const savedTaxonomy = useSavedClassification("centre", initialCentreId === "new" ? null : initialCentreId, (d) => setCategoryRaw(d));
+  const setCategory = (next: ListingCategoryDraft) => {
+    setCategoryRaw(next);
+    onDirtyChange?.(true);
+  };
 
   const setForm = (patch: Partial<WizardForm>) => {
     setFormRaw((f) => ({ ...f, ...patch }));
@@ -140,12 +148,21 @@ export function CentreCreationWizard({
     setSaving(true);
     setError(null);
     try {
+      let savedId = id;
       if (id === "new") {
         const created = await createVendorCentre({ name: form.name, managedBy: form.managedBy, blurb: form.blurb });
+        savedId = created.id;
         setId(created.id);
         navigate(`/vendor/centres/${created.id}`, { replace: true });
       } else {
         await updateVendorCentre(id, { name: form.name, managedBy: form.managedBy, blurb: form.blurb });
+      }
+      // The draft exists now; a failed category save keeps you on this step to retry.
+      try {
+        await saveListingCategory("centre", savedId, category);
+      } catch (e) {
+        setError(`Your venue is saved, but its category wasn't: ${e instanceof Error ? e.message : "please try again"}`);
+        return;
       }
       onDirtyChange?.(false);
       goNext();
@@ -282,6 +299,7 @@ export function CentreCreationWizard({
             </p>
             <textarea id="centre-wizard-blurb" aria-describedby="centre-wizard-blurb-hint" value={form.blurb} onChange={(e) => setForm({ blurb: e.target.value })} rows={3} style={{ ...inputStyle, resize: "vertical" }} />
           </div>
+          <ListingCategoryFields family="venue" label="Type of space" value={category} current={savedTaxonomy} onChange={setCategory} />
         </div>
       </GuidedFlow>
     );

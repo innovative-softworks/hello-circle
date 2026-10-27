@@ -26,6 +26,7 @@ export function CircleActivityCard({ stats, period, onPeriodChange }: { stats: C
         <select
           value={period}
           onChange={(e) => onPeriodChange(e.target.value as "week" | "month")}
+          aria-label="Circle activity period"
           style={{ border: `1px solid ${colors.inputBorder}`, borderRadius: radius.control, padding: "3px 6px", fontSize: 12, fontWeight: 600, color: colors.text, background: colors.bg }}
         >
           <option value="week">This week</option>

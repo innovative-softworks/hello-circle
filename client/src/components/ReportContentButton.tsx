@@ -8,7 +8,7 @@ import { colors, radius } from "../theme";
 // report lands in the admin Reviews & reports queue. Works signed out (reports
 // are keyed by the anonymous client id), and remembers that you've reported it.
 
-export type ReportableType = "game" | "centre" | "club" | "experience";
+export type ReportableType = "game" | "centre" | "club" | "experience" | "program" | "host" | "provider" | "circle_memory" | "circle_plan";
 
 const REASONS = ["Spam or fake", "Misleading or inaccurate", "Unsafe", "Harassment or abuse", "Other"];
 
@@ -58,7 +58,7 @@ export function ReportContentButton({
       {render ? (
         render(onClick, already)
       ) : (
-        <button type="button" onClick={onClick} disabled={already} style={{ background: "none", border: "none", padding: 0, cursor: already ? "default" : "pointer", color: colors.mutedLight, fontSize: 13, textDecoration: already ? "none" : "underline" }}>
+        <button type="button" className="tap-target" onClick={onClick} disabled={already} style={{ background: "none", border: "none", padding: 0, cursor: already ? "default" : "pointer", color: colors.mutedLight, fontSize: 13, textDecoration: already ? "none" : "underline" }}>
           {already ? "Reported" : "Report"}
         </button>
       )}

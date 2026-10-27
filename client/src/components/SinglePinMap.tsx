@@ -23,8 +23,10 @@ import { colors, radius } from "../theme";
  * viewer actually asks to see one. */
 const SinglePinMapImpl = lazy(() => import("./SinglePinMapImpl").then((m) => ({ default: m.SinglePinMap })));
 
-export function SinglePinMap(props: { lat: number; lng: number; label: string; height?: number; zoom?: number }) {
-  const [open, setOpen] = useState(false);
+export function SinglePinMap(props: { lat: number; lng: number; label: string; height?: number; zoom?: number; startOpen?: boolean }) {
+  // `startOpen` — the caller already offered its own "Show map" control
+  // (detail-page LocationBlock), so the map loads straight away.
+  const [open, setOpen] = useState(!!props.startOpen);
   const height = props.height ?? 260;
 
   // Two kill switches (see DiscoveryMap.tsx's identical check for the full
@@ -62,22 +64,26 @@ export function SinglePinMap(props: { lat: number; lng: number; label: string; h
         onClick={() => setOpen(true)}
         aria-label={`View map for ${props.label}`}
         style={{
+          // Detail-page redesign — a compact row until asked for, not a large empty box.
           width: "100%",
-          height,
+          minHeight: 56,
           borderRadius: radius.card,
           border: `1px solid ${colors.border}`,
           background: colors.panel,
           display: "flex",
-          flexDirection: "column",
           alignItems: "center",
-          justifyContent: "center",
-          gap: 10,
+          gap: 12,
           cursor: "pointer",
-          padding: 0,
+          padding: "10px 16px",
+          textAlign: "left",
         }}
       >
-        <PinIcon size={22} style={{ color: colors.mutedLight }} />
-        <span style={{ fontSize: 13.5, fontWeight: 700, color: colors.text }}>View map</span>
+        <PinIcon size={18} style={{ color: colors.mutedLight, flex: "none" }} />
+        <span style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          <span style={{ fontSize: 13.5, fontWeight: 700, color: colors.text }}>View map</span>
+          {/* The map is provided by Mapbox, which records each map load (audit DP-18). */}
+          <span style={{ fontSize: 12, color: colors.mutedLight }}>Loads a map from Mapbox</span>
+        </span>
       </button>
     );
   }

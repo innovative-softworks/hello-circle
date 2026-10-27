@@ -1,9 +1,12 @@
 import { useEffect, useState, type SetStateAction } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { createGame, createGameSeries, fetchGameSeries, fetchGame, fetchGameParticipantsForManage, fetchHostVenueBookings, setGameLifecycle, updateGame, type HostVenueBooking } from "../api";
+import { createGame, createGameSeries, fetchCircle, fetchGameSeries, fetchGame, fetchGameParticipantsForManage, fetchHostVenueBookings, setGameLifecycle, updateGame, type HostVenueBooking } from "../api";
+import "../components/circle/circleExperience.css";
 import { signInHref } from "../authRedirect";
 import { BackLink } from "../components/BackLink";
 import { AttributePicker } from "../components/AttributePicker";
+import { CategoryPicker, TagPicker, type CategoryValue } from "../components/categories/CategoryPicker";
+import type { ListingTaxonomy } from "../types";
 import { GuidedFlow } from "../components/GuidedFlow";
 import { NumberStepper, useUnsavedChangesGuard } from "../components/form";
 import { ShareButton } from "../components/ShareButton";
@@ -65,17 +68,23 @@ export function HostGamePage() {
   // host chooses, and isn't relevant to edit mode (a game's circle isn't
   // reassignable from this wizard).
   const circleId = gameId ? undefined : searchParams.get("circleId") ?? undefined;
+  // Circles 3.1 — a member creating an activity for a Circle (not the
+  // organiser's official circleId path): linked after it's created.
+  const shareToCircleId = gameId || circleId ? undefined : searchParams.get("shareToCircleId") ?? undefined;
+  const [circleLinkNote, setCircleLinkNote] = useState<{ ok: boolean; text: string } | null>(null);
   // Phase 2 "Circles V2" — a plan-idea's "Create Activity" deep-link carries
   // planId through so the server can atomically convert it (see
   // games.ts's createGameRow). Unlike the "do it again" query params above,
   // date/time genuinely SHOULD prefill here — the whole point of a
   // confirmed plan is that the circle already agreed on them (brief §20).
   const planId = gameId ? undefined : searchParams.get("planId") ?? undefined;
+  // Experience 3.0 — creating an agreed Circle-to-Circle activity.
+  const collaborationId = gameId ? undefined : searchParams.get("collaborationId") ?? undefined;
   // Release 6 — "Create a game" from a Host Opportunity carries the demand
   // cluster's suggested day/time too (the whole point is to match it).
   const fromDemand = gameId ? undefined : searchParams.get("fromDemand") ?? undefined;
-  const initialDate = planId || fromDemand ? searchParams.get("date") ?? "" : "";
-  const initialTime = planId || fromDemand ? searchParams.get("time") ?? "" : "";
+  const initialDate = planId || fromDemand || collaborationId ? searchParams.get("date") ?? "" : "";
+  const initialTime = planId || fromDemand || collaborationId ? searchParams.get("time") ?? "" : "";
 
   const [step, setStep] = useState(1);
   const [loadingGame, setLoadingGame] = useState(!!gameId);
@@ -107,6 +116,9 @@ export function HostGamePage() {
     // Release 2 — replaces the single soloFriendly checkbox; "come_alone"
     // is kept in sync with games.solo_friendly server-side.
     participationAttributes: [] as string[],
+    // Category system — optional; the title above stays free text.
+    category: (qp("categoryId") ? { categoryId: qp("categoryId"), subcategoryId: qp("subcategoryId") || null } : null) as CategoryValue | null,
+    tags: [] as string[],
     skillLevel: qp("skillLevel"),
     minParticipants: "",
     confirmationDeadline: "",
@@ -143,6 +155,7 @@ export function HostGamePage() {
   // HC-QA-032 — the activity's original date in edit mode: an unchanged past
   // date (a completed activity) may still be edited; a new/changed one may not.
   const [originalDate, setOriginalDate] = useState<string | null>(null);
+  const [savedTaxonomy, setSavedTaxonomy] = useState<ListingTaxonomy | null>(null);
   const todayIso = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Dublin", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
   const [justCreatedImageUrl, setJustCreatedImageUrl] = useState<string | null>(null);
 
@@ -177,6 +190,7 @@ export function HostGamePage() {
           return;
         }
         setOriginalDate(game.date);
+        setSavedTaxonomy(game.taxonomy ?? null);
         setSeriesId(game.seriesId ?? null);
         if (game.centreId && !game.bookingRef) setLegacyVenue({ centreId: game.centreId, name: game.centreName ?? "Current venue" });
         setFormRaw({
@@ -189,6 +203,8 @@ export function HostGamePage() {
           capacity: game.capacity,
           priceCents: game.priceCents ? String(game.priceCents / 100) : "",
           participationAttributes: game.participationAttributes ?? (game.soloFriendly ? ["come_alone"] : []),
+          category: game.taxonomy ? { categoryId: game.taxonomy.categoryId, subcategoryId: game.taxonomy.subcategoryId } : null,
+          tags: game.tags ?? [],
           skillLevel: game.skillLevel ?? "",
           minParticipants: game.minParticipants ? String(game.minParticipants) : "",
           confirmationDeadline: game.confirmationDeadline ? isoToDatetimeLocal(game.confirmationDeadline) : "",
@@ -240,6 +256,9 @@ export function HostGamePage() {
         priceCents: form.priceCents ? Math.round(parseFloat(form.priceCents) * 100) : undefined,
         soloFriendly: form.participationAttributes.includes("come_alone"),
         participationAttributes: form.participationAttributes,
+        categoryId: form.category?.categoryId ?? "",
+        subcategoryId: form.category?.subcategoryId ?? null,
+        tags: form.tags,
         experienceRequired: form.experienceRequired,
         accessibilityInfo: form.accessibilityInfo,
         skillLevel: form.skillLevel || undefined,
@@ -254,7 +273,9 @@ export function HostGamePage() {
         meetingInstructions: form.meetingInstructions || undefined,
         cancellationPolicy: form.cancellationPolicy || undefined,
         circleId,
+        shareToCircleId,
         planId,
+        collaborationId,
         fromDemand,
         // The radio control (below) only ever sets one of these three
         // values, and is hidden entirely in edit mode — the wider type on
@@ -303,7 +324,7 @@ export function HostGamePage() {
       // OG-26 — a weekly, address-based repeat of up to 12 dates is created as
       // one linked series (the host can manage or cancel the rest together,
       // and followers hear about it once). Other repeats stay separate dates.
-      if (repeat === "weekly" && count >= 2 && count <= 12 && !form.centreId && !planId) {
+      if (repeat === "weekly" && count >= 2 && count <= 12 && !form.centreId && !planId && !collaborationId) {
         const { games } = await createGameSeries({ ...baseInput, date: form.date, repeatWeeks: count });
         setDirty(false);
         if (circleId) navigate(`/manage/circles/${circleId}`);
@@ -314,6 +335,8 @@ export function HostGamePage() {
         const occurrenceDate = dates[i];
         const game = await createGame({ ...baseInput, date: occurrenceDate });
         if (i === 0) firstGame = game;
+        const link = (game as typeof game & { circleLink?: { ok: boolean; status?: string; error?: string } }).circleLink;
+        if (i === 0 && link) setCircleLinkNote(link.ok ? { ok: true, text: link.status === "approved" ? "Added to your Circle." : "Sent to your Circle. An organiser will approve it before it shows there." } : { ok: false, text: link.error ?? "Linking it to the Circle didn't work. You can link it from the Circle." });
       }
       setDirty(false);
       // Converting a plan-idea returns to the public Circle page (where the
@@ -370,6 +393,7 @@ export function HostGamePage() {
 
   const body = (
     <>
+        {(circleId || shareToCircleId) && !gameId && !justCreated && <CreatingForCircle circleId={(circleId ?? shareToCircleId)!} official={!!circleId} />}
 
         {resident && loadingGame ? null : resident && loadError ? (
           <div style={{ background: colors.dangerBg, border: `1px solid ${colors.danger}`, borderRadius: radius.card, padding: "16px 20px", fontSize: 14, marginTop: 20, color: colors.danger }}>
@@ -381,6 +405,11 @@ export function HostGamePage() {
               <CheckCircleIcon size={36} style={{ color: colors.greenText }} />
               {/* HC-QA-032 — confirmation matches what was actually saved. */}
               <h2 style={{ margin: "14px 0 4px" }}>{justCreated.lifecycle === "draft" ? "Draft saved." : justCreated.lifecycle === "coming_soon" ? "Announced." : "You're live."}</h2>
+              {circleLinkNote && (
+                <p role="status" style={{ fontSize: 13.5, fontWeight: 600, margin: "0 0 10px", color: circleLinkNote.ok ? colors.greenText : colors.orangeDark }}>
+                  {circleLinkNote.text}
+                </p>
+              )}
               <p style={{ fontSize: 14, color: colors.muted, margin: "0 0 22px" }}>
                 {justCreated.lifecycle === "draft"
                   ? `Only you can see ${form.activityLabel} for now — publish it from Manage when you're ready.`
@@ -428,6 +457,18 @@ export function HostGamePage() {
               error={stepError}
             >
               <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+                <div style={{ gridColumn: "1 / -1" }}>
+                  <CategoryPicker
+                    family="activity"
+                    label="What are you organising?"
+                    hint="Helps people find it under the right sport or activity."
+                    value={form.category}
+                    current={savedTaxonomy}
+                    onChange={(next, picked) =>
+                      setForm((f) => ({ ...f, category: next, activityLabel: f.activityLabel.trim() || !picked ? f.activityLabel : picked.label }))
+                    }
+                  />
+                </div>
                 <div>
                   <label htmlFor="game-activity" style={labelStyle}>Activity</label>
                   <input id="game-activity" value={form.activityLabel} onChange={(e) => setForm((f) => ({ ...f, activityLabel: e.target.value }))} placeholder="e.g. Badminton" style={inputStyle} autoFocus />
@@ -649,6 +690,9 @@ export function HostGamePage() {
                     Tick only what's true of how you'll run it — the first three show on your session page.
                   </p>
                   <AttributePicker value={form.participationAttributes} onChange={(next) => setForm((f) => ({ ...f, participationAttributes: next }))} />
+                  <div style={{ marginTop: 14 }}>
+                    <TagPicker value={form.tags} onChange={(next) => setForm((f) => ({ ...f, tags: next }))} />
+                  </div>
                 </div>
                 <div style={{ marginBottom: 12 }}>
                   <label htmlFor="game-experience-needed" style={labelStyle}>Experience needed (optional)</label>
@@ -856,3 +900,21 @@ const statusLabel: Record<"draft" | "coming_soon" | "active" | "paused" | "archi
   paused: "Bookings paused",
   archived: "Archived",
 };
+
+
+/** Circles 3.1 — "Creating for {Circle}" at the top of the activity form. */
+function CreatingForCircle({ circleId, official }: { circleId: string; official: boolean }) {
+  const [name, setName] = useState<string | null>(null);
+  useEffect(() => {
+    fetchCircle(circleId)
+      .then((c) => setName(c.name))
+      .catch(() => setName(null));
+  }, [circleId]);
+  if (!name) return null;
+  return (
+    <div className="ccb" role="status" style={{ marginTop: 16 }}>
+      <strong>Creating for {name}</strong>
+      <span>{official ? `It becomes ${name}'s own activity, shown to its members.` : `You're the host. It's added to ${name} once an organiser approves it; until then it's a normal activity.`}</span>
+    </div>
+  );
+}

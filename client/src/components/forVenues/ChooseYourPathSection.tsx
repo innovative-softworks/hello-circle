@@ -81,7 +81,7 @@ export function ChooseYourPathSection({ onListVenueCta, onBecomeHostCta }: { onL
                 <p style={{ fontSize: 16, color: "rgba(255,255,255,.72)", lineHeight: 1.6, margin: "0 0 28px", maxWidth: 420 }}>{p.detail}</p>
                 <div style={{ marginTop: "auto" }}>
                   {p.variant === "orange" ? (
-                    <Button variant="orange" onClick={handlers[i]} style={{ padding: "14px 24px", fontSize: 15.5, background: FV_ACCENT, display: "inline-flex", alignItems: "center", gap: 8 }}>
+                    <Button variant="orange" onClick={handlers[i]} style={{ padding: "14px 24px", fontSize: 15.5, display: "inline-flex", alignItems: "center", gap: 8 }}>
                       {p.cta}
                       <ArrowRightIcon size={15} />
                     </Button>

@@ -1,9 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { signInHref } from "../authRedirect";
+import { trackEvent } from "../analytics";
 import { CheckIcon, PlusIcon } from "./icons";
 import { ResidentPicker } from "./ResidentPicker";
 import { ShareButton } from "./ShareButton";
+import { ActionMenu } from "./ActionMenu";
 import { Button, Card, ConfirmDialog } from "./ui";
 import { colors, fonts, radius } from "../theme";
 import type { Circle } from "../types";
@@ -17,7 +19,9 @@ import type { Circle } from "../types";
 // full-bleed CTA band; it's real functionality, just relocated here behind
 // "Manage Circle" so it isn't lost in the restructure.
 
-export type JoinState = "closed" | "organiser" | "signed-out" | "member" | "available" | "requested" | "invite-only" | "invited";
+// "restricted" — Circle Experience 2.0, owner decision D5: an organiser removed
+// this person; they can't rejoin or ask again until an organiser lifts it.
+export type JoinState = "closed" | "organiser" | "signed-out" | "member" | "available" | "requested" | "invite-only" | "invited" | "restricted";
 
 interface Props {
   circle: Circle;
@@ -31,23 +35,117 @@ interface Props {
   onInvite: (residentId: string) => Promise<void>;
   inviteError: string | null;
   onRequestClose: () => void;
+  /** Circle Experience 4.0 visitor page: just the status and the action, no card. */
+  bare?: boolean;
+  /** Back from sign-in with ?join=1 — open the join step straight away. */
+  autoJoin?: boolean;
+  onAutoJoinHandled?: () => void;
+  /** Bumped by other "Join" buttons on the visitor page to start the same flow. */
+  joinSignal?: number;
+  /** Visitor page wording for the signed-out button. */
+  signedOutLabel?: string;
 }
 
-export function CircleJoinCard({ circle, state, busy, onJoin, onLeave, onMessage, onCreatePlan, onInvite, inviteError, onRequestClose }: Props) {
+export function CircleJoinCard({ circle, state, busy, onJoin, onLeave, onMessage, onCreatePlan, onInvite, inviteError, onRequestClose, bare, autoJoin, onAutoJoinHandled, joinSignal, signedOutLabel }: Props) {
   const navigate = useNavigate();
+  // Signed out: remember the intent (?join=1) so the join step opens on return.
+  const signIn = () => {
+    trackEvent("circle_join_clicked", { circleId: circle.id, signedIn: false });
+    const url = new URL(window.location.href);
+    url.searchParams.set("join", "1");
+    window.history.replaceState(window.history.state, "", url.pathname + url.search + url.hash);
+    navigate(
+      signInHref({
+        kind: "circle",
+        title: circle.name,
+        meta: `${circle.members.toLocaleString()} member${circle.members === 1 ? "" : "s"} · ${circle.area}, ${circle.county}`,
+      })
+    );
+  };
+  const startJoin = () => {
+    trackEvent("circle_join_clicked", { circleId: circle.id, signedIn: true, mode: circle.joinMode });
+    setJoinConfirmOpen(true);
+  };
   const [managing, setManaging] = useState(false);
   const [leaveConfirmOpen, setLeaveConfirmOpen] = useState(false);
   const [joinConfirmOpen, setJoinConfirmOpen] = useState(false);
   const [note, setNote] = useState("");
   const questions = circle.joinMode === "approval" ? circle.joinQuestions ?? [] : [];
   const [answers, setAnswers] = useState<string[]>([]);
+  useEffect(() => {
+    if (!autoJoin) return;
+    if (state === "available") setJoinConfirmOpen(true);
+    onAutoJoinHandled?.();
+  }, [autoJoin, state, onAutoJoinHandled]);
+  useEffect(() => {
+    if (!joinSignal) return;
+    if (state === "available") startJoin();
+    else if (state === "signed-out") signIn();
+    else if (state === "invited") onJoin();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [joinSignal]);
 
+  const leaveDialog = (
+    <ConfirmDialog
+      open={leaveConfirmOpen}
+      title={`Leave ${circle.name}?`}
+      message="You'll stop seeing this Circle's plans and lose your spot in any you've joined."
+      confirmLabel="Leave Circle"
+      cancelLabel="Stay in"
+      busy={busy}
+      onConfirm={() => {
+        onLeave();
+        setLeaveConfirmOpen(false);
+      }}
+      onCancel={() => setLeaveConfirmOpen(false)}
+    />
+  );
+
+  // Circle Home reference layout (2026-10-23): a member's card leads with the
+  // next activity; Message Circle beside it, Leave behind the "…" menu.
+  if (state === "member") {
+    return (
+      <div className="ch-card ch-member-card">
+        <div className="ch-member-head">
+          <span className="ch-check" aria-hidden="true">
+            <CheckIcon size={16} />
+          </span>
+          <div>
+            <strong>You're a member</strong>
+            <span>Welcome! You're part of this Circle and you'll hear about every plan.</span>
+          </div>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {circle.nextPlan && (
+            <Button full onClick={() => navigate(`/games/${circle.nextPlan!.id}`)}>
+              {circle.nextPlan.source === "circle" ? "View next activity" : "View similar activity"}
+            </Button>
+          )}
+          <div className="ch-member-actions">
+            <Button variant="ghost" onClick={onMessage} style={{ width: "100%" }}>
+              Message Circle
+            </Button>
+            <ActionMenu label={`Membership options for ${circle.name}`} appearance="icon" items={[{ label: "Leave Circle", danger: true, onSelect: () => setLeaveConfirmOpen(true), disabled: busy }]} />
+          </div>
+        </div>
+        {!!circle.familiarMembers && (
+          <p style={{ margin: "12px 0 0", fontSize: 12.5, color: colors.muted }}>
+            {circle.familiarMembers} {circle.familiarMembers === 1 ? "person" : "people"} you've played with before {circle.familiarMembers === 1 ? "is" : "are"} here.
+          </p>
+        )}
+        {leaveDialog}
+      </div>
+    );
+  }
+
+  const Wrap = bare ? BareWrap : Card;
+  const showIntro = !bare || !(state === "available" || state === "signed-out");
   return (
-    <Card>
-      <h3 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 18, margin: "0 0 6px", letterSpacing: 0 }}>
-        {state === "member"
-          ? "You're in the Circle" /* Product Language & IA Polish — Changeset 1F. Was bare "You're in", identical to a one-off Game's own post-join headline, despite Circle membership being ongoing rather than a single occurrence. */
-          : state === "organiser"
+    <Wrap>
+      {showIntro && (
+        <>
+      <h3 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: bare ? 16 : 18, margin: "0 0 6px", letterSpacing: 0 }}>
+        {state === "organiser"
           ? "Manage this Circle"
           : state === "requested"
           ? "Request sent"
@@ -55,21 +153,25 @@ export function CircleJoinCard({ circle, state, busy, onJoin, onLeave, onMessage
           ? "You're invited"
           : state === "invite-only"
           ? "Invite only"
+          : state === "restricted"
+          ? "You can't rejoin this Circle"
           : `Join ${circle.name}`}
       </h3>
       <p style={{ margin: "0 0 16px", fontSize: 13.5, color: colors.mutedLight, lineHeight: 1.5 }}>
         {state === "closed"
           ? "This Circle is closed to new activity."
-          : state === "member"
-          ? `Be part of ${circle.name} — you'll hear about every plan.`
           : state === "requested"
           ? "The organiser will let you know when they respond."
           : state === "invited"
           ? `The organiser has invited you to join ${circle.name}.`
           : state === "invite-only"
           ? "The organiser adds members by invite."
+          : state === "restricted"
+          ? "An organiser removed you from this Circle. Only an organiser can change that — if you think it's a mistake, contact them or report the Circle."
           : `Be part of our active and friendly ${circle.activityLabel.toLowerCase()} community.`}
       </p>
+        </>
+      )}
 
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {state === "closed" && (
@@ -79,24 +181,13 @@ export function CircleJoinCard({ circle, state, busy, onJoin, onLeave, onMessage
         )}
 
         {state === "signed-out" && (
-          <Button
-            full
-            onClick={() =>
-              navigate(
-                signInHref({
-                  kind: "circle",
-                  title: circle.name,
-                  meta: `${circle.members.toLocaleString()} member${circle.members === 1 ? "" : "s"} · ${circle.area}, ${circle.county}`,
-                })
-              )
-            }
-          >
-            Sign in to join
+          <Button full onClick={signIn}>
+            {signedOutLabel ?? (bare ? "Join this Circle" : "Sign in to join")}
           </Button>
         )}
 
         {state === "available" && (
-          <Button full onClick={() => setJoinConfirmOpen(true)} disabled={busy}>
+          <Button full onClick={startJoin} disabled={busy}>
             {busy ? "…" : circle.joinMode === "approval" ? "Request to join" : "Join Circle"}
           </Button>
         )}
@@ -120,21 +211,6 @@ export function CircleJoinCard({ circle, state, busy, onJoin, onLeave, onMessage
           <div style={{ fontWeight: 700, fontSize: 13.5, color: colors.muted, background: colors.panel, borderRadius: radius.control, padding: "10px 14px", textAlign: "center" }}>
             Ask the organiser for an invite
           </div>
-        )}
-
-        {state === "member" && (
-          <>
-            <div className="pop-in" style={{ display: "inline-flex", alignItems: "center", gap: 6, fontWeight: 700, fontSize: 14, color: colors.greenText, background: colors.greenBg, borderRadius: radius.control, padding: "10px 14px", justifyContent: "center" }}>
-              <CheckIcon size={14} /> Joined
-            </div>
-            {circle.nextPlan && (
-              <Button full onClick={() => navigate(`/games/${circle.nextPlan!.id}`)}>
-                {circle.nextPlan.source === "circle" ? "View next plan" : "View similar activity"}
-              </Button>
-            )}
-            <Button variant="ghost" full onClick={onMessage}>Message Circle</Button>
-            <Button variant="ghost" full onClick={() => setLeaveConfirmOpen(true)} disabled={busy}>{busy ? "…" : "Leave Circle"}</Button>
-          </>
         )}
 
         {state === "organiser" && (
@@ -162,13 +238,13 @@ export function CircleJoinCard({ circle, state, busy, onJoin, onLeave, onMessage
         )}
       </div>
 
-      {(state === "available" || state === "signed-out") && (
+      {!bare && (state === "available" || state === "signed-out") && (
         <div style={{ marginTop: 10 }}>
           <ShareButton entityType="circle" entityId={circle.id} />
         </div>
       )}
 
-      {(state !== "closed" || !!circle.familiarMembers) && !(circle.restricted && circle.joinMode === "invite") && (
+      {!bare && (state !== "closed" || !!circle.familiarMembers) && !(circle.restricted && circle.joinMode === "invite") && (
         <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${colors.border}`, fontSize: 13, color: colors.mutedLight }}>
           {circle.familiarMembers
             ? `${circle.familiarMembers} ${circle.familiarMembers === 1 ? "person" : "people"} you've played with before ${circle.familiarMembers === 1 ? "is" : "are"} here.`
@@ -176,19 +252,7 @@ export function CircleJoinCard({ circle, state, busy, onJoin, onLeave, onMessage
         </div>
       )}
 
-      <ConfirmDialog
-        open={leaveConfirmOpen}
-        title={`Leave ${circle.name}?`}
-        message="You'll stop seeing this Circle's plans and lose your spot in any you've joined."
-        confirmLabel="Leave Circle"
-        cancelLabel="Stay in"
-        busy={busy}
-        onConfirm={() => {
-          onLeave();
-          setLeaveConfirmOpen(false);
-        }}
-        onCancel={() => setLeaveConfirmOpen(false)}
-      />
+      {leaveDialog}
 
       <ConfirmDialog
         open={joinConfirmOpen}
@@ -240,6 +304,10 @@ export function CircleJoinCard({ circle, state, busy, onJoin, onLeave, onMessage
           </div>
         )}
       </ConfirmDialog>
-    </Card>
+    </Wrap>
   );
+}
+
+function BareWrap({ children }: { children: React.ReactNode }) {
+  return <div className="cv-join-bare">{children}</div>;
 }

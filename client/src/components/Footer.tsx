@@ -43,7 +43,7 @@ const COLUMNS: { heading: string; links: FooterLink[] }[] = [
     heading: "Your account",
     links: [
       { label: "My Life", to: "/bookings" },
-      { label: "Saved", to: "/profile?tab=favourites" },
+      { label: "Saved", to: "/bookings?tab=saved" },
       { label: "Profile", to: "/profile?tab=account" },
     ],
   },
@@ -52,7 +52,7 @@ const COLUMNS: { heading: string; links: FooterLink[] }[] = [
     links: [
       { label: "Full help guide", to: "/help-guide" },
       { label: "Help & Support", to: "/profile?tab=help" },
-      { label: "Safety Centre", to: "/profile?tab=safety" },
+      { label: "Safety Centre", to: "/profile?tab=privacy" },
       { label: "Contact us", to: "/contact" },
     ],
   },
@@ -86,7 +86,7 @@ export function Footer() {
     // HC-QA-001 — the footer renders after <main>, outside .mobile-tab-bar-space,
     // so it reserves the fixed bottom chrome itself (0 / safe-area on desktop).
     <footer style={{ borderTop: `1px solid ${colors.border}`, background: colors.footerBg, paddingBottom: "var(--bottom-chrome)" }}>
-      <div style={{ maxWidth, margin: "0 auto", padding: "40px 24px 24px" }}>
+      <div className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "40px 24px 24px" }}>
         <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1.2fr repeat(4, 1fr)", gap: 32, marginBottom: 32 }}>
           <div>
             <Link to="/" aria-label="HelloCircle home" style={{ display: "inline-flex", alignItems: "center", gap: 9, marginBottom: 10 }}>
