@@ -52,7 +52,7 @@ export function AskHelloCircle() {
   };
 
   return (
-    <div style={{ animation: "fadeUp .35s ease backwards" }}>
+    <div className="fade-panel">
       <section className="section-pad" style={{ maxWidth: 720, margin: "0 auto", padding: "26px 24px 100px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
           <ChatIcon size={22} style={{ color: colors.greenText }} />
@@ -127,7 +127,7 @@ export function AskHelloCircle() {
           <button
             onClick={() => send(draft)}
             disabled={asking || !draft.trim()}
-            style={{ background: colors.green, color: "#fff", border: "none", borderRadius: radius.card, padding: "0 22px", fontWeight: 700, fontSize: 14.5, cursor: "pointer" }}
+            className="btn-cta" style={{ background: "var(--color-cta)", color: "var(--color-on-cta)", border: "none", borderRadius: "var(--radius-button)", padding: "0 22px", fontWeight: 700, fontSize: 14.5, cursor: "pointer" }}
           >
             Ask
           </button>

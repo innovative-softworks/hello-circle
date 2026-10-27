@@ -3,7 +3,8 @@ import { fetchVendorCustomer, fetchVendorCustomers, type VendorCustomer } from "
 import { dateLabel } from "../euro";
 import { useRecordParam, useUrlParam } from "../useUrlTab";
 import { RecordState, RecordView } from "./workspace/RecordView";
-import { AdminButton, Box, EmptyMessage, Facts, Loaded, SearchField, SectionLabel, StatusTag, Toolbar, formatDate, matches, useAdminData } from "./admin/adminUi";
+import { DetailStats } from "./workspace/DetailParts";
+import { AdminButton, Box, EmptyMessage, Facts, Loaded, SearchField, SectionLabel, StatusTag, Toolbar, formatDate, matches, useAdminData, RowMenu } from "./admin/adminUi";
 
 // OG-20 — the people who book with this organisation: one row per email
 // across hall bookings, club registrations, programme enrolments and
@@ -69,9 +70,19 @@ export function VendorCustomersTab({ onOpenBooking }: { onOpenBooking?: (ref: st
                       </td>
                       <td data-label="Last activity">{formatDate(c.lastActivity)}</td>
                       <td data-label="">
-                        <AdminButton size="sm" onClick={() => openRecord(`customer:${c.email}`)} aria-label={`Open ${c.name || c.email}`}>
-                          Open
-                        </AdminButton>
+                        <div className="adm-cell-actions">
+                          <AdminButton size="sm" onClick={() => openRecord(`customer:${c.email}`)} aria-label={`Open ${c.name || c.email}`}>
+                            Open
+                          </AdminButton>
+                          <RowMenu
+                            name={c.name || c.email}
+                            items={[
+                              { label: "Open", onSelect: () => openRecord(`customer:${c.email}`) },
+                              { label: "Email", onSelect: () => window.location.assign(`mailto:${c.email}`) },
+                            ]}
+                            copy={{ label: "Copy email", value: c.email }}
+                          />
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -101,60 +112,66 @@ function CustomerRecord({ email, onBack, onOpenBooking }: { email: string; onBac
           Email
         </a>
       }
-    >
-      <div className="adm-record-grid">
-        <div>
-          <SectionLabel>Orders with you ({c.orders.length})</SectionLabel>
-          <div className="adm-table-wrap">
-            <table className="adm-table adm-table--stack">
-              <caption className="adm-visually-hidden">Orders</caption>
-              <thead>
-                <tr>
-                  <th scope="col">What</th>
-                  <th scope="col">When</th>
-                  <th scope="col">Status</th>
-                  <th scope="col">Attendance</th>
-                  <th scope="col" className="adm-num">
-                    Total
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {c.orders.map((o) => (
-                  <tr key={`${o.type}:${o.ref}`}>
-                    <td data-label="What">
-                      {o.type === "booking" && onOpenBooking ? (
-                        <button type="button" className="adm-linkish" onClick={() => onOpenBooking(o.ref)}>
-                          {o.listingName}
-                        </button>
-                      ) : (
-                        o.listingName
-                      )}
-                      <div className="adm-note">
-                        {TYPE[o.type] ?? o.type} · <span className="adm-mono">{o.ref}</span>
-                      </div>
-                    </td>
-                    <td data-label="When">{o.date ? `${dateLabel(o.date)}${o.time ? ` · ${o.time}` : ""}` : formatDate(o.createdAt)}</td>
-                    <td data-label="Status">
-                      <StatusTag status={o.status === "cancelled" ? "cancelled" : o.paymentStatus === "refunded" ? "rejected" : "active"} label={o.status === "cancelled" ? "Cancelled" : o.paymentStatus === "refunded" ? "Refunded" : "Confirmed"} />
-                    </td>
-                    <td data-label="Attendance">{o.attendance === "present" || o.attendance === "late" ? "Came" : o.attendance === "no_show" ? "No-show" : "—"}</td>
-                    <td data-label="Total" className="adm-num">
-                      {o.totalCents ? euro(o.totalCents) : "Free"}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-        <div>
+      stats={
+        <DetailStats
+          items={[
+            { label: "Orders with you", value: String(c.orders.length), sub: `${c.orders.filter((o) => o.status !== "cancelled").length} not cancelled` },
+            { label: "Spent with you", value: euro(c.orders.filter((o) => o.paymentStatus === "paid" && o.status !== "cancelled").reduce((a, o) => a + Number(o.totalCents ?? 0), 0)), sub: "Paid, not cancelled" },
+            { label: "Checked in", value: String(c.attended), sub: "Times attended" },
+            { label: "No-shows", value: String(c.noShows), sub: c.noShows ? "Didn't turn up" : "None" },
+          ]}
+        />
+      }
+      aside={
+        <>
           <SectionLabel>Contact</SectionLabel>
           <Facts rows={[["Email", c.email], ["Phone", c.phone ?? "—"]]} />
-          <SectionLabel>Attendance</SectionLabel>
-          <Facts rows={[["Checked in", String(c.attended)], ["No-shows", String(c.noShows)]]} />
           <p className="adm-note">Only their orders with your organisation are shown.</p>
-        </div>
+        </>
+      }
+    >
+      <SectionLabel>Orders with you ({c.orders.length})</SectionLabel>
+      <div className="adm-table-wrap">
+        <table className="adm-table adm-table--stack">
+          <caption className="adm-visually-hidden">Orders</caption>
+          <thead>
+            <tr>
+              <th scope="col">What</th>
+              <th scope="col">When</th>
+              <th scope="col">Status</th>
+              <th scope="col">Attendance</th>
+              <th scope="col" className="adm-num">
+                Total
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {c.orders.map((o) => (
+              <tr key={`${o.type}:${o.ref}`}>
+                <td data-label="What">
+                  {o.type === "booking" && onOpenBooking ? (
+                    <button type="button" className="adm-linkish" onClick={() => onOpenBooking(o.ref)}>
+                      {o.listingName}
+                    </button>
+                  ) : (
+                    o.listingName
+                  )}
+                  <div className="adm-note">
+                    {TYPE[o.type] ?? o.type} · <span className="adm-mono">{o.ref}</span>
+                  </div>
+                </td>
+                <td data-label="When">{o.date ? `${dateLabel(o.date)}${o.time ? ` · ${o.time}` : ""}` : formatDate(o.createdAt)}</td>
+                <td data-label="Status">
+                  <StatusTag status={o.status === "cancelled" ? "cancelled" : o.paymentStatus === "refunded" ? "rejected" : "active"} label={o.status === "cancelled" ? "Cancelled" : o.paymentStatus === "refunded" ? "Refunded" : "Confirmed"} />
+                </td>
+                <td data-label="Attendance">{o.attendance === "present" || o.attendance === "late" ? "Came" : o.attendance === "no_show" ? "No-show" : "—"}</td>
+                <td data-label="Total" className="adm-num">
+                  {o.totalCents ? euro(o.totalCents) : "Free"}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </RecordView>
   );

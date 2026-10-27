@@ -1,10 +1,11 @@
+import { detailIcon } from "./workspace/detailIcons";
 import { VendorStatementCard } from "./VendorStatementCard";
 import { useEffect, useState, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
 import { fetchMyPlan, fetchPayouts, type PartnerEarnings } from "../api";
 import { colors, fonts, radius } from "../theme";
 import { ArrowRightLeft, CircleCheck, Hourglass, Landmark, Wallet, type LucideIcon } from "lucide-react";
-import { Box } from "./admin/adminUi";
+import { Box, RowMenu } from "./admin/adminUi";
 import { useInWorkspace } from "./workspace/inWorkspace";
 import { FieldHelp } from "./FieldHelp";
 import { PayoutAccountCard } from "./PayoutAccountCard";
@@ -66,7 +67,7 @@ export function EarningsSummary({ load, payoutsLive = true }: { load: () => Prom
             const Icon = t.icon;
             return (
               <div key={t.label} className="ws-stat" data-zero={t.value === 0 || undefined}>
-                <span className="ws-stat-icon" aria-hidden="true">
+                <span className="ws-stat-icon wd-ico" data-tone={detailIcon(t.label).tone} aria-hidden="true">
                   <Icon size={17} strokeWidth={1.9} />
                 </span>
                 <span className="ws-stat-value" style={t.value < 0 ? { color: "var(--color-danger, #b42318)" } : undefined}>
@@ -93,6 +94,9 @@ export function EarningsSummary({ load, payoutsLive = true }: { load: () => Prom
                       Amount
                     </th>
                     <th scope="col">Status</th>
+                                      <th scope="col">
+                      <span className="adm-visually-hidden">Actions</span>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -106,6 +110,9 @@ export function EarningsSummary({ load, payoutsLive = true }: { load: () => Prom
                         <span className="adm-chip" data-tone={st.status === "transferred" ? "good" : undefined}>
                           {st.status === "due" ? "Transfer due" : st.status === "transferred" ? "Transferred" : st.status}
                         </span>
+                      </td>
+                      <td data-label="">
+                        <RowMenu name={`settlement ${st.runKey}`} copy={{ value: st.runKey }} />
                       </td>
                     </tr>
                   ))}

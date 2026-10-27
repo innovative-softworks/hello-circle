@@ -371,7 +371,25 @@ export function RequiredNote({ style }: { style?: CSSProperties }) {
   return <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 12px", ...style }}>Fields marked * are required.</p>;
 }
 
-export type FormError = { field: string; message: string; fieldId?: string };
+/** `inline` errors come from leaving a field: shown under it, not in the summary. */
+export type FormError = { field: string; message: string; fieldId?: string; inline?: boolean };
+
+/** The message for a control the person has just left, or null when it's fine.
+ * Uses the browser's own checks (required, type=email/url, min/max). */
+function leaveMessage(el: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement): string | null {
+  if (!el.willValidate || el.disabled) return null;
+  const label = (el.labels?.[0]?.textContent ?? "").replace(/\(optional\)|\*/g, "").trim() || "This field";
+  const v = el.validity;
+  if (v.valueMissing || (el.required && !String(el.value).trim())) return `${label} is required`;
+  if (v.typeMismatch && el.type === "email") return "Enter an email address like name@example.ie.";
+  if (v.typeMismatch && el.type === "url") return "Enter a web address like https://example.ie.";
+  if ((v.rangeUnderflow || v.rangeOverflow) && "min" in el) {
+    const { min, max } = el as HTMLInputElement;
+    if (min && max) return `Enter a number from ${min} to ${max}.`;
+    return min ? `Enter ${min} or more.` : `Enter ${max} or less.`;
+  }
+  return null;
+}
 
 /** Field-level errors for a form: the summary list plus per-control props. */
 export function useFormErrors() {
@@ -390,7 +408,22 @@ export function useFormErrors() {
   const control = (fieldId: string, extraDescribedBy?: string) => {
     const msg = messageFor(fieldId);
     const describedBy = [msg ? `${fieldId}-error` : null, extraDescribedBy].filter(Boolean).join(" ") || undefined;
-    return { id: fieldId, "aria-invalid": msg ? (true as const) : undefined, "aria-describedby": describedBy };
+    return {
+      id: fieldId,
+      "aria-invalid": msg ? (true as const) : undefined,
+      "aria-describedby": describedBy,
+      // Checked when the person leaves the field, never while typing; any
+      // message goes as soon as they start correcting it.
+      onBlur: (e: { currentTarget: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement }) => {
+        const message = leaveMessage(e.currentTarget);
+        setErrorsState((list) => {
+          const rest = list.filter((x) => x.fieldId !== fieldId);
+          if (message) return [...rest, { field: fieldId, fieldId, message, inline: true }];
+          return rest.length === list.length ? list : rest;
+        });
+      },
+      onInput: () => clearField(fieldId),
+    };
   };
   const has = (...fieldIds: string[]) => errors.some((e) => e.fieldId && fieldIds.includes(e.fieldId));
   return { errors, focusKey, fail, clear, clearField, messageFor, control, has };
@@ -407,7 +440,7 @@ export function FieldError({ fieldId, message }: { fieldId: string; message?: st
 }
 
 export function FormErrorSummary({
-  errors,
+  errors: allErrors,
   focusKey,
   onMissingField,
 }: {
@@ -418,6 +451,8 @@ export function FormErrorSummary({
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const headingId = useId();
+  // Errors from leaving a field show under the field only.
+  const errors = allErrors.filter((e) => !e.inline);
   const hasErrors = errors.length > 0;
   // Focus on every failed submit (focusKey changes); callers that don't pass
   // a key get focus when the summary first appears.
@@ -575,4 +610,79 @@ export function useUnsavedChangesGuard(isDirty: boolean) {
   );
 
   return { requestNavigation, dialog };
+}
+
+// --- Drafts (UX polish 2026-10-20) — unsaved edits survive a reload. Kept in
+// this browser only and never sent anywhere until the person saves.
+const DRAFT_PREFIX = "hc-draft:";
+const DRAFT_DAYS = 14;
+type StoredDraft = { savedAt: number; value: unknown };
+
+function readDraft(key: string): StoredDraft | null {
+  try {
+    const raw = localStorage.getItem(DRAFT_PREFIX + key);
+    if (!raw) return null;
+    const d = JSON.parse(raw) as StoredDraft;
+    if (!d || typeof d.savedAt !== "number" || Date.now() - d.savedAt > DRAFT_DAYS * 864e5) {
+      localStorage.removeItem(DRAFT_PREFIX + key);
+      return null;
+    }
+    return d;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Saves `value` as a draft while `active` (the form has unsaved changes), and
+ * reports a draft left from an earlier visit. `check()` looks again (e.g. when
+ * a popup opens); `clear()` after a save or a cancel.
+ */
+export function useFormDraft<T>({ key, value, active, onRestore }: { key: string | null; value: T; active: boolean; onRestore: (value: T) => void }) {
+  const [pending, setPending] = useState<StoredDraft | null>(() => (key ? readDraft(key) : null));
+  const json = JSON.stringify(value);
+  const check = useCallback(() => setPending(key ? readDraft(key) : null), [key]);
+  const clear = useCallback(() => {
+    setPending(null);
+    try {
+      if (key) localStorage.removeItem(DRAFT_PREFIX + key);
+    } catch {
+      /* storage blocked: nothing to clear */
+    }
+  }, [key]);
+  useEffect(() => {
+    if (!key || !active) return;
+    // Typing again means the old draft is no longer wanted.
+    setPending(null);
+    try {
+      localStorage.setItem(DRAFT_PREFIX + key, JSON.stringify({ savedAt: Date.now(), value: JSON.parse(json) }));
+    } catch {
+      /* storage full or blocked: the form still works, only without a draft */
+    }
+  }, [key, active, json]);
+  const restore = () => {
+    if (pending) onRestore(pending.value as T);
+    setPending(null);
+  };
+  return { pending, check, clear, restore };
+}
+
+/** "You have unsaved changes from 14:32. Restore · Discard" */
+export function DraftBanner({ savedAt, onRestore, onDiscard }: { savedAt: number; onRestore: () => void; onDiscard: () => void }) {
+  const d = new Date(savedAt);
+  const sameDay = d.toDateString() === new Date().toDateString();
+  const when = d.toLocaleString("en-IE", sameDay ? { hour: "2-digit", minute: "2-digit" } : { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  return (
+    <div className="hc-draft" role="status">
+      <span>You have unsaved changes from {when}.</span>
+      <span className="hc-draft-actions">
+        <button type="button" onClick={onRestore}>
+          Restore changes
+        </button>
+        <button type="button" onClick={onDiscard}>
+          Discard
+        </button>
+      </span>
+    </div>
+  );
 }

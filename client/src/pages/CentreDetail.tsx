@@ -1,6 +1,5 @@
+import { Building2 as Building2Lucide } from "lucide-react";
 import { UnavailableListing, isUnavailable, type Unavailable } from "../components/UnavailableListing";
-import { ReportContentButton } from "../components/ReportContentButton";
-import { Flag } from "lucide-react";
 import { usePageTitle } from "../pageTitle";
 import { useEffect, useState } from "react";
 import { isMinAgeRefusal } from "../gameCta";
@@ -10,23 +9,22 @@ import { dateLabel } from "../euro";
 import { joinGameConfirm } from "../confirmCopy";
 import { useConfirm } from "../components/ConfirmProvider";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { addFavourite, fetchCentre, fetchFavourites, fetchGamesPage, fetchPrograms, joinGame, removeFavourite } from "../api";
+import { fetchCentre, fetchGamesPage, fetchPrograms, joinGame } from "../api";
 import { openCheckout } from "../native";
-import { BackLink } from "../components/BackLink";
 import { ClaimListingCTA } from "../components/ClaimListingCTA";
 import { FollowButton } from "../components/FollowButton";
 import { PhotoGallery } from "../components/PhotoGallery";
 import { Reviews } from "../components/Reviews";
-import { SinglePinMap } from "../components/SinglePinMap";
-import { CalendarIcon, CheckIcon, ClockIcon, HeartIcon, PinIcon, RepeatIcon, ShareIcon, StarIcon, UsersIcon, WheelchairIcon } from "../components/icons";
-import { ShareButton } from "../components/ShareButton";
+import { CalendarIcon, CheckIcon, ClockIcon, PinIcon, RepeatIcon, StarIcon, UsersIcon, WheelchairIcon } from "../components/icons";
 import { AvailabilityBadge, availabilityFromSpots, Button, ListingDetailSkeleton } from "../components/ui";
-import { isFavorite, toggleFavorite } from "../favorites";
 import { useGuest } from "../GuestContext";
 import { colors, fonts, maxWidth, radius } from "../theme";
 import type { Centre, Game, Program } from "../types";
 import { formatPrice } from "../formatters";
 import { CtaBand } from "../components/CtaBand";
+import { DetailSection, LocationBlock } from "../components/detail/DetailSections";
+import { DetailTopBar } from "../components/detail/DetailTopBar";
+import { KeyFacts, PAID_PRICE_NOTE } from "../components/detail/KeyFacts";
 
 export function CentreDetail() {
   // Slugs (master-prompt punch list #1) — the URL param may be a slug or a
@@ -41,7 +39,6 @@ export function CentreDetail() {
   // D-01: a listing whose organisation is suspended.
   const [unavailable, setUnavailable] = useState<Unavailable | null>(null);
   usePageTitle(centre?.name);
-  const [favourited, setFavourited] = useState(false);
   const [games, setGames] = useState<Game[]>([]);
   const [joiningId, setJoiningId] = useState<string | null>(null);
   const confirm = useConfirm();
@@ -51,14 +48,6 @@ export function CentreDetail() {
   useEffect(() => {
     if (idOrSlug) fetchCentre(idOrSlug).then((x) => (isUnavailable(x) ? setUnavailable(x) : setCentre(x)));
   }, [idOrSlug]);
-
-  // Server-backed favourites when signed in (MVP); localStorage otherwise —
-  // see client/src/favorites.ts for the anonymous fallback.
-  useEffect(() => {
-    if (!centre) return;
-    if (resident) fetchFavourites().then((rows) => setFavourited(rows.some((r) => r.listingType === "centre" && r.listingId === centre.id)));
-    else setFavourited(isFavorite("centre", centre.id));
-  }, [centre, resident]);
 
   // "Join a Game" CTA (MVP — Book vs Join) — open games hosted at this venue.
   useEffect(() => {
@@ -72,17 +61,6 @@ export function CentreDetail() {
   useEffect(() => {
     if (centre) fetchPrograms("centre", centre.id).then(setPrograms).catch(() => {});
   }, [centre]);
-
-  const handleToggleFavourite = async () => {
-    if (!centre) return;
-    if (resident) {
-      if (favourited) await removeFavourite("centre", centre.id);
-      else await addFavourite("centre", centre.id);
-      setFavourited((f) => !f);
-    } else {
-      setFavourited(toggleFavorite("centre", centre.id));
-    }
-  };
 
   const handleJoinGame = async (gameId: string) => {
     const g = games.find((x) => x.id === gameId);
@@ -112,16 +90,24 @@ export function CentreDetail() {
 
   return (
     <>
-    <div className="centre-detail-mobile-pad" style={{ animation: "fadeUp .35s ease backwards" }}>
-      <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "26px 24px 0" }}>
-        <BackLink onClick={() => navigate("/browse/centres")} marginBottom={16}>All community centres</BackLink>
-        <PhotoGallery images={centre.images} alt={centre.name} ph={centre.ph} sharedHero />
-      </section>
-      <section
-        className="grid-responsive section-pad"
-        style={{ maxWidth, margin: "0 auto", padding: "26px 24px 70px", display: "grid", gridTemplateColumns: "1.6fr 1fr", gap: 40, alignItems: "start" }}
-      >
-        <div>
+    <div className="centre-detail-mobile-pad fade-panel">
+      <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "26px 24px 70px" }}>
+        <DetailTopBar
+          backTo="/browse/centres"
+          backLabel="All community centres"
+          extra={
+            centre.isFollowing !== undefined ? (
+              <FollowButton followedType="centre" followedId={centre.id} initialFollowing={centre.isFollowing} initialLevel={centre.followNotificationLevel} followerCount={centre.followerCount} />
+            ) : undefined
+          }
+          share={{ entityType: "centre", entityId: centre.id }}
+          save={{ kind: "centre", id: centre.id }}
+          report={{ type: "centre", id: centre.id, what: "this listing" }}
+        />
+        {/* Detail-page redesign: the shared 70/30 layout (still behind the venue launch gate). */}
+        <div className="detail-grid">
+        <div className="detail-head">
+          <PhotoGallery images={centre.images} alt={centre.name} ph={centre.ph} style={{ marginBottom: 24 }} />
           <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
             {centre.reviews > 0 && (
               <>
@@ -139,40 +125,13 @@ export function CentreDetail() {
               <span style={{ fontWeight: 500, color: colors.muted }}>({centre.wouldRepeatCount})</span>
             </div>
           )}
-          <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: "clamp(32px, 3.8vw, 52px)", margin: "0 0 4px", letterSpacing: 0, display: "flex", alignItems: "center", gap: 10 }}>
-            {centre.name}
-            <button
-              onClick={handleToggleFavourite}
-              aria-label={favourited ? "Remove from favourites" : "Add to favourites"}
-              style={{ background: "none", border: "none", cursor: "pointer", padding: 0, display: "inline-flex", color: favourited ? colors.orange : colors.faint }}
-            >
-              <HeartIcon size={22} style={favourited ? { fill: colors.orange } : undefined} />
-            </button>
-            <ShareButton
-              entityType="centre"
-              entityId={centre.id}
-              render={(onClick) => (
-                <button onClick={onClick} aria-label="Share" style={{ background: "none", border: "none", cursor: "pointer", padding: 0, display: "inline-flex", color: colors.faint }}>
-                  <ShareIcon size={20} />
-                </button>
-              )}
-            />
-            <ReportContentButton
-              targetType="centre"
-              targetId={centre.id}
-              what="this listing"
-              render={(onClick, done) => (
-                <button onClick={onClick} disabled={done} aria-label={done ? "Reported" : "Report this listing"} title={done ? "Reported" : "Report"} style={{ background: "none", border: "none", cursor: done ? "default" : "pointer", padding: 0, display: "inline-flex", color: colors.faint }}>
-                  <Flag size={18} strokeWidth={1.9} aria-hidden="true" />
-                </button>
-              )}
-            />
-          </h1>
+          <div style={{ fontSize: 11.5, fontWeight: 700, textTransform: "uppercase", color: colors.mutedLight, marginBottom: 6 }}>Venue</div>
+          <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: "clamp(32px, 3.8vw, 52px)", margin: "0 0 4px", letterSpacing: 0 }}>{centre.name}</h1>
           <p style={{ color: colors.mutedLight, fontSize: 16, margin: "0 0 22px", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <span>
               {centre.area} · Managed by{" "}
               {centre.vendorId ? (
-                <button onClick={() => navigate(`/provider/${centre.vendorId}`)} style={{ background: "none", border: "none", padding: 0, color: colors.greenText, font: "inherit", fontWeight: 600, cursor: "pointer", textDecoration: "underline" }}>
+                <button className="tap-target" onClick={() => navigate(`/provider/${centre.vendorId}`)} style={{ background: "none", border: "none", padding: 0, color: colors.greenText, font: "inherit", fontWeight: 600, cursor: "pointer", textDecoration: "underline" }}>
                   {centre.managedBy}
                 </button>
               ) : (
@@ -185,22 +144,24 @@ export function CentreDetail() {
               </a>
             )}
           </p>
-          {centre.isFollowing !== undefined && (
-            <div style={{ marginBottom: 18 }}>
-              <FollowButton
-                followedType="centre"
-                followedId={centre.id}
-                initialFollowing={centre.isFollowing}
-                initialLevel={centre.followNotificationLevel}
-                followerCount={centre.followerCount}
-              />
-            </div>
-          )}
+          <KeyFacts
+            facts={[
+              { icon: <UsersIcon size={17} />, value: `Up to ${centre.capacity}`, label: "Guests" },
+              centre.reviews > 0 && { icon: <StarIcon size={17} />, value: `${centre.rating} (${centre.reviews})`, label: "Rating" },
+              { icon: <ClockIcon size={17} />, value: centre.paymentMethod === "cash" ? "Pay on arrival" : "Pay online", label: "Payment" },
+              { icon: <RepeatIcon size={17} />, value: `${centre.cancellationHours ?? 48}h`, label: "Free cancellation before" },
+            ]}
+          />
+        </div>
+
+        <div className="detail-body">
+          <div style={{ height: 1, background: colors.border, margin: "24px 0" }} />
+          <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: "0 0 12px", letterSpacing: 0 }}>About this venue</h2>
           <p style={{ fontSize: 16, lineHeight: 1.6, color: colors.textSoft, margin: "0 0 28px" }}>{centre.blurb}</p>
 
-          <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: "0 0 12px", letterSpacing: 0 }}>
+          <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: "0 0 12px", letterSpacing: 0 }}>
             Facilities
-          </h3>
+          </h2>
           <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 24px", marginBottom: 32 }}>
             {centre.amenities.map((a) => (
               <div key={a} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 15, color: colors.textSoft }}>
@@ -212,9 +173,9 @@ export function CentreDetail() {
 
           {centre.accessibility.length > 0 && (
             <>
-              <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: "0 0 12px", letterSpacing: 0 }}>
+              <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: "0 0 12px", letterSpacing: 0 }}>
                 Accessibility
-              </h3>
+              </h2>
               <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 24px", marginBottom: 32 }}>
                 {centre.accessibility.map((a) => (
                   <div key={a} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 15, color: colors.textSoft }}>
@@ -226,54 +187,12 @@ export function CentreDetail() {
             </>
           )}
 
-          {centre.lat !== null && centre.lng !== null && (
-            <>
-              <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: "0 0 12px", letterSpacing: 0 }}>
-                Location
-              </h3>
-              <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "16px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <PinIcon size={16} style={{ color: colors.mutedLight, flex: "none" }} />
-                  <div>
-                    <div style={{ fontWeight: 700, fontSize: 14.5 }}>{centre.name}</div>
-                    {(centre.area || centre.county) && (
-                      <div style={{ fontSize: 12.5, color: colors.mutedLight, marginTop: 2 }}>
-                        {centre.area}
-                        {centre.area && centre.county ? ", " : ""}
-                        {centre.county}
-                      </div>
-                    )}
-                    {centre.locationSource !== "confirmed" && (
-                      <div style={{ fontSize: 11.5, fontWeight: 700, color: "#9a7b1f", marginTop: 3 }}>Approximate area — not an exact address</div>
-                    )}
-                  </div>
-                </div>
-                {/* A fabricated county-centroid pin shouldn't be handed to a
-                    real navigation app as if it were the venue's actual
-                    address (spec: "do not provide navigation to a
-                    fabricated exact venue pin") — the area/county text above
-                    is the honest version for an approximate location. */}
-                {centre.locationSource === "confirmed" && (
-                  <a
-                    href={`https://www.google.com/maps/search/?api=1&query=${centre.lat},${centre.lng}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    style={{ fontSize: 13, fontWeight: 700, color: colors.text, textDecoration: "underline", flex: "none" }}
-                  >
-                    Get directions
-                  </a>
-                )}
-              </div>
-              <SinglePinMap lat={centre.lat} lng={centre.lng} label={centre.name} height={220} />
-              <div style={{ marginBottom: 32 }} />
-            </>
-          )}
 
           {programs.length > 0 && (
             <>
-              <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: "0 0 12px", letterSpacing: 0 }}>
+              <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: "0 0 12px", letterSpacing: 0 }}>
                 Programs & classes
-              </h3>
+              </h2>
               <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 32 }}>
                 {programs.map((p) => (
                   <Link
@@ -294,9 +213,9 @@ export function CentreDetail() {
 
           {games.length > 0 && (
             <>
-              <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: "0 0 4px", letterSpacing: 0 }}>
+              <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: "0 0 4px", letterSpacing: 0 }}>
                 Open sessions here
-              </h3>
+              </h2>
               <p style={{ color: colors.mutedLight, fontSize: 14, margin: "0 0 14px" }}>
                 Don't need the whole venue? Join people who are already playing.
               </p>
@@ -320,11 +239,14 @@ export function CentreDetail() {
               </div>
             </>
           )}
+
+          <Reviews listingType="centre" listingId={centre.id} accent="green" onReviewPosted={reloadRating} />
+          <div style={{ marginTop: 20 }}>
+            <TraderInfo type="centre" id={centre.id} />
+          </div>
         </div>
-        <div
-          className="sticky-aside"
-          style={{ position: "sticky", top: 90, background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: 22, boxShadow: "0 8px 30px rgba(30,40,32,.05)" }}
-        >
+        <div className="detail-aside">
+        <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: 22 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
             <div style={{ fontSize: 14, color: colors.mutedLight }}>Hire from</div>
             {centre.paymentMethod === "cash" && (
@@ -338,7 +260,7 @@ export function CentreDetail() {
             <span style={{ fontSize: 16, color: colors.faint, fontWeight: 400 }}> /hour</span>
           </div>
           <div style={{ fontSize: 13, color: colors.faint, marginBottom: 18 }}>
-            {centre.paymentMethod === "cash" ? "No online deposit needed" : "+ €100 refundable deposit"}
+            {centre.paymentMethod === "cash" ? "No online deposit needed" : `+ €100 refundable deposit · ${PAID_PRICE_NOTE}`}
           </div>
           {centre.isOpen ? (
             <Button variant="primary" full onClick={() => navigate(`/book/${centre.id}`)} style={{ padding: 14, fontSize: 15, marginBottom: 10 }}>
@@ -351,10 +273,10 @@ export function CentreDetail() {
           )}
           <div style={{ display: "flex", flexDirection: "column", gap: 9, marginTop: 16, fontSize: 14, color: colors.muted }}>
             <div style={{ display: "flex", gap: 10 }}>
-              <ClockIcon size={16} style={{ color: colors.greenText }} /> Instant online confirmation
+              <ClockIcon size={16} style={{ color: colors.greenText }} /> {centre.paymentMethod === "cash" ? "Confirmed straight away, pay on arrival" : "Confirmed as soon as you've paid"}
             </div>
             <div style={{ display: "flex", gap: 10 }}>
-              <RepeatIcon size={16} style={{ color: colors.greenText }} /> Free cancellation up to 48h before
+              <RepeatIcon size={16} style={{ color: colors.greenText }} /> Free cancellation up to {centre.cancellationHours ?? 48}h before
             </div>
             {centre.accessibility.length > 0 && (
               <div style={{ display: "flex", gap: 10 }}>
@@ -371,11 +293,22 @@ export function CentreDetail() {
             )}
           </div>
         </div>
-      </section>
-      <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "0 24px 40px" }}>
-        <Reviews listingType="centre" listingId={centre.id} accent="green" onReviewPosted={reloadRating} />
-        <div style={{ marginTop: 20 }}>
-          <TraderInfo type="centre" id={centre.id} />
+        {/* Where sits in the booking column (owner, 2026-10-22). */}
+        <div style={{ marginTop: 24 }}>
+          {centre.lat !== null && centre.lng !== null && (
+            <DetailSection title="Location">
+              <LocationBlock
+                name={centre.name}
+                area={[centre.area, centre.county].filter(Boolean).join(", ") || null}
+                note={centre.locationSource !== "confirmed" ? "Approximate area — not an exact address" : null}
+                // A fabricated area pin is never handed to a navigation app as an address.
+                directionsUrl={centre.locationSource === "confirmed" ? `https://www.google.com/maps/search/?api=1&query=${centre.lat},${centre.lng}` : null}
+                map={{ lat: centre.lat, lng: centre.lng, label: centre.name }}
+              />
+            </DetailSection>
+          )}
+        </div>
+        </div>
         </div>
       </section>
       <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "0 24px 80px" }}>
@@ -383,6 +316,7 @@ export function CentreDetail() {
       </section>
       <CtaBand
         id="centre-cta-title"
+        panel={{ title: "Need a different space?", text: "Halls and rooms you can book by the hour.", icon: <Building2Lucide size={20} strokeWidth={2} /> }}
         label="Book a space."
         lines={["Need", "a space", "to meet?"]}
         text="Halls and rooms in community centres across Ireland, bookable by the hour."
@@ -395,7 +329,7 @@ export function CentreDetail() {
     <div className="mobile-join-bar">
       <div>
         <div style={{ fontWeight: 800, fontSize: 15, fontFamily: fonts.display }}>{centre.name}</div>
-        <div style={{ fontSize: 12.5, color: colors.mutedLight }}>€{centre.from}/hour</div>
+        <div style={{ fontSize: 12.5, color: colors.mutedLight }}>From €{centre.from}/hour</div>
       </div>
       {centre.isOpen ? (
         <Button style={{ flex: "none" }} onClick={() => navigate(`/book/${centre.id}`)}>Check availability</Button>

@@ -68,8 +68,9 @@ chown hellocircle:hellocircle "$F"; chmod 600 "$F"
 ```
 
 - [ ] Check it without displaying it:
-  `awk -F= '/^HELLO_CIRCLE_MFA_KEY=/{print length($2)}' "$F"` prints **44**, and
-  `awk -F= '/^HELLO_CIRCLE_MFA_KEY=/{print $2}' "$F" | base64 -d | wc -c` prints **32**.
+  `sed -n 's/^HELLO_CIRCLE_MFA_KEY=//p' "$F" | tr -d '\n' | wc -c` prints **44**, and
+  `sed -n 's/^HELLO_CIRCLE_MFA_KEY=//p' "$F" | base64 -d | wc -c` prints **32**. (Don't use `awk -F=`: it drops the
+  key's trailing `=` padding and reports 43.)
 - [ ] Back it up: open the file in an editor on the server (not `cat`, not in a shared or recorded session) and copy
   the value into the owner's password manager, labelled "HelloCircle staging — HELLO_CIRCLE_MFA_KEY". Keep no other
   copy: not in DEPLOYMENT.md, git, CI variables, tickets or chat.

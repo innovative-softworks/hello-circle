@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>My Life — proposed</title>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=Figtree:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="proto.css">
+<style>
+  .ml { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: var(--s7); align-items: start; }
+  .ml-head { padding: var(--s6) 0 var(--s5); display: flex; justify-content: space-between; align-items: flex-end; gap: var(--s4); }
+  .ml-head h1 { font-size: clamp(32px, 3.6vw, 48px); }
+  .ml-head p { margin-top: 8px; font-size: 17px; color: var(--text-soft); }
+  .block { margin-top: var(--s6); }
+  .block-h { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: var(--s3); }
+  .block-h h2 { font-size: 22px; }
+  .circ { display: flex; gap: 12px; align-items: center; padding: 12px 0; border-top: 1px solid var(--border); }
+  .circ:first-of-type { border-top: 0; }
+  .circ div { flex: 1; min-width: 0; } .circ b { display: block; font-size: 15px; } .circ small { color: var(--muted); font-size: 13px; }
+  .needs { display: flex; gap: 12px; align-items: center; justify-content: space-between; background: var(--amber-bg); border-radius: 12px; padding: 12px 14px; font-size: 14.5px; }
+  .saved { display: grid; grid-template-columns: 56px 1fr; gap: 12px; align-items: center; padding: 10px 0; border-top: 1px solid var(--border); }
+  .saved:first-of-type { border-top: 0; }
+  .saved img, .saved .sq { width: 56px; height: 56px; border-radius: 10px; object-fit: cover; }
+  .acct { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 14px; }
+  @media (max-width: 980px) { .ml { grid-template-columns: 1fr; gap: 0; } }
+  @media (max-width: 560px) { .ml-head { padding: var(--s4) 0 var(--s3); } .ml-head h1 { font-size: 30px; } .ml-head p { font-size: 15.5px; } .block { margin-top: var(--s5); } }
+</style></head>
+<body data-page="mylife" data-signedin="1">
+<main class="wrap">
+  <div class="ml-head">
+    <div><span class="eyebrow">/ My Life</span><h1 style="margin-top:8px">Good evening, Conor.</h1><p>Next up: <b>Wicklow Way Guided Hike</b> on Saturday at 09:00.</p></div>
+  </div>
+  <div class="needs" role="status"><span><b>Needs you:</b> confirm you're still going to Saturday Parkrun — the host is finalising numbers.</span><span class="btn sm primary">Confirm</span></div>
+
+  <div class="ml">
+    <div class="main">
+      <!-- NextUpCard -->
+      <section class="block" aria-labelledby="nu">
+        <h2 id="nu" class="eyebrow ink" style="font-family:var(--body);margin-bottom:10px">Next up</h2>
+        <article class="next">
+          <div class="ph"><img src="https://images.unsplash.com/photo-1551632811-561732d1e306?w=600&q=70&auto=format&fit=crop" alt="Hikers on a mountain trail"></div>
+          <div class="bd">
+            <span class="eyebrow">Saturday 24 Oct · 09:00 – 15:00</span>
+            <h2>Wicklow Way Guided Hike</h2>
+            <div class="support" style="display:flex;gap:6px 14px;flex-wrap:wrap"><span>Roundwood, Wicklow · Meeting point on your booking</span></div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><span class="pill green">Booked · Paid</span><span class="pill grey">2 people</span><span class="caption">Free cancellation until Thu 22 Oct, 09:00</span></div>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:4px"><span class="btn primary">View booking</span><span class="btn secondary">Get directions</span><span class="btn quiet">Add to calendar</span></div>
+          </div>
+        </article>
+      </section>
+
+      <!-- Coming up: all six participation types, own data only -->
+      <section class="block" aria-labelledby="cu">
+        <div class="block-h"><h2 id="cu">Coming up</h2><a class="btn quiet" href="#">All bookings &amp; history</a></div>
+        <div>
+          <div class="up"><div class="when"><b>23</b><span>Fri · 12:00</span></div><div class="what"><h3>Coffee &amp; Chat Meetup</h3><div class="support"><span>Kilkenny Coffee &amp; Chat Meetup Circle</span><span class="pill blue">Circle plan · You're going</span></div></div><div class="go"><span class="btn sm secondary">Open Circle</span></div></div>
+          <div class="up"><div class="when"><b>27</b><span>Tue · 19:00</span></div><div class="what"><h3>Beginners yoga — session 2 of 6</h3><div class="support"><span>Hub, Dún Laoghaire</span><span class="pill green">Enrolled</span></div></div><div class="go"><span class="btn sm secondary">View programme</span></div></div>
+          <div class="up"><div class="when"><b>31</b><span>Sat · 14:00</span></div><div class="what"><h3>Function Room — birthday party</h3><div class="support"><span>Ballincollig Community Centre</span><span class="pill amber">Payment being checked</span></div></div><div class="go"><span class="btn sm secondary">View booking</span></div></div>
+          <div class="up"><div class="when"><b>1</b><span>Nov · Sun</span></div><div class="what"><h3>Cabra Celtic FC — Under 10s</h3><div class="support"><span>Registration for Aoife (child)</span><span class="pill green">Registered</span></div></div><div class="go"><span class="btn sm secondary">View registration</span></div></div>
+        </div>
+      </section>
+
+      <section class="block" aria-labelledby="mc">
+        <div class="block-h"><h2 id="mc">My Circles <span class="support" style="font-family:var(--body);font-weight:600">· 5</span></h2><a class="btn quiet" href="#">Show all 5</a></div>
+        <div>
+          <div class="circ"><span class="avatar p">KC</span><div><b>Kilkenny Coffee &amp; Chat Meetup Circle</b><small>Organiser · 5 members · <u>Manage</u></small></div><span class="caption"><b style="color:var(--ink)">Next</b> Fri 23 Oct</span></div>
+          <div class="circ"><span class="avatar p">CS</span><div><b>Cork Saturday Parkrun Circle</b><small>Member · 7 members</small></div><span class="caption">Nothing planned yet</span></div>
+          <div class="circ"><span class="avatar">GB</span><div><b>Galway Badminton Doubles Circle</b><small>Member · 14 members</small></div><span class="caption">Poll open · vote by Sun</span></div>
+        </div>
+      </section>
+    </div>
+
+    <aside class="rail" aria-label="More for you">
+      <section class="panel">
+        <div class="block-h"><h3>Saved</h3><a class="btn quiet" href="#">View all</a></div>
+        <div class="saved"><img src="https://images.unsplash.com/photo-1637548076898-f896229b2f3b?w=200&q=70&auto=format&fit=crop" alt=""><div><b style="font-size:14.5px">Coastal Cliff Walk &amp; Tea</b><div class="caption">Sun 25 Oct · €25</div></div></div>
+        <div class="saved"><img src="https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?w=200&q=70&auto=format&fit=crop" alt=""><div><b style="font-size:14.5px">Glendalough Lakes Loop</b><div class="caption">Sat 31 Oct · €30</div></div></div>
+      </section>
+      <section class="panel">
+        <h3 style="margin-bottom:10px">Hosting</h3>
+        <p class="support" style="margin-bottom:12px">You're a Verified Host. Nothing on your calendar this week.</p>
+        <span class="btn secondary sm">Open hosting</span>
+      </section>
+      <section class="panel">
+        <h3 style="margin-bottom:6px">This month</h3>
+        <p class="support">20 plans · 15 different activities · most active on Saturdays</p>
+      </section>
+    </aside>
+  </div>
+</main>
+<script src="proto.js"></script>
+</body></html>

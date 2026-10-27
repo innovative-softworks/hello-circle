@@ -1,10 +1,8 @@
 import type { Experience } from "../types";
 import { CalendarIcon, PinIcon, TreeIconSmall } from "./icons";
 import { colors, placeholderStripes } from "../theme";
-import { formatPrice } from "../formatters";
-import { centsPriceSignal } from "../priceSignal";
-import { PriceChip } from "./PriceChip";
-import { CardPrice, ListingCard, cardButtonStyle } from "./ListingCard";
+import { CardArrow, CardPrice, ListingCard } from "./ListingCard";
+import { CardDate, itemCardLabel } from "./CardDate";
 import { SaveButton, useSavedState } from "./SaveButton";
 import { Button } from "./ui";
 import { useNavigate } from "react-router-dom";
@@ -28,12 +26,11 @@ export function ExperienceCard({ e }: { e: Experience }) {
       iconColor={colors.orange}
       tag={[e.kind === "adventure" ? "Adventure" : "Experience", e.difficulty].filter(Boolean).join(" · ")}
       save={<SaveButton saved={fav} onToggle={toggleFav} />}
-      details={[where ? { icon: <PinIcon size={13} />, text: where } : null, nextSession ? { icon: <CalendarIcon size={13} />, text: `Next: ${nextSession.date} · ${nextSession.time}` } : null]}
-      facts={centsPriceSignal(e.priceCents) ? <PriceChip signal="free" /> : <CardPrice>{formatPrice(e.priceCents)}</CardPrice>}
+      dateOn={nextSession ? <CardDate date={nextSession.date} time={nextSession.time} label={itemCardLabel({ date: nextSession.date, time: nextSession.time, spotsLeft: nextSession.spotsLeft })} /> : undefined}
+      details={[where ? { icon: <PinIcon size={13} />, text: where } : null, nextSession ? { icon: <CalendarIcon size={13} />, text: `Next: ${nextSession.date} · ${nextSession.time}`, kind: "date" } : null]}
+      facts={<CardPrice cents={e.priceCents} unit="per person" />}
       action={
-        <Button style={cardButtonStyle} variant="ghost" onClick={() => navigate(href)}>
-          View {e.kind === "adventure" ? "adventure" : "experience"}
-        </Button>
+        <CardArrow label={`View ${e.kind === "adventure" ? "adventure" : "experience"}: ${e.title}`} onClick={() => navigate(href)} />
       }
     >
       {e.blurb ? <p style={{ fontSize: 13, color: colors.muted, margin: "2px 0 0", lineHeight: 1.4 }}>{e.blurb}</p> : null}

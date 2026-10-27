@@ -2,8 +2,8 @@ import { useEffect, useState } from "react";
 import { checkReviewEligibility, fetchReviews, submitReport, submitReview, type ReviewListingType } from "../api";
 import { colors, fonts } from "../theme";
 import type { Review } from "../types";
-import { CheckCircleIcon, StarIcon } from "./icons";
-import { Avatar, Button, Card, ConfirmDialog, EmptyState, LoadErrorState, StarDisplay, StarPicker, inputStyle } from "./ui";
+import { CheckCircleIcon } from "./icons";
+import { Avatar, Button, Card, ConfirmDialog, LoadErrorState, StarDisplay, StarPicker, inputStyle } from "./ui";
 
 const REPORT_REASONS = ["Spam or fake", "Inappropriate content", "Harassment or abuse", "Other"];
 
@@ -105,19 +105,22 @@ export function Reviews({ listingType, listingId, accent, onReviewPosted }: Prop
   };
 
   return (
-    <div style={{ maxWidth: 640 }}>
-      <div style={{ borderTop: `1px solid ${colors.border}`, paddingTop: 36, marginTop: 4 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 22 }}>
-          <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 25, margin: 0, letterSpacing: 0 }}>Reviews</h2>
-          {reviews.length > 0 && <span style={{ color: colors.faint, fontSize: 14 }}>{reviews.length}</span>}
+    // Detail-page redesign — same section style as the other detail sections
+    // (heading over a full-width rule), using the full main column.
+    <div>
+      <div style={{ borderTop: `1px solid ${colors.border}`, paddingTop: 24 }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 14 }}>
+          <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 18, margin: 0, letterSpacing: 0 }}>Reviews</h2>
+          {reviews.length > 0 && <span style={{ color: colors.mutedLight, fontSize: 14 }}>{reviews.length}</span>}
         </div>
       </div>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 22 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 14 }}>
         {reviewsFailed ? (
           <LoadErrorState title="Couldn't load reviews." onRetry={retry} />
         ) : (
-          reviews.length === 0 && <EmptyState icon={<StarIcon size={26} />} title="No reviews yet" subtitle="Be the first to share how it went." />
+          // Detail-page redesign — an empty list is one line, not a full empty-state card.
+          reviews.length === 0 && <p style={{ margin: 0, fontSize: 14, color: colors.mutedLight }}>No reviews yet.</p>
         )}
         {reviews.map((r) => (
           <Card key={r.id} hover style={{ padding: "14px 16px", display: "flex", gap: 12 }}>
@@ -148,6 +151,7 @@ export function Reviews({ listingType, listingId, accent, onReviewPosted }: Prop
                   <span style={{ fontSize: 11.5, color: colors.faint }}>Reported</span>
                 ) : (
                   <button
+                    className="tap-target"
                     onClick={() => openReport(r)}
                     style={{ background: "none", border: "none", padding: 0, fontSize: 11.5, color: colors.faint, cursor: "pointer", fontFamily: "inherit" }}
                   >
@@ -161,16 +165,16 @@ export function Reviews({ listingType, listingId, accent, onReviewPosted }: Prop
       </div>
 
       {eligible === false && !reviewSent && (
-        <Card style={{ padding: 18, background: colors.bg }}>
-          <p style={{ fontSize: 13, color: colors.mutedLight, margin: 0 }}>
+        <div>
+          <p style={{ fontSize: 13, color: colors.mutedLight, margin: 0, lineHeight: 1.5 }}>
             {listingType === "centre" && "Only guests who've booked here can leave a review — book a room first, then come back to share how it went."}
             {listingType === "club" && "Only guests who've registered here can leave a review — register your child first, then come back to share how it went."}
-            {listingType === "game" && "Only residents who attended a past session can review it."}
-            {listingType === "host" && "Only residents who've played in one of this host's past sessions can review them."}
+            {listingType === "game" && "Only people who went to this activity can review it."}
+            {listingType === "host" && "Only people who've been to one of this host's activities can review them."}
             {listingType === "experience" && "Only guests with a past booking can leave a review — book a session first, then come back once it's happened."}
             {listingType === "program" && "Only participants who've attended at least one past session can leave a review — enrol first, then come back once a session has happened."}
           </p>
-        </Card>
+        </div>
       )}
 
       {eligible === "unknown" && !reviewSent && (

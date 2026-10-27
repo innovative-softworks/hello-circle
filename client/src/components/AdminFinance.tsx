@@ -64,6 +64,7 @@ import {
 } from "../api";
 import { useAuth } from "../AuthContext";
 import { LoadFailed, useLoadFailure } from "./admin/loadFailure";
+import { RowMenu } from "./admin/adminUi";
 import { FinanceRecordPage, HOLD_LABEL, REVIEW_REASON, bookingState } from "./admin/FinanceRecords";
 import { useRecordParam, useUrlParam } from "../useUrlTab";
 import { HYPOTHETICAL_PLAN_MODEL_NOTE } from "../partnerPricing";
@@ -343,7 +344,7 @@ function SettlementsSection({ onOpen }: { onOpen: (key: string) => void }) {
             <thead><tr><th style={thStyle}>Run</th><th style={thStyle}>Partner</th><th style={thStyle}>Amount</th><th style={thStyle}>Settlement</th><th style={thStyle}>When</th><th style={thStyle}><span className="adm-visually-hidden">Open</span></th></tr></thead>
             <tbody>
               {rows.map((s) => (
-                <tr key={s.id}><td style={tdStyle}>{s.runKey}</td><td style={tdStyle}>{s.partyType}:{s.partyId}</td><td style={{ ...tdStyle, fontWeight: 600 }}>{euro(s.netMinor)}</td><td style={tdStyle}>{s.status}</td><td style={tdStyle}>{when(s.createdAt)}</td><td style={tdStyle}><Button variant="ghost" onClick={() => onOpen(`settlement:${s.id}`)} aria-label={`Open settlement ${s.id}`}>Open</Button></td></tr>
+                <tr key={s.id}><td style={tdStyle}>{s.runKey}</td><td style={tdStyle}>{s.partyType}:{s.partyId}</td><td style={{ ...tdStyle, fontWeight: 600 }}>{euro(s.netMinor)}</td><td style={tdStyle}>{s.status}</td><td style={tdStyle}>{when(s.createdAt)}</td><td style={tdStyle}><div className="adm-cell-actions"><Button variant="ghost" onClick={() => onOpen(`settlement:${s.id}`)} aria-label={`Open settlement ${s.id}`}>Open</Button><RowMenu name={`settlement ${s.id}`} items={[{ label: "Open", onSelect: () => onOpen(`settlement:${s.id}`) }]} copy={{ value: String(s.id) }} /></div></td></tr>
               ))}
             </tbody>
           </StackTable>
@@ -420,7 +421,7 @@ function TransfersSection({ onOpen }: { onOpen: (key: string) => void }) {
                 <td style={{ ...tdStyle, fontWeight: 600 }}>{euro(t.amountMinor)}{Number(t.reversedMinor) > 0 ? ` (−${euro(t.reversedMinor)})` : ""}</td>
                 <td style={{ ...tdStyle, color: t.status === "failed" || t.status === "unknown" ? colors.danger : colors.text }}>{t.status}{t.error ? ` — ${t.error}` : ""}</td>
                 <td style={{ ...tdStyle, fontSize: 12.5 }}>{when(t.createdAt)}</td>
-                <td style={tdStyle}><Button variant="ghost" onClick={() => onOpen(`transfer:${t.id}`)} aria-label={`Open transfer ${t.id}`}>Open</Button></td>
+                <td style={tdStyle}><div className="adm-cell-actions"><Button variant="ghost" onClick={() => onOpen(`transfer:${t.id}`)} aria-label={`Open transfer ${t.id}`}>Open</Button><RowMenu name={`transfer ${t.id}`} items={[{ label: "Open", onSelect: () => onOpen(`transfer:${t.id}`) }, { label: "Open settlement", onSelect: () => onOpen(`settlement:${t.settlementId}`) }]} copy={{ label: "Copy Stripe transfer id", value: t.providerTransferId ?? String(t.id) }} /></div></td>
               </tr>
             ))}
             {rows.length === 0 && !failed && <tr><td style={tdStyle} colSpan={6}>No transfers yet.</td></tr>}
@@ -437,7 +438,7 @@ function TransfersSection({ onOpen }: { onOpen: (key: string) => void }) {
                 <td style={tdStyle}>{a.partyType}:{a.partyId}</td>
                 <td style={{ ...tdStyle, fontSize: 12.5 }}>{a.accountId} · {a.country}</td>
                 <td style={{ ...tdStyle, fontSize: 12.5 }}>{a.readiness.length ? a.readiness.join("; ") : "Ready"}</td>
-                <td style={tdStyle}><Button variant="ghost" onClick={() => setDialog({ kind: a.partyType, id: a.partyId })}>Open partner debt…</Button></td>
+                <td style={tdStyle}><div className="adm-cell-actions"><Button variant="ghost" onClick={() => setDialog({ kind: a.partyType, id: a.partyId })}>Open partner debt…</Button><RowMenu name={`account ${a.accountId}`} items={[{ label: "Open partner debt…", onSelect: () => setDialog({ kind: a.partyType, id: a.partyId }) }]} copy={{ label: "Copy Stripe account id", value: a.accountId }} /></div></td>
               </tr>
             ))}
             {accounts.length === 0 && !failed && <tr><td style={tdStyle} colSpan={4}>No partner has connected a payout account yet.</td></tr>}
@@ -512,7 +513,7 @@ function DebtsSection() {
                 <td style={tdStyle}>{euro(d.offsetMinor)}</td>
                 <td style={{ ...tdStyle, fontWeight: 700, color: d.outstandingMinor > 0 ? colors.danger : colors.text }}>{euro(d.outstandingMinor)}</td>
                 <td style={{ ...tdStyle, fontSize: 12.5, maxWidth: 260 }}>{d.reason}</td>
-                <td style={tdStyle}>{d.status === "open" && <Button variant="ghost" onClick={() => setRetry(d)}>Retry recovery…</Button>}</td>
+                <td style={tdStyle}><div className="adm-cell-actions">{d.status === "open" && <Button variant="ghost" onClick={() => setRetry(d)}>Retry recovery…</Button>}<RowMenu name={`debt ${d.id}`} items={d.status === "open" ? [{ label: "Retry recovery…", onSelect: () => setRetry(d) }] : []} copy={{ value: String(d.id) }} /></div></td>
               </tr>
             ))}
             {rows.length === 0 && !failed && <tr><td style={tdStyle} colSpan={8}>Nothing here.</td></tr>}
@@ -709,7 +710,7 @@ function RewardsSection() {
                 <td style={{ ...tdStyle, color: r.debt > 0 ? colors.danger : colors.text }}>{r.debt.toLocaleString("en-IE")}</td>
                 <td style={tdStyle}>{r.earned.toLocaleString("en-IE")}</td>
                 <td style={tdStyle}>{r.redeemed.toLocaleString("en-IE")}</td>
-                <td style={tdStyle}><Button variant="ghost" onClick={() => show(r)}>History…</Button></td>
+                <td style={tdStyle}><div className="adm-cell-actions"><Button variant="ghost" onClick={() => show(r)}>History…</Button><RowMenu name={`${r.partyType} ${r.partyId}`} items={[{ label: "History and adjustment…", onSelect: () => show(r) }]} copy={{ value: `${r.partyType}:${r.partyId}` }} /></div></td>
               </tr>
             ))}
             {rows && rows.length === 0 && !failed && <tr><td style={tdStyle} colSpan={6}>No points yet.</td></tr>}
@@ -899,7 +900,7 @@ function WebhooksSection({ onOpen }: { onOpen: (key: string) => void }) {
                 <td style={{ ...tdStyle, fontSize: 12.5 }}>{e.eventType}<div style={{ color: colors.mutedLight }}>{e.eventId}</div></td>
                 <td style={tdStyle}>{e.status} ({e.attempts})</td>
                 <td style={{ ...tdStyle, fontSize: 12.5, maxWidth: 280 }}>{e.lastError ?? ""}</td>
-                <td style={tdStyle}><Button variant="ghost" onClick={() => onOpen(`event:${e.id}`)} aria-label={`Open event ${e.id}`}>{e.status === "failed" || e.status === "manual_review" ? "Review" : "Open"}</Button></td>
+                <td style={tdStyle}><div className="adm-cell-actions"><Button variant="ghost" onClick={() => onOpen(`event:${e.id}`)} aria-label={`Open event ${e.id}`}>{e.status === "failed" || e.status === "manual_review" ? "Review" : "Open"}</Button><RowMenu name={`event ${e.id}`} items={[{ label: "Open", onSelect: () => onOpen(`event:${e.id}`) }]} copy={{ label: "Copy Stripe event id", value: e.eventId }} /></div></td>
               </tr>
             ))}
             {rows.length === 0 && !failed && <tr><td style={tdStyle} colSpan={5}>Nothing here.</td></tr>}
@@ -958,7 +959,7 @@ function PaymentReviewsSection({ onOpen }: { onOpen: (key: string) => void }) {
                   <td style={{ ...tdStyle, fontSize: 12.5 }}>{REVIEW_REASON[r.reason] ?? r.reason}{r.status !== "open" && <div style={{ color: colors.mutedLight }}>Closed — {r.resolution}</div>}</td>
                   <td style={{ ...tdStyle, fontSize: 12.5 }}>{bookingState(r.order)}</td>
                   <td style={{ ...tdStyle, fontSize: 12.5 }}>{HOLD_LABEL[r.holdStatus] ?? r.holdStatus}{r.holdStatus === "held" && r.reviewHoldUntil && <div style={{ color: colors.mutedLight }}>until {when(r.reviewHoldUntil)}</div>}</td>
-                  <td style={tdStyle}><Button variant="ghost" onClick={() => onOpen(`review:${r.id}`)} aria-label={`Open payment review ${r.id}`}>Open</Button></td>
+                  <td style={tdStyle}><div className="adm-cell-actions"><Button variant="ghost" onClick={() => onOpen(`review:${r.id}`)} aria-label={`Open payment review ${r.id}`}>Open</Button><RowMenu name={`payment review ${r.id}`} items={[{ label: "Open", onSelect: () => onOpen(`review:${r.id}`) }, ...(r.sourceType && r.sourceRef ? [{ label: "Open order", onSelect: () => onOpen(`order:${r.sourceType}:${r.sourceRef}`) }] : [])]} copy={{ value: r.sourceRef ?? String(r.id) }} /></div></td>
                 </tr>
               );
             })}
@@ -1024,7 +1025,7 @@ function RefundsSection({ onOpen }: { onOpen: (key: string) => void }) {
           <thead><tr><th style={thStyle}>Order</th><th style={thStyle}>Amount</th><th style={thStyle}>Kind</th><th style={thStyle}>Origin</th><th style={thStyle}>Refund</th><th style={thStyle}>Reason</th><th style={thStyle}><span className="adm-visually-hidden">Open</span></th></tr></thead>
           <tbody>
             {rows.map((r) => (
-              <tr key={r.id}><td style={tdStyle}>{r.source_type} {r.source_ref}</td><td style={{ ...tdStyle, fontWeight: 600 }}>{euro(r.amount_minor)}</td><td style={tdStyle}>{r.kind}</td><td style={tdStyle}>{r.origin}</td><td style={tdStyle}>{r.status}</td><td style={{ ...tdStyle, fontSize: 12.5 }}>{r.reason}</td><td style={tdStyle}>{canRefund && <Button variant="ghost" onClick={() => onOpen(`refund:${r.id}`)} aria-label={`Open refund ${r.id}`}>Open</Button>}</td></tr>
+              <tr key={r.id}><td style={tdStyle}>{r.source_type} {r.source_ref}</td><td style={{ ...tdStyle, fontWeight: 600 }}>{euro(r.amount_minor)}</td><td style={tdStyle}>{r.kind}</td><td style={tdStyle}>{r.origin}</td><td style={tdStyle}>{r.status}</td><td style={{ ...tdStyle, fontSize: 12.5 }}>{r.reason}</td><td style={tdStyle}><div className="adm-cell-actions">{canRefund && <Button variant="ghost" onClick={() => onOpen(`refund:${r.id}`)} aria-label={`Open refund ${r.id}`}>Open</Button>}<RowMenu name={`refund ${r.id}`} items={canRefund ? [{ label: "Open", onSelect: () => onOpen(`refund:${r.id}`) }] : []} copy={{ label: "Copy order reference", value: r.source_ref }} /></div></td></tr>
             ))}
             {rows.length === 0 && !failed && <tr><td style={tdStyle} colSpan={7}>No refunds yet.</td></tr>}
           </tbody>
@@ -1073,9 +1074,12 @@ function DisputesSection({ onOpen }: { onOpen: (key: string) => void }) {
                 <td style={tdStyle}>{d.status}</td>
                 <td style={tdStyle}>{d.recovery_status}{d.responsible ? ` (${d.responsible})` : ""}</td>
                 <td style={{ ...tdStyle, whiteSpace: "nowrap" }}>
-                  <Button variant="ghost" onClick={() => onOpen(`dispute:${d.id}`)} aria-label={`Open dispute ${d.provider_dispute_id}`}>
-                    {d.status === "lost" && d.recovery_status === "pending" ? "Decide recovery" : "Open"}
-                  </Button>
+                  <div className="adm-cell-actions">
+                    <Button variant="ghost" onClick={() => onOpen(`dispute:${d.id}`)} aria-label={`Open dispute ${d.provider_dispute_id}`}>
+                      {d.status === "lost" && d.recovery_status === "pending" ? "Decide recovery" : "Open"}
+                    </Button>
+                    <RowMenu name={`dispute ${d.provider_dispute_id}`} items={[{ label: "Open", onSelect: () => onOpen(`dispute:${d.id}`) }]} copy={{ label: "Copy Stripe dispute id", value: d.provider_dispute_id }} />
+                  </div>
                 </td>
               </tr>
             ))}
@@ -1240,7 +1244,7 @@ export function HelpSection() {
           <thead><tr><th style={thStyle}>Field</th><th style={thStyle}>Definition</th><th style={thStyle}>Version</th><th style={thStyle} /></tr></thead>
           <tbody>
             {entries.map((e) => (
-              <tr key={e.helpKey}><td style={tdStyle}>{e.name}</td><td style={{ ...tdStyle, fontSize: 12.5, maxWidth: 420 }}>{e.definition}</td><td style={tdStyle}>v{e.version}</td><td style={tdStyle}><Button variant="ghost" onClick={() => { setEdit(e); setDraft({ ...e }); }}>Edit</Button></td></tr>
+              <tr key={e.helpKey}><td style={tdStyle}>{e.name}</td><td style={{ ...tdStyle, fontSize: 12.5, maxWidth: 420 }}>{e.definition}</td><td style={tdStyle}>v{e.version}</td><td style={tdStyle}><div className="adm-cell-actions"><Button variant="ghost" onClick={() => { setEdit(e); setDraft({ ...e }); }}>Edit</Button><RowMenu name={e.name} items={[{ label: "Edit", onSelect: () => { setEdit(e); setDraft({ ...e }); } }]} copy={{ label: "Copy help key", value: e.helpKey }} /></div></td></tr>
             ))}
           </tbody>
         </StackTable>

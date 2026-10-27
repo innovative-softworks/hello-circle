@@ -6,16 +6,17 @@ import { useNavigate } from "react-router-dom";
 import { joinGame, joinGameWaitlist } from "../api";
 import { useGuest } from "../GuestContext";
 import { openCheckout } from "../native";
-import { ArrowRightIcon, AwardIcon, BallIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon, ClockIcon, PinIcon, RepeatIcon, TreeIconSmall, UsersIcon } from "./icons";
+import { ArrowRightIcon, AwardIcon, CalendarIcon, BallIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon, ClockIcon, PinIcon, RepeatIcon, TreeIconSmall, UsersIcon } from "./icons";
 import { Button } from "./ui";
 import { WhyRecommended } from "./WhyRecommended";
 import { SaveButton, useSavedState } from "./SaveButton";
-import { CardPrice, ListingCard, cardButtonStyle } from "./ListingCard";
+import { CardAction, CardArrow, CardAvailability, CardPrice, ListingCard, priceUnitFor, type ListingStatusTone } from "./ListingCard";
+import { CardDate, discoverCardLabel } from "./CardDate";
+import { FeatureCard, featureFits, type FeatureVariant } from "./FeatureCard";
 import { colors, fonts, placeholderStripes, radius, statTile } from "../theme";
 import type { ActivitySummary } from "../types";
 import { formatDateTime, formatPrice } from "../formatters";
 import { centsPriceSignal } from "../priceSignal";
-import { PriceChip } from "./PriceChip";
 
 // Photo-driven cards for the homepage "Happening today" / "This weekend"
 // feeds (Phase 5), extended in Phase 1 "Connect" to also render Experience/
@@ -34,6 +35,9 @@ const KIND_META: Record<ActivitySummary["kind"], { icon: React.ReactNode; fg: st
   club_session: { icon: <RepeatIcon size={22} />, fg: colors.orange, ph: placeholderStripes.orange },
   experience_session: { icon: <TreeIconSmall size={22} />, fg: colors.greenText, ph: placeholderStripes.green },
 };
+
+/** No-photo card category (Batch 2). */
+const KIND_LABEL: Record<ActivitySummary["kind"], string> = { game: "Activity", program_session: "Programme", club_session: "Club session", experience_session: "Experience" };
 
 const KIND_CTA_LABEL: Record<Exclude<ActivitySummary["kind"], "game">, string> = {
   program_session: "View session",
@@ -71,30 +75,30 @@ function JoinControl({ item }: { item: ActivitySummary }) {
   const [joining, setJoining] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const confirm = useConfirm();
+  // Reference button strategy: filled for paid, outline for free.
+  const paid = !!item.priceCents && item.priceCents > 0;
 
   if (!resident) {
     return (
-      <div className="stretched-link-above">
-        <Button variant="dark" style={cardButtonStyle} onClick={() => navigate(item.href)}>
-          Sign in to join
-        </Button>
-      </div>
+      <CardAction look={paid ? "filled" : "outline"} arrow onClick={() => navigate(item.href)} ariaLabel={`Join ${item.title}`}>
+        Join
+      </CardAction>
     );
   }
 
   if (joined) {
     return (
-      <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 0", color: colors.greenText, fontWeight: 700, fontSize: 13 }}>
+      <span className="lc-note" data-tone="good" role="status" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
         <CheckIcon size={14} /> You're in!
-      </div>
+      </span>
     );
   }
 
   if (waitlisted) {
     return (
-      <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 0", color: colors.orangeDark, fontWeight: 700, fontSize: 13 }}>
+      <span className="lc-note" role="status" style={{ display: "inline-flex", alignItems: "center", gap: 6, color: colors.orangeDark }}>
         <CheckIcon size={14} /> On the waitlist
-      </div>
+      </span>
     );
   }
 
@@ -127,12 +131,12 @@ function JoinControl({ item }: { item: ActivitySummary }) {
   };
 
   return (
-    <div className="stretched-link-above">
-      {error && <div style={{ fontSize: 11.5, color: colors.danger, marginBottom: 6 }}>{error}</div>}
-      <Button variant="dark" style={cardButtonStyle} disabled={joining || full} onClick={handleJoin}>
-        {joining ? "Joining…" : full ? "Join waitlist" : "I'm in"}
-      </Button>
-    </div>
+    <span style={{ display: "inline-flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+      {error && <span className="lc-note" data-tone="error" role="alert">{error}</span>}
+      <CardAction look={full ? "outline" : paid ? "filled" : "outline"} arrow={!full} busy={joining} busyLabel="Joining…" onClick={handleJoin} ariaLabel={full ? `Join the waitlist for ${item.title}` : `Join ${item.title}`}>
+        {full ? "Join waitlist" : "Join"}
+      </CardAction>
+    </span>
   );
 }
 
@@ -140,11 +144,18 @@ export function DiscoverCard({
   item,
   isToday,
   fill = false,
+  look,
+  category,
 }: {
   item: ActivitySummary;
   isToday: boolean;
   /** Fill a results-grid cell instead of the rail's fixed 260px width. */
   fill?: boolean;
+  /** A premium style for this section (owner plan, 2026-10-23); falls back
+   * to the compact card when the item lacks what the style needs. */
+  look?: FeatureVariant;
+  /** Real category name (Bold style). */
+  category?: string | null;
 }) {
   const navigate = useNavigate();
   const meta = kindMeta(item.kind);
@@ -162,10 +173,58 @@ export function DiscoverCard({
   const href = item.canonicalUrl ?? item.href;
   const open = () => navigate(href);
 
+  const status: { label: string; tone: ListingStatusTone } | null = isFull
+    ? { label: "Fully booked", tone: "calm" }
+    : item.spotsLeft !== null && item.spotsLeft !== undefined && item.spotsLeft <= 3
+      ? { label: "Almost full", tone: "hot" }
+      : item.isLive
+        ? { label: "Live now", tone: "popular" }
+        : isToday
+          ? { label: "Today", tone: "new" }
+          : null;
+  const action = isJoinableGame ? (
+    <JoinControl item={item} />
+  ) : (
+    <CardArrow label={`${item.kind === "game" ? "View" : KIND_CTA_LABEL[item.kind]}: ${item.title}`} onClick={open} />
+  );
+  const saveButton = canSave ? <SaveButton saved={saved} onToggle={toggleSaved} /> : null;
+  const useFeature = !!look && featureFits(look, { image: item.imageUrl, date: item.date, category });
+  const wrap = fill ? { display: "grid", minWidth: 0 } : { flex: "none", width: look ? FEATURE_CARD_W : 280, scrollSnapAlign: "start", display: "flex" };
+
+  if (useFeature && look) {
+    return (
+      <div style={wrap}>
+        <FeatureCard
+          variant={look}
+          data={{
+            href,
+            title: item.title,
+            image: item.imageUrl,
+            ph: meta.ph,
+            category: look === "bold" ? category : (KIND_LABEL[item.kind] ?? "Activity"),
+            status,
+            place: place ? `${place}${item.area ? `, ${item.area}` : ""}` : null,
+            date: item.date,
+            time: item.time,
+            durationMinutes: null,
+            going: isJoinableGame ? item.joined : null,
+            price: centsPriceSignal(item.priceCents) ? "Free" : formatPrice(item.priceCents),
+            spotsLeft: isJoinableGame ? item.spotsLeft : null,
+          }}
+          save={saveButton}
+          onOpen={open}
+          action={action}
+        >
+          <WhyRecommended reasons={matchReasons} label={item.fitLabel} />
+        </FeatureCard>
+      </div>
+    );
+  }
+
   // Design-system consistency pass: the shared ListingCard shape — at the
   // row's fixed card width in a rail, or the cell's width in a results grid.
   return (
-    <div style={fill ? { display: "grid", minWidth: 0 } : { flex: "none", width: 260, scrollSnapAlign: "start", display: "flex" }}>
+    <div style={wrap}>
       <ListingCard
         href={href}
         title={item.title}
@@ -173,41 +232,40 @@ export function DiscoverCard({
         ph={meta.ph}
         icon={meta.icon}
         iconColor={meta.fg}
-        tag={item.isLive ? "Live now" : isToday ? "Today" : dayPillLabel(item.date)}
-        status={isFull ? { label: "Full", tone: "calm" } : null}
-        save={canSave ? <SaveButton saved={saved} onToggle={toggleSaved} /> : null}
+        tag={KIND_LABEL[item.kind] ?? "Activity"}
+        fallbackKind={KIND_LABEL[item.kind] ?? null}
+        fallbackLine={formatDateTime(item.date, item.time)}
+        rowOnPhone={fill}
+        status={status}
+        dateOn={<CardDate date={item.date} time={item.time} label={discoverCardLabel(item)} href={href} onGo={navigate} />}
+        save={saveButton}
         details={[
-          { icon: <ClockIcon size={13} />, text: item.time },
-          place ? { icon: <PinIcon size={13} />, text: `${place}${item.area ? `, ${item.area}` : ""}` } : null,
+          { icon: <CalendarIcon size={13} />, text: formatDateTime(item.date, item.time), kind: "date" },
+          // One muted line: the place and how many are going (Explore cleanup,
+          // owner 2026-10-27), same as the Activities cards.
+          place || (isJoinableGame && item.joined)
+            ? { icon: <PinIcon size={13} />, text: [place ? `${place}${item.area ? `, ${item.area}` : ""}` : null, isJoinableGame && item.joined ? `${item.joined} going` : null].filter(Boolean).join(" · ") }
+            : null,
           item.hostVerified ? { icon: <AwardIcon size={13} />, text: "Verified host" } : null,
         ]}
+        going={null}
         facts={
           <>
-            {centsPriceSignal(item.priceCents) ? <PriceChip signal="free" /> : <CardPrice>{formatPrice(item.priceCents)}</CardPrice>}
-            {isJoinableGame && !!item.joined && (
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-                <UsersIcon size={13} /> {item.joined} going
-              </span>
-            )}
+            <CardPrice cents={item.priceCents} unit={priceUnitFor(item.kind)} />
+            {isJoinableGame && <CardAvailability spotsLeft={item.spotsLeft} />}
+            {/* "Good fit · Why?" sits on the price row, not a line of its own. */}
+            <span className="lc-why">
+              <WhyRecommended reasons={matchReasons} label={item.fitLabel} />
+            </span>
           </>
         }
-        action={
-          isJoinableGame ? (
-            <JoinControl item={item} />
-          ) : (
-            <Button style={cardButtonStyle} variant="dark" onClick={open}>
-              {item.kind === "game" ? "View session" : KIND_CTA_LABEL[item.kind]}
-            </Button>
-          )
-        }
-      >
-        <WhyRecommended reasons={matchReasons} label={item.fitLabel} />
-      </ListingCard>
+        action={action}
+      />
     </div>
   );
 }
 
-const CARD_STEP = 274; // 260px card + 14px gap — used to convert scrollLeft <-> card index
+const FEATURE_CARD_W = 320;
 const AUTO_ADVANCE_MS = 4500;
 
 /** Renders nothing when `items` is empty — the caller's wrapping <section>
@@ -227,13 +285,25 @@ export function DiscoverRow({
   isToday = false,
   limit,
   moreHref,
+  look,
+  layout = "rail",
+  subtitle,
 }: {
   title: string;
+  /** One short line under the title. */
+  subtitle?: string;
   items: ActivitySummary[];
   isToday?: boolean;
   limit?: number;
   moreHref?: string;
+  /** Premium card style for this row (owner plan, 2026-10-23). */
+  look?: FeatureVariant;
+  /** "grid" lays the cards out in the results grid instead of a scrolling
+   * carousel (owner, 2026-10-23: Explore's "This weekend"). */
+  layout?: "rail" | "grid";
 }) {
+  // Card width + 14px gap — converts scrollLeft <-> card index.
+  const CARD_STEP = (look ? FEATURE_CARD_W : 280) + 16;
   const navigate = useNavigate();
   const scrollerRef = useRef<HTMLDivElement>(null);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -249,15 +319,36 @@ export function DiscoverRow({
     setActiveIndex(clamped);
   };
 
-  useEffect(() => {
-    if (paused || userInteracted || visibleItems.length <= 1) return;
-    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
-    const id = setInterval(() => scrollToIndex(activeIndex + 1), AUTO_ADVANCE_MS);
-    return () => clearInterval(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeIndex, paused, userInteracted, visibleItems.length]);
+  // No auto-advance: rows only move when the visitor moves them (Explore
+  // cleanup, owner 2026-10-27). `paused`/`userInteracted` stay for the
+  // scroll handlers below.
+  void paused;
+  void userInteracted;
 
   if (items.length === 0) return null;
+
+  if (layout === "grid") {
+    return (
+      <>
+        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, marginBottom: 14 }}>
+          <div>
+            <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: 0, letterSpacing: 0 }}>{title}</h2>
+            {subtitle && <p style={{ margin: "4px 0 0", fontSize: 13.5, color: colors.mutedLight }}>{subtitle}</p>}
+          </div>
+          {hasMore && (
+            <button type="button" onClick={() => navigate(moreHref!)} className="link-button" style={{ background: "none", border: "none", padding: 0, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6, fontWeight: 700, fontSize: 14, color: colors.text }}>
+              View all ({items.length}) <ArrowRightIcon size={15} />
+            </button>
+          )}
+        </div>
+        <div className="listing-grid lc-grid--b">
+          {visibleItems.map((item) => (
+            <DiscoverCard key={`${item.kind}-${item.id}`} item={item} isToday={isToday} look={look} fill />
+          ))}
+        </div>
+      </>
+    );
+  }
 
   // Keeps the dot indicator in sync when the visitor scrolls/drags by hand
   // rather than using the arrows/dots — also what flags "don't auto-advance
@@ -271,7 +362,10 @@ export function DiscoverRow({
   return (
     <>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-        <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: 0, letterSpacing: 0 }}>{title}</h2>
+        <div>
+          <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: 0, letterSpacing: 0 }}>{title}</h2>
+          {subtitle && <p style={{ margin: "4px 0 0", fontSize: 13.5, color: colors.mutedLight }}>{subtitle}</p>}
+        </div>
         {visibleItems.length > 3 && (
           <div className="hide-mobile" style={{ display: "flex", gap: 8 }}>
             <button onClick={() => scrollToIndex(activeIndex - 1)} aria-label="Previous" className="btn btn-ghost" style={arrowBtnStyle}>
@@ -285,13 +379,14 @@ export function DiscoverRow({
       </div>
       <div
         ref={scrollerRef}
+        className="lc-grid--b"
         onScroll={handleScroll}
         onMouseEnter={() => setPaused(true)}
         onMouseLeave={() => setPaused(false)}
         onTouchStart={() => setPaused(true)}
         style={{
           display: "flex",
-          gap: 14,
+          gap: 16,
           overflowX: "auto",
           scrollSnapType: "x proximity",
           paddingBottom: 4,
@@ -302,7 +397,7 @@ export function DiscoverRow({
         }}
       >
         {visibleItems.map((item) => (
-          <DiscoverCard key={`${item.kind}-${item.id}`} item={item} isToday={isToday} />
+          <DiscoverCard key={`${item.kind}-${item.id}`} item={item} isToday={isToday} look={look} />
         ))}
         {hasMore && (
           <button
@@ -329,36 +424,6 @@ export function DiscoverRow({
           </button>
         )}
       </div>
-      {visibleItems.length > 1 && (
-        // Sitemap audit P2-12 — each dot sits in a transparent 24×24 tap target
-        // (WCAG 2.2 target size); the visible dot is unchanged. Wraps on very
-        // narrow screens rather than overflowing.
-        <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", marginTop: 6 }}>
-          {visibleItems.map((item, i) => (
-            <button
-              key={`${item.kind}-${item.id}`}
-              onClick={() => {
-                setUserInteracted(true);
-                scrollToIndex(i);
-              }}
-              aria-label={`Go to ${item.title}`}
-              aria-current={i === activeIndex ? "true" : undefined}
-              style={{ minWidth: 24, height: 24, padding: "0 3px", border: "none", background: "none", cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center" }}
-            >
-              <span
-                aria-hidden
-                style={{
-                  width: i === activeIndex ? 18 : 6,
-                  height: 6,
-                  borderRadius: radius.pill,
-                  background: i === activeIndex ? colors.green : colors.borderStrong,
-                  transition: "width 0.2s ease, background-color 0.2s ease",
-                }}
-              />
-            </button>
-          ))}
-        </div>
-      )}
     </>
   );
 }

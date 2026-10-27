@@ -2,6 +2,14 @@
 // packages/design-tokens (shared with apps/mobile) — re-exported here so
 // every existing `from "./theme"` import keeps working unchanged.
 export * from "@hello-circle/design-tokens";
+
+/** Consumer page container width (owner, 2026-10-22: "a little wider"; was
+ * 1440 from the shared design tokens). One value for the header, footer and
+ * every page container so their edges line up; the matching CSS variable is
+ * --page-max in index.css (used by the Home/Circles/CTA-band stylesheets).
+ * A local export takes precedence over the `export *` above, so the mobile
+ * app's shared token is unchanged. */
+export const maxWidth = 1560;
 import { radius as tokenRadius } from "@hello-circle/design-tokens";
 
 /** Corner radii as CSS custom properties (same mechanism as `colors` below):

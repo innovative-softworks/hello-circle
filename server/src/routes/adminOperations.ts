@@ -1,3 +1,8 @@
+import { writeAudit } from "../audit.js";
+import { notifyResident } from "../notifications.js";
+import { circlePlanningForAdmin, deletePoll, removePlan, removeWishGroup } from "../circleModeration.js";
+import { adminRemoveLink, circleLinksForAdmin } from "./circleLinks.js";
+import { db } from "../db/index.js";
 import { Router } from "express";
 import { ChangeError, proposeBookingChange } from "../bookingChanges.js";
 import { activityDetail, listActivities, listCircles, listHosts, listPeople } from "../adminDirectories.js";
@@ -59,6 +64,88 @@ adminOperationsRouter.post("/activities/:id/cancel", requireAdminPermission("act
 
 adminOperationsRouter.get("/circles", requireAdminPermission("support.search"), async (req, res) => {
   res.json(await listCircles({ q: str(req.query.q), status: str(req.query.status) }, req.query.cursor, pageLimit(req.query.limit)));
+});
+
+// Circle planning moderation (owner, 2026-10-24): staff can take down a
+// wish, a plan or a poll inside a Circle. A reason is required and recorded;
+// wishes stay totals only — staff never see who wished for what.
+adminOperationsRouter.get("/circles/:id/planning", requireAdminPermission("reports.view"), async (req, res) => {
+  const circle = (await db.prepare(`SELECT id, name, slug, status, activity_label as activityLabel, closed_by as closedBy FROM circles WHERE id = ?`).get(req.params.id)) as Record<string, unknown> | undefined;
+  if (!circle) return res.status(404).json({ error: "Circle not found" });
+  res.json({ circle, ...(await circlePlanningForAdmin(req.params.id)), links: await circleLinksForAdmin(req.params.id) });
+});
+
+function moderationReason(req: { body?: unknown }): string | null {
+  const r = typeof (req.body as { reason?: unknown })?.reason === "string" ? ((req.body as { reason: string }).reason).trim() : "";
+  return r.length >= 10 ? r.slice(0, 500) : null;
+}
+
+// Circles 3.1 — take down a listing linked to a Circle (the listing itself is untouched).
+adminOperationsRouter.post("/circles/:id/links/:linkId/remove", requireAdminPermission("reports.moderate"), async (req, res) => {
+  const reason = moderationReason(req);
+  if (!reason) return res.status(400).json({ error: "Give a reason of at least 10 characters — organisers see it" });
+  const r = await adminRemoveLink(req.params.id, req.params.linkId, req.user!.id, reason);
+  if (r === "missing") return res.status(404).json({ error: "That link has already gone" });
+  res.json({ ok: true });
+});
+
+// Circles 3.0 — HelloCircle closes a Circle directly (not only through a
+// report), or reopens one it closed. Reason required, organisers told,
+// audited. An organiser's own closure stays theirs to reopen.
+adminOperationsRouter.post("/circles/:id/close", requireAdminPermission("reports.moderate"), async (req, res) => {
+  const reason = moderationReason(req);
+  if (!reason) return res.status(400).json({ error: "Give a reason of at least 10 characters — organisers see it" });
+  const circle = (await db.prepare(`SELECT name FROM circles WHERE id = ?`).get(req.params.id)) as { name: string } | undefined;
+  if (!circle) return res.status(404).json({ error: "Circle not found" });
+  const r = await db.prepare(`UPDATE circles SET status = 'closed', closed_by = 'helloCircle' WHERE id = ? AND status != 'closed'`).run(req.params.id);
+  if (r.changes !== 1) return res.status(409).json({ error: "This Circle is already closed" });
+  await writeAudit({ actorUserId: req.user!.id, action: "circle.closed_by_helloCircle", objectType: "circle", objectId: req.params.id, previousValue: { status: "active" }, newValue: { status: "closed" }, reason });
+  await tellOrganisers(req.params.id, `Closed by HelloCircle: ${circle.name}`, `HelloCircle closed this Circle: ${reason}`);
+  res.json({ ok: true });
+});
+
+adminOperationsRouter.post("/circles/:id/reopen", requireAdminPermission("reports.moderate"), async (req, res) => {
+  const reason = moderationReason(req);
+  if (!reason) return res.status(400).json({ error: "Give a reason of at least 10 characters — organisers see it" });
+  const circle = (await db.prepare(`SELECT name, status, closed_by as closedBy FROM circles WHERE id = ?`).get(req.params.id)) as { name: string; status: string; closedBy: string | null } | undefined;
+  if (!circle) return res.status(404).json({ error: "Circle not found" });
+  if (circle.status !== "closed" || circle.closedBy !== "helloCircle") return res.status(409).json({ error: "Only a Circle HelloCircle closed can be reopened here" });
+  const r = await db.prepare(`UPDATE circles SET status = 'active', closed_by = NULL WHERE id = ? AND status = 'closed' AND closed_by = 'helloCircle'`).run(req.params.id);
+  if (r.changes !== 1) return res.status(409).json({ error: "This Circle has already changed — reload" });
+  await writeAudit({ actorUserId: req.user!.id, action: "circle.reopened_by_helloCircle", objectType: "circle", objectId: req.params.id, previousValue: { status: "closed" }, newValue: { status: "active" }, reason });
+  await tellOrganisers(req.params.id, `Reopened: ${circle.name}`, `HelloCircle reopened this Circle: ${reason}`);
+  res.json({ ok: true });
+});
+
+async function tellOrganisers(circleId: string, title: string, body: string) {
+  const organisers = (await db.prepare(`SELECT resident_id FROM circle_members WHERE circle_id = ? AND role = 'organiser'`).all(circleId)) as { resident_id: string }[];
+  for (const o of organisers) await notifyResident({ residentId: o.resident_id, kind: "circle", title, body, listingType: "circle", listingId: circleId, ref: circleId });
+}
+
+adminOperationsRouter.post("/circles/:id/wishes/remove", requireAdminPermission("reports.moderate"), async (req, res) => {
+  const reason = moderationReason(req);
+  if (!reason) return res.status(400).json({ error: "Give a reason of at least 10 characters — the people who added it see it" });
+  const { weekStart, interestKey } = req.body as { weekStart?: string; interestKey?: string };
+  if (!weekStart || !interestKey) return res.status(400).json({ error: "Choose a wish" });
+  const n = await removeWishGroup(req.params.id, weekStart, interestKey, { kind: "admin", userId: req.user!.id }, reason);
+  if (n === 0) return res.status(404).json({ error: "That wish has already gone" });
+  res.json({ ok: true, removed: n });
+});
+
+adminOperationsRouter.post("/circles/:id/plans/:planId/remove", requireAdminPermission("reports.moderate"), async (req, res) => {
+  const reason = moderationReason(req);
+  if (!reason) return res.status(400).json({ error: "Give a reason of at least 10 characters — members see it" });
+  const r = await removePlan(req.params.id, req.params.planId, { kind: "admin", userId: req.user!.id }, reason);
+  if (r === "missing") return res.status(404).json({ error: "Plan not found" });
+  if (r === "too_late") return res.status(409).json({ error: "This plan is already an activity or closed — cancel the activity instead" });
+  res.json({ ok: true });
+});
+
+adminOperationsRouter.post("/circles/:id/polls/:pollId/delete", requireAdminPermission("reports.moderate"), async (req, res) => {
+  const reason = moderationReason(req);
+  if (!reason) return res.status(400).json({ error: "Give a reason of at least 10 characters — it's recorded" });
+  if (!(await deletePoll(req.params.id, req.params.pollId, { kind: "admin", userId: req.user!.id }, reason))) return res.status(404).json({ error: "Poll not found" });
+  res.json({ ok: true });
 });
 
 adminOperationsRouter.get("/hosts", requireAdminPermission("support.search"), async (req, res) => {

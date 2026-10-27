@@ -89,8 +89,29 @@ function siblingVariantKey(key: string, targetVariant: MediaVariant): string | n
 
 const RESTRICTED_CIRCLE_COVER_PATH = /^\/api\/media\/circles\/[^/]+\/cover$/;
 
+// Detail-page audit DP-23 (2026-10-22) — Unsplash links (seed/editorial
+// photos) carry a fixed `w=`, often 800–900px, which looked soft in a
+// 1,100–1,500px cover. Ask Unsplash's own resizer for the width the variant
+// is shown at, the same widths the R2/Cloudinary variants use.
+const UNSPLASH_WIDTH: Record<MediaVariant, number> = { avatar: 160, thumbnail: 400, card: 800, hero: 1600 };
+function unsplashForVariant(source: string, variant: MediaVariant): string | null {
+  let url: URL;
+  try {
+    url = new URL(source);
+  } catch {
+    return null;
+  }
+  if (url.hostname !== "images.unsplash.com") return null;
+  url.searchParams.set("w", String(UNSPLASH_WIDTH[variant]));
+  if (!url.searchParams.has("auto")) url.searchParams.set("auto", "format");
+  if (!url.searchParams.has("fit")) url.searchParams.set("fit", "crop");
+  return url.toString();
+}
+
 export function resolveMediaUrl(source: string | null | undefined, variant: MediaVariant, config: MediaUrlConfig): string {
   if (!source) return "";
+  const unsplash = unsplashForVariant(source, variant);
+  if (unsplash) return unsplash;
 
   // The one signed-delivery case — thread the wanted size through as a
   // query param so the server picks (and signs) the right real object;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { EXPLORE_PLACES, EXPLORE_THINGS, START_ITEMS, START_PATHS, EXPLORE_PATHS, accountItemKeys, isUnder, visibleItems, type AccountContext, type NavContext } from "./navConfig";
+import { EXPLORE_LEARN, EXPLORE_PLACES, EXPLORE_PLACES_SOON, EXPLORE_THINGS, START_GROUPS, START_ITEMS, START_PATHS, EXPLORE_PATHS, accountItemKeys, isUnder, visibleItems, type AccountContext, type NavContext } from "./navConfig";
 
 const ctx = (over: Partial<NavContext> = {}): NavContext => ({ venuesPublic: false, openBooking: false, isVendor: false, ...over });
 const keys = (items: { key: string }[]) => items.map((i) => i.key);
@@ -8,10 +8,13 @@ const base: AccountContext = { resident: false, role: null, vendorApproved: fals
 
 describe("Explore menu", () => {
   it("keeps every existing item, with additions around them", () => {
-    expect(keys(EXPLORE_THINGS)).toEqual(["all", "activities", "adventures", "experiences", "events", "programmes", "volunteer", "circles"]);
+    // Navigation audit 2026-10-22: Circles is top-level only; programmes and
+    // volunteering are their own group.
+    expect(keys(EXPLORE_THINGS)).toEqual(["all", "activities", "adventures", "experiences", "events"]);
+    expect(keys(EXPLORE_LEARN)).toEqual(["programmes", "volunteer"]);
   });
 
-  it("sends All activities and Events to the search page", () => {
+  it("sends Explore everything and Events to the search page", () => {
     const to = Object.fromEntries(EXPLORE_THINGS.map((i) => [i.key, i.to]));
     expect(to.all).toBe("/explore");
     expect(to.events).toBe("/explore?when=weekend");
@@ -21,6 +24,13 @@ describe("Explore menu", () => {
   it("hides venue destinations while venue pages are not public", () => {
     expect(visibleItems(EXPLORE_PLACES, ctx())).toEqual([]);
     expect(keys(visibleItems(EXPLORE_PLACES, ctx({ venuesPublic: true })))).toEqual(["centres", "clubs"]);
+    // Owner 2026-10-22: while venues are gated, both show as "Soon" and go to
+    // the coming-soon page, never to the gated routes.
+    expect(visibleItems(EXPLORE_PLACES_SOON, ctx()).map((i) => [i.key, i.to, i.soon])).toEqual([
+      ["centres-soon", "/coming-soon", true],
+      ["clubs-soon", "/coming-soon", true],
+    ]);
+    expect(visibleItems(EXPLORE_PLACES_SOON, ctx({ venuesPublic: true }))).toEqual([]);
   });
 });
 
@@ -37,7 +47,8 @@ describe("Start menu", () => {
   });
 
   it("only links to creation flows that exist", () => {
-    expect(START_ITEMS.map((i) => i.to)).toEqual(["/games/host", "/circles/start", "/make-it-happen", "/become-a-host", "/for-venues"]);
+    expect(START_ITEMS.map((i) => i.to)).toEqual(["/games/host", "/make-it-happen", "/circles/start", "/become-a-host", "/for-venues"]);
+    expect(START_GROUPS.map((g) => g.label)).toEqual(["Organise something", "Build a community", "Host or list with us"]);
   });
 });
 
@@ -61,7 +72,7 @@ describe("account menu by role", () => {
   });
 
   it("gives a resident their personal items only", () => {
-    expect(accountItemKeys({ ...base, resident: true })).toEqual(["profile", "my-life", "my-bookings", "my-circles", "saved", "notifications", "messages", "settings"]);
+    expect(accountItemKeys({ ...base, resident: true })).toEqual(["profile", "my-life", "my-bookings", "my-circles", "saved", "notifications", "messages", "become-host", "settings", "payments", "help"]);
   });
 
   it("adds Manage for hosts and organisers", () => {
@@ -69,6 +80,7 @@ describe("account menu by role", () => {
     const organiser = accountItemKeys({ ...base, resident: true, organisedCircles: 2 });
     expect(organiser).toContain("manage-hosting");
     expect(organiser).toContain("manage-circles");
+    expect(organiser).not.toContain("become-host");
   });
 
   it("never gives an admin-only session resident items", () => {

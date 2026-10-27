@@ -12,11 +12,15 @@ import { useEffect, useState } from "react";
 interface AppConfig {
   paidCheckoutOpen?: boolean;
   openBooking?: boolean;
+  /** Circle Experience 2.0 switches (circleFeatures.ts). */
+  circleFeatures?: Record<string, boolean>;
+  /** Experience 3.0 switches. */
+  experienceFeatures?: Record<string, boolean>;
 }
 
 let cached: Promise<AppConfig | null> | null = null;
 
-function appConfig(): Promise<AppConfig | null> {
+export function appConfig(): Promise<AppConfig | null> {
   if (!cached) {
     cached = fetch("/api/config")
       .then((r) => (r.ok ? r.json() : null))

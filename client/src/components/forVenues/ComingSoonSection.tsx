@@ -87,10 +87,11 @@ export function ComingSoonSection() {
                   <button
                     type="submit"
                     disabled={status === "loading"}
+                    className="btn-cta"
                     style={{
                       border: "none",
-                      borderRadius: 10,
-                      background: FV_ACCENT,
+                      borderRadius: "var(--radius-button)",
+                      background: "var(--color-cta)",
                       color: "#fff",
                       fontWeight: 700,
                       fontSize: 15,

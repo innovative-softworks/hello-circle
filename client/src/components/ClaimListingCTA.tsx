@@ -69,12 +69,14 @@ export function ClaimListingCTA({
         <p style={bodyStyle}>If you run this organisation, log in or sign up to claim this listing.</p>
         <div style={{ display: "flex", gap: 16 }}>
           <button
+            className="tap-target"
             onClick={() => navigate("/login")}
             style={{ background: "none", border: "none", color: colors.greenText, fontWeight: 700, fontSize: 14.5, cursor: "pointer", padding: 0 }}
           >
             Log in
           </button>
           <button
+            className="tap-target"
             onClick={() => navigate("/vendor/signup")}
             style={{ background: "none", border: "none", color: colors.greenText, fontWeight: 700, fontSize: 14.5, cursor: "pointer", padding: 0 }}
           >

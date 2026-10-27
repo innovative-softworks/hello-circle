@@ -48,6 +48,12 @@ export const ADMIN_PERMISSIONS = {
   "listings.feature": [S, U],
   "listings.delete": [S], // destructive (status "deleted" or hard delete)
 
+  // Categories (category system, approved 2026-10-22): every admin reads and
+  // can report a wrong classification; only Super changes the taxonomy or a
+  // listing's category.
+  "taxonomy.view": ALL,
+  "taxonomy.manage": [S],
+
   // Claims, host applications, place suggestions
   "queues.view": [S, U, L],
   "queues.decide": [S, U],

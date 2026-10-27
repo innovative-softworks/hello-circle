@@ -81,7 +81,7 @@ export async function residentAllows(residentId: string, prefKey: string): Promi
 
 interface NotifyResidentParams {
   residentId: string;
-  kind: "booking" | "registration" | "program" | "experience" | "waitlist" | "game" | "intent_match" | "circle" | "provider_update" | "host_update" | "centre_update" | "invite" | "share" | "moderation" | "payment";
+  kind: "booking" | "registration" | "program" | "experience" | "waitlist" | "game" | "intent_match" | "circle" | "provider_update" | "host_update" | "centre_update" | "invite" | "share" | "moderation" | "payment" | "mylife";
   title: string;
   body: string;
   listingType: "centre" | "club" | "game" | "intent" | "circle" | "vendor" | "host" | "experience" | "program" | "place_suggestion" | "account";

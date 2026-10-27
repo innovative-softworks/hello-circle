@@ -1,21 +1,31 @@
+import { Euro } from "lucide-react";
+import { BookingActions, BookingFacts, BookingGlance, BookingPrice, directionsHref, IconAction, NextSteps, QuietAction, startsIn, type GlanceItem } from "./BookingFacts";
+import { ListingChatButton } from "./ListingChats";
+import { Pass, passDate, passTime, type PassTone } from "./pass/Pass";
+import { gamePassCode } from "./pass/ScanPassModal";
+import { PlanWithCircle } from "./circle/PlanWithCircle";
+import { UsersRound } from "lucide-react";
+import { irelandToday } from "../irelandDate";
+import { liveUntil } from "./CardDate";
+import { useToast } from "./Toast";
 import { useEffect, useState } from "react";
 import { PAID_CLOSED_MESSAGE, usePaidCheckoutOpen } from "../paidCheckout";
 import { leaveWaitlistConfirm } from "../confirmCopy";
 import { useConfirm } from "./ConfirmProvider";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { cancelGame, withdrawGameJoinRequest, downloadGameIcs, fetchGameNotifyMe, fetchGameParticipants, joinGame, joinGameWaitlist, leaveGame, leaveGameWaitlist, quoteGame, subscribeGameNotifyMe, unsubscribeGameNotifyMe, validateCoupon, type PriceQuote } from "../api";
 import { signInHref } from "../authRedirect";
 import { openCheckout } from "../native";
-import { CalendarIcon, CheckIcon, PinIcon, UsersIcon } from "./icons";
+import { AwardIcon, CalendarIcon, ChatIcon, CheckIcon, ClockIcon, PinIcon, ShareIcon, ShieldIcon, UsersIcon } from "./icons";
 import { InviteSheetButton } from "./InviteSheetButton";
 import { ShareButton } from "./ShareButton";
 import { TextInput } from "./form";
 import { Avatar, Button, Card, ConfirmDialog, inputStyle, labelStyle } from "./ui";
 import { dateLabel } from "../euro";
-import { primaryCtaLabel as gamePrimaryCtaLabel } from "../gameCta";
 import { colors, fonts, radius } from "../theme";
 import type { Game, Resident } from "../types";
-import { formatPrice } from "../formatters";
+import { formatDuration, formatPrice } from "../formatters";
+import { PAID_PRICE_NOTE } from "./detail/KeyFacts";
 
 // The join CTA state machine (Game Detail redesign §19/§20) — one function
 // so the desktop sticky card and the mobile bottom bar can never disagree
@@ -30,11 +40,14 @@ import { formatPrice } from "../formatters";
 // their own Coming Soon activity still gets the normal "host" controls
 // (e.g. Cancel) here — the host's own publishing controls (open now/pause/
 // edit schedule) live in Manage, not this public-facing card.
-type JoinState = "cancelled" | "host" | "coming-soon" | "signed-out" | "joined" | "requested" | "declined" | "closed" | "waitlisted" | "full" | "available";
+type JoinState = "cancelled" | "ended" | "host" | "coming-soon" | "signed-out" | "joined" | "requested" | "declined" | "closed" | "waitlisted" | "full" | "available";
 
 function computeState(game: Game, resident: Resident | null, isHost: boolean): JoinState {
   if (game.status === "cancelled") return "cancelled";
   if (isHost) return "host";
+  // DP-01 (detail-page audit) — a past activity is not joinable (the server
+  // refuses it as "completed"), so it must not show spots or a join button.
+  if (game.effectiveLifecycle === "completed" && !game.joinedByMe) return "ended";
   if (game.effectiveLifecycle === "coming_soon") return "coming-soon";
   if (!resident) return "signed-out";
   if (game.joinedByMe) return "joined";
@@ -47,8 +60,10 @@ function computeState(game: Game, resident: Resident | null, isHost: boolean): J
   return "available";
 }
 
+// Detail-page redesign — the label names the action ("Join activity",
+// "Request to join"); the list cards keep their short "Join" / "I'm in".
 function ctaLabel(game: Game, state: JoinState): string {
-  if (state === "available") return game.joinMode === "approval" && !game.priceCents ? "Ask to join" : gamePrimaryCtaLabel(game);
+  if (state === "available") return game.joinMode === "approval" && !game.priceCents ? "Request to join" : "Join activity";
   if (state === "full") return "Join waitlist";
   return "";
 }
@@ -221,15 +236,32 @@ function JoinHeadline({ game, state }: { game: Game; state: JoinState }) {
   if (state === "cancelled") {
     return <h2 style={{ ...h2Style, color: colors.danger }}>Cancelled</h2>;
   }
+  if (state === "ended") {
+    return (
+      <>
+        <h2 style={{ ...h2Style, color: colors.muted }}>This has ended</h2>
+        <p style={subStyle}>It took place on {dateLabel(game.date)} at {game.time}.</p>
+      </>
+    );
+  }
+  const countdown = startsIn(game.date, game.time);
   if (state === "joined") {
     return (
-      <h2 className="pop-in" style={{ ...h2Style, color: colors.greenText, display: "flex", alignItems: "center", gap: 6 }}>
-        You're going <CheckIcon size={16} />
-      </h2>
+      <>
+        <h2 className="pop-in" style={{ ...h2Style, color: colors.greenText, display: "flex", alignItems: "center", gap: 6 }}>
+          You're going <CheckIcon size={16} />
+        </h2>
+        {countdown && <p style={subStyle}>{countdown}</p>}
+      </>
     );
   }
   if (state === "waitlisted") {
-    return <h2 style={h2Style}>On the waitlist</h2>;
+    return (
+      <>
+        <h2 style={{ ...h2Style, color: colors.muted }}>On the waitlist</h2>
+        <p style={subStyle}>We'll let you know if a place opens.</p>
+      </>
+    );
   }
   if (state === "requested") {
     return (
@@ -256,7 +288,12 @@ function JoinHeadline({ game, state }: { game: Game; state: JoinState }) {
     );
   }
   if (state === "host") {
-    return <h2 style={{ ...h2Style, fontSize: 20 }}>{game.activityLabel}</h2>;
+    return (
+      <>
+        <h2 style={{ ...h2Style, color: colors.greenText }}>You're hosting</h2>
+        <p style={subStyle}>{[countdown, game.spotsLeft > 0 ? `${game.spotsLeft} left` : "Full"].filter(Boolean).join(" · ")}</p>
+      </>
+    );
   }
   if (state === "coming-soon") {
     return (
@@ -269,8 +306,8 @@ function JoinHeadline({ game, state }: { game: Game; state: JoinState }) {
   if (state === "full") {
     return (
       <>
-        <h2 style={{ ...h2Style, color: colors.muted }}>Full</h2>
-        <p style={subStyle}>Join the waitlist to be notified if a spot opens.</p>
+        <h2 style={{ ...h2Style, color: colors.muted }}>Fully booked</h2>
+        <p style={subStyle}>{countdown ? `${countdown} · ` : ""}join the waitlist and we'll tell you if a place opens.</p>
       </>
     );
   }
@@ -278,7 +315,7 @@ function JoinHeadline({ game, state }: { game: Game; state: JoinState }) {
     return (
       <>
         <h2 style={{ ...h2Style, color: colors.orangeDark }}>Needs players</h2>
-        <p style={subStyle}>Still filling up — you can join while it does.</p>
+        <p style={subStyle}>{countdown ? `${countdown} · ` : ""}still filling up, you can join while it does.</p>
       </>
     );
   }
@@ -287,7 +324,7 @@ function JoinHeadline({ game, state }: { game: Game; state: JoinState }) {
   return (
     <>
       <h2 style={{ ...h2Style, color: urgent ? colors.orangeDark : colors.text }}>{label}</h2>
-      {urgent && <p style={{ ...subStyle, fontWeight: 700, color: colors.orangeDark }}>Don't miss out!</p>}
+      {countdown && <p style={{ ...subStyle, fontWeight: urgent ? 700 : 400, color: urgent ? colors.orangeDark : subStyle.color }}>{countdown}</p>}
     </>
   );
 }
@@ -312,6 +349,16 @@ export function GameJoinCard({ game, resident, isHost, onRefresh }: JoinCardProp
   const [ageOk, setAgeOk] = useState(false);
   const [leaveConfirmOpen, setLeaveConfirmOpen] = useState(false);
   const [requestNote, setRequestNote] = useState("");
+  const [undoOpen, setUndoOpen] = useState(false);
+  const [calendarAdded, setCalendarAdded] = useState(false);
+  const [invited, setInvited] = useState(false);
+  const toast = useToast();
+  // The "Undo" after a one-tap join stays for 10 seconds.
+  useEffect(() => {
+    if (!undoOpen) return;
+    const t = window.setTimeout(() => setUndoOpen(false), 10_000);
+    return () => window.clearTimeout(t);
+  }, [undoOpen]);
 
   const state = computeState(game, resident, isHost);
   const notify = useGameNotifyMe(game.id, resident, state === "coming-soon");
@@ -325,7 +372,8 @@ export function GameJoinCard({ game, resident, isHost, onRefresh }: JoinCardProp
     fetchGameParticipants(game.id)
       .then((r) => setParticipants(r.participants))
       .catch(() => {});
-  }, [game.id]);
+    // Re-read after a join / leave / undo so the faces match the count.
+  }, [game.id, game.joined]);
 
   const run = async (fn: () => Promise<unknown>, onSuccess?: () => void) => {
     setError(null);
@@ -366,26 +414,35 @@ export function GameJoinCard({ game, resident, isHost, onRefresh }: JoinCardProp
     run(() => cancelGame(game.id, cancelReason || undefined), () => setCancelConfirmOpen(false));
   };
 
-  if (justJoined) {
-    return (
-      <Card>
-        <div style={{ textAlign: "center", padding: "8px 0" }}>
-          <div style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 20, marginBottom: 6, color: colors.greenText, display: "flex", alignItems: "center", justifyContent: "center", gap: 7 }}>
-            You're in <CheckIcon size={17} />
-          </div>
-          <p style={{ margin: "0 0 16px", fontSize: 13.5, color: colors.mutedLight }}>{game.activityLabel} · {dateLabel(game.date)}</p>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            <Button variant="ghost" onClick={() => downloadGameIcs(game.id)}>Add to calendar</Button>
-            <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
-              <ShareButton entityType="game" entityId={game.id} />
-              <InviteSheetButton entityType="game" entityId={game.id} title={game.activityLabel} />
-            </div>
-            <Button variant="ghost" onClick={() => setJustJoined(false)}>View plan</Button>
-          </div>
-        </div>
-      </Card>
+  // One tap for a free, open activity (owner 2026-10-27): no confirm step,
+  // "Undo" for a few seconds instead. Paid, approval and age-checked joins
+  // keep the confirm dialog (it shows the total / the note / the age check).
+  const oneTap = !game.priceCents && game.joinMode !== "approval" && !game.minAge;
+  const startJoin = () => {
+    if (!oneTap) return setConfirmOpen(true);
+    run(
+      () => joinGame(game.id),
+      () => {
+        setJustJoined(true);
+        setUndoOpen(true);
+        toast.success(`You're in: ${game.activityLabel}`);
+      }
     );
-  }
+  };
+  const undoJoin = () =>
+    run(
+      () => leaveGame(game.id),
+      () => {
+        setJustJoined(false);
+        setUndoOpen(false);
+        setCalendarAdded(false);
+        setInvited(false);
+      }
+    );
+  const addToCalendar = () => {
+    downloadGameIcs(game.id);
+    setCalendarAdded(true);
+  };
 
   // Overflow is relative to the 4-avatar cap below, not the full fetched
   // list — GameParticipants.tsx shows everyone with no cap, but this card
@@ -393,13 +450,235 @@ export function GameJoinCard({ game, resident, isHost, onRefresh }: JoinCardProp
   // full list length instead of the shown-count undercounted the "+N").
   const shownCount = Math.min(participants.length, 4);
   const overflow = Math.max(0, game.joined - shownCount);
+  const place = game.centreName ?? game.locationText;
+  const going = state === "joined";
+  const notOver = state !== "cancelled" && state !== "ended" && !isPast;
+  // Who's coming, beyond the count: people you've played with, else first-timers.
+  const company = game.familiarCount
+    ? `${game.familiarCount} ${game.familiarCount === 1 ? "person" : "people"} you know`
+    : game.firstTimerCount
+    ? `${game.firstTimerCount} first-timer${game.firstTimerCount === 1 ? "" : "s"}`
+    : null;
+
+  // At a glance (owner 2026-10-27) — only lines the host actually filled in,
+  // plus cancellation (the separate "Cancellation & updates" card is gone).
+  const glance: GlanceItem[] = [];
+  if (game.soloFriendly && !going) glance.push({ key: "solo", icon: <UsersIcon size={16} />, value: "Good for coming alone", sub: "people often come on their own" });
+  if (game.durationMinutes || game.skillLevel)
+    glance.push({
+      key: "length",
+      icon: game.durationMinutes ? <ClockIcon size={16} /> : <AwardIcon size={16} />,
+      value: game.durationMinutes ? formatDuration(game.durationMinutes) : game.skillLevel,
+      sub: game.durationMinutes ? game.skillLevel || undefined : undefined,
+    });
+  if (game.equipmentNeeded) glance.push({ key: "bring", icon: <ShieldIcon size={16} />, value: "Bring", sub: game.equipmentNeeded });
+  if (state !== "host" && notOver) glance.push({ key: "cancel", icon: <CalendarIcon size={16} />, value: "Cancellation", sub: game.cancellationPolicy || "plans can change, check here before you go" });
+
+  const shareIcon = <ShareButton key="share" entityType="game" entityId={game.id} render={(open) => <IconAction label="Share" onClick={open}><ShareIcon size={18} /></IconAction>} />;
+  const inviteIcon = (
+    <InviteSheetButton
+      key="invite"
+      entityType="game"
+      entityId={game.id}
+      title={game.activityLabel}
+      render={(open) => (
+        <IconAction label="Invite someone" short="Invite" onClick={() => { setInvited(true); open(); }}>
+          <UsersIcon size={18} />
+        </IconAction>
+      )}
+    />
+  );
+  const calendarIcon = (
+    <IconAction key="cal" label={calendarAdded ? "Added to calendar, download again" : "Add to calendar"} short={calendarAdded ? "Added" : "Calendar"} done={calendarAdded} onClick={addToCalendar}>
+      {calendarAdded ? <CheckIcon size={18} /> : <CalendarIcon size={18} />}
+    </IconAction>
+  );
+  const chatIcon = (
+    <ListingChatButton
+      key="chat"
+      scopeType="game"
+      listingId={game.id}
+      refreshKey={game.joinedByMe}
+      render={(open, unread) => (
+        <IconAction label={unread ? `Group chat, ${unread} unread` : "Group chat"} short={unread ? `Chat (${unread})` : "Chat"} onClick={open}>
+          <ChatIcon size={18} />
+        </IconAction>
+      )}
+    />
+  );
+  const directionsIcon = (
+    <IconAction key="dir" label="Directions" href={directionsHref([place, game.area, game.county].filter(Boolean).join(", "))}>
+      <PinIcon size={18} />
+    </IconAction>
+  );
+  // Circles 3.0 — suggest a public activity in a Circle (a Circle's own
+  // private activity is already in its Circle).
+  const circleIcon = game.visibility === "public" ? (
+    <PlanWithCircle
+      key="circle"
+      listing={{ type: "game", id: game.id, title: game.activityLabel }}
+      render={(open) => (
+        <IconAction label="Plan with my Circle" short="Circle" onClick={open}>
+          <UsersRound size={18} />
+        </IconAction>
+      )}
+    />
+  ) : null;
+  const icons = !notOver
+    ? []
+    : state === "host"
+    ? [inviteIcon, shareIcon, chatIcon, directionsIcon]
+    : going
+    ? [calendarIcon, chatIcon, directionsIcon, inviteIcon, shareIcon]
+    : state === "waitlisted" || state === "requested"
+    ? [shareIcon, calendarIcon]
+    : state === "full"
+    ? [shareIcon, inviteIcon, circleIcon]
+    : [shareIcon, inviteIcon, calendarIcon, circleIcon];
+
+  // The pass (owner 2026-10-27): once you're in — or waiting, or hosting —
+  // the box becomes the pass you show up with. Wallet look; a Circle's own
+  // meetup uses the lanyard look (your name first, like at the door).
+  const today = game.date === irelandToday();
+  const onNow = !!liveUntil(game.date, game.time, game.durationMinutes);
+  const joinedCancelled = state === "cancelled" && game.joinedByMe;
+  const passState = joinedCancelled ? "cancelled" : going || state === "waitlisted" || state === "requested" || state === "host" ? state : null;
+  let passView: React.ReactNode = null;
+  if (passState) {
+    const review = going && !!game.myJoin?.paymentReview;
+    const ended = going && isPast && !onNow;
+    const tone: PassTone = joinedCancelled
+      ? "bad"
+      : review
+      ? "warn"
+      : state === "host"
+      ? "host"
+      : state === "waitlisted" || state === "requested"
+      ? "wait"
+      : ended
+      ? "ended"
+      : onNow || today
+      ? "live"
+      : "ok";
+    const status = joinedCancelled
+      ? "Cancelled by the host"
+      : review
+      ? "Payment being checked"
+      : state === "host"
+      ? game.circleId ? "You're organising" : "You're hosting"
+      : state === "waitlisted"
+      ? "On the waitlist"
+      : state === "requested"
+      ? "Request sent"
+      : game.checkedInAt
+      ? "Checked in"
+      : ended
+      ? "Ended"
+      : onNow
+      ? `Happening now · until ${liveUntil(game.date, game.time, game.durationMinutes)}`
+      : today
+      ? "Today · check in when you arrive"
+      : "You're going";
+    const passFields: [string, React.ReactNode][] = [];
+    if (state === "host") {
+      passFields.push(["Going", `${game.joined} of ${game.capacity}`], ["Spots left", game.spotsLeft > 0 ? String(game.spotsLeft) : "Full"]);
+    } else {
+      passFields.push([game.circleId ? "Organiser" : "Host", game.hostName], ["Going", `${game.joined} of ${game.capacity}`]);
+      if (game.myJoin && !review && game.priceCents) passFields.push(["Paid", formatPrice(game.priceCents)]);
+      if (game.equipmentNeeded && !joinedCancelled) passFields.push(["Bring", game.equipmentNeeded]);
+    }
+    const note = joinedCancelled
+      ? game.priceCents ? "This activity isn't happening. If you paid, the host or our team will sort your refund." : "This activity isn't happening. Nothing to pay."
+      : review
+      ? "We received your payment and are checking it. This isn't booked yet. Please don't pay again."
+      : state === "waitlisted"
+      ? "We'll tell you as soon as a place opens."
+      : state === "requested"
+      ? "The host approves each person. We'll tell you when they reply."
+      : going && game.meetingInstructions && !ended
+      ? <>Meeting point: {game.meetingInstructions}</>
+      : null;
+    const stamp = game.checkedInAt ? `In · ${new Date(game.checkedInAt).toLocaleTimeString("en-IE", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Europe/Dublin" })}` : null;
+    passView = (
+      <Pass
+        look={game.circleId ? "lanyard" : "wallet"}
+        kind={game.circleId ? "circle" : "activity"}
+        tone={tone}
+        status={status}
+        title={game.activityLabel}
+        whoLabel={state === "host" ? (game.circleId ? "Organiser" : "Host") : "Admit"}
+        who={resident?.name || null}
+        date={passDate(game.date)}
+        time={passTime(game.time, game.durationMinutes)}
+        where={place}
+        fields={passFields.slice(0, 4)}
+        note={note}
+        reference={going ? game.myJoin?.ref ?? null : null}
+        // Every going pass has a code the host can scan (free joins too).
+        code={going && resident && !ended ? gamePassCode(game.id, resident.id) : null}
+        codeActive={!review}
+        listLine={
+          going
+            ? { title: "On the list", text: today || onNow ? "Check yourself in when you arrive" : "Your name is on the host's list" }
+            : state === "host"
+            ? { title: `${game.joined} / ${game.capacity}`, text: "going so far" }
+            : { title: "No pass yet", text: "It appears here once you're in" }
+        }
+        stamp={stamp}
+      >
+        {going && undoOpen && (
+          <div className="booking-undo" role="status">
+            <span>You're in</span>
+            <button type="button" onClick={undoJoin} disabled={busy}>Undo</button>
+          </div>
+        )}
+        {going && justJoined && (
+          <NextSteps
+            steps={[
+              { key: "booked", label: "Your place is booked", done: true },
+              { key: "cal", label: "Add it to your calendar", done: calendarAdded },
+              { key: "invite", label: "Bring a friend along", done: invited },
+            ]}
+          />
+        )}
+        {error && <p role="alert" style={{ color: colors.danger, fontSize: 13.5, margin: 0 }}>{error}</p>}
+        {icons.length > 0 && <BookingActions>{icons}</BookingActions>}
+        {going && !isPast && <QuietAction onClick={() => setLeaveConfirmOpen(true)} disabled={busy}>Can't make it? Leave this activity</QuietAction>}
+        {state === "waitlisted" && (
+          <QuietAction
+            onClick={async () => {
+              if (await confirm(leaveWaitlistConfirm(game.activityLabel))) run(() => leaveGameWaitlist(game.id));
+            }}
+            disabled={busy}
+          >
+            Leave the waitlist
+          </QuietAction>
+        )}
+        {state === "requested" && (
+          <QuietAction
+            onClick={async () => {
+              if (await confirm({ title: "Withdraw your request?", message: "The host won't see it any more. You can ask again later.", confirmLabel: "Withdraw request", cancelLabel: "Keep it" })) run(() => withdrawGameJoinRequest(game.id));
+            }}
+            disabled={busy}
+          >
+            Withdraw request
+          </QuietAction>
+        )}
+        {state === "host" && !isPast && <QuietAction onClick={() => setCancelConfirmOpen(true)} disabled={busy}>Cancel this session</QuietAction>}
+        {joinedCancelled && (
+          <Button full variant="ghost" onClick={() => navigate(`/games?activity=${encodeURIComponent(game.activityLabel)}`)}>Find another time</Button>
+        )}
+      </Pass>
+    );
+  }
 
   return (
     <>
-      <Card>
+      {passView ?? <Card>
         <div style={{ marginBottom: 16 }}>
           <JoinHeadline game={game} state={state} />
         </div>
+
 
         {participants.length > 0 && (
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
@@ -415,34 +694,46 @@ export function GameJoinCard({ game, resident, isHost, onRefresh }: JoinCardProp
                 </div>
               )}
             </div>
-            <span style={{ fontSize: 12.5, color: colors.mutedLight }}>{game.joined} of {game.capacity} people joined</span>
+            <span style={{ fontSize: 12.5, color: colors.mutedLight }}>
+              {game.joined} of {game.capacity} going{company ? <> · <b style={{ color: colors.text }}>{company}</b></> : null}
+            </span>
           </div>
         )}
 
         <div style={{ height: 1, background: colors.border, margin: "0 0 16px" }} />
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 8, fontSize: 13.5, color: colors.muted, marginBottom: 16 }}>
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><CalendarIcon size={14} /> {dateLabel(game.date)} · {game.time}</span>
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><PinIcon size={14} /> {game.centreName ?? game.locationText}</span>
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><UsersIcon size={14} /> {game.joined}/{game.capacity} joined</span>
-          <span style={{ fontWeight: 700, color: game.priceCents ? colors.text : colors.greenText }}>{formatPrice(game.priceCents)}</span>
-        </div>
+        <BookingGlance items={glance} />
+        <BookingFacts
+          // Date and place live under the title (owner 2026-10-27, booking box
+          // option 2); the box keeps what helps you act: places, people, price.
+          facts={[
+            {
+              key: "price",
+              label: "Price",
+              icon: <Euro size={18} strokeWidth={2} />,
+              value: <BookingPrice cents={game.priceCents} unit="per person" />,
+              sub: game.priceCents ? PAID_PRICE_NOTE : undefined,
+              emphasis: game.priceCents ? "price" : "free",
+            },
+          ]}
+          footnote={participants.length === 0 ? <><UsersIcon size={14} style={{ verticalAlign: "-2px" }} /> {game.joined} of {game.capacity} going{game.spotsLeft > 0 ? ` · ${game.spotsLeft} left` : ""}</> : undefined}
+        />
 
-        {error && <p style={{ color: colors.danger, fontSize: 13.5, margin: "0 0 12px" }}>{error}</p>}
+        {error && <p role="alert" style={{ color: colors.danger, fontSize: 13.5, margin: "0 0 12px" }}>{error}</p>}
 
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {state === "cancelled" && (
             <div style={{ fontWeight: 700, fontSize: 14, color: colors.danger, background: colors.dangerBg, borderRadius: radius.control, padding: "10px 14px", textAlign: "center" }}>
-              This plan is no longer happening.
+              This activity is no longer happening.
             </div>
           )}
-          {state === "host" && !isPast && (
-            // Phase 11B — hosts invite and manage (revoke) invitations here.
-            <InviteSheetButton entityType="game" entityId={game.id} title={game.activityLabel} />
+          {/* DP-34 — a cancelled activity offers the next step in the panel itself. */}
+          {state === "cancelled" && (
+            <Button full onClick={() => navigate(`/games?activity=${encodeURIComponent(game.activityLabel)}`)}>Find another time</Button>
           )}
-          {state === "host" && (
-            <Button variant="danger" onClick={() => setCancelConfirmOpen(true)} disabled={busy}>
-              Cancel this session
+          {state === "ended" && (
+            <Button full onClick={() => navigate(game.otherDates?.length ? `/games/${game.otherDates[0].id}` : `/games?activity=${encodeURIComponent(game.activityLabel)}`)}>
+              {game.otherDates?.length ? "Go to the next date" : "See upcoming dates"}
             </Button>
           )}
           {state === "coming-soon" &&
@@ -468,44 +759,38 @@ export function GameJoinCard({ game, resident, isHost, onRefresh }: JoinCardProp
           {state === "signed-out" && (
             <Button full onClick={() => navigate(signInHref(gameSignInContext(game)))}>{game.spotsLeft === 0 ? "Sign in to join the waitlist" : "Sign in to join"}</Button>
           )}
-          {state === "joined" && (
-            <Button variant="ghost" full onClick={() => setLeaveConfirmOpen(true)} disabled={busy}>Leave session</Button>
-          )}
-          {state === "waitlisted" && (
-            <Button
-              variant="ghost"
-              full
-              onClick={async () => {
-                if (await confirm(leaveWaitlistConfirm(game.activityLabel))) run(() => leaveGameWaitlist(game.id));
-              }}
-              disabled={busy}
-            >
-              Leave waitlist
-            </Button>
-          )}
           {state === "full" && (
-            <Button variant="orange" full onClick={() => run(() => joinGameWaitlist(game.id))} disabled={busy}>Join waitlist</Button>
-          )}
-          {state === "requested" && (
-            <Button variant="ghost" full onClick={() => run(() => withdrawGameJoinRequest(game.id))} disabled={busy}>
-              Withdraw request
-            </Button>
+            <Button variant="orange" full onClick={() => run(() => joinGameWaitlist(game.id))} disabled={busy}>Join the waitlist</Button>
           )}
           {state === "available" && (
-            <Button full onClick={() => setConfirmOpen(true)} disabled={busy}>{ctaLabel(game, state)}</Button>
+            <Button full onClick={startJoin} disabled={busy}>{busy ? "Joining…" : ctaLabel(game, state)}</Button>
           )}
           {(state === "available" || state === "signed-out") && !game.priceCents && (
-            <div style={{ textAlign: "center", fontSize: 12, color: colors.faint }}>No payment required</div>
+            <div style={{ textAlign: "center", fontSize: 12, color: colors.faint }}>{oneTap && state === "available" ? "Free · one tap, you can undo" : "No payment required"}</div>
           )}
-          {(state === "joined" || state === "available" || state === "full") && !isPast && (
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              <ShareButton entityType="game" entityId={game.id} />
-              <InviteSheetButton entityType="game" entityId={game.id} title={game.activityLabel} />
-              <Button variant="ghost" onClick={() => downloadGameIcs(game.id)}>Add to calendar</Button>
-            </div>
-          )}
+          {icons.length > 0 && <BookingActions>{icons}</BookingActions>}
         </div>
-      </Card>
+
+
+        {/* DP-15 — other dates of the same repeating activity. */}
+        {!!game.otherDates?.length && state !== "host" && (
+          <div style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${colors.border}` }}>
+            <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 14, margin: "0 0 8px" }}>Other dates</h3>
+            <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 2 }}>
+              {game.otherDates.slice(0, 4).map((d) => (
+                <li key={d.id}>
+                  <Link to={`/games/${d.id}`} className="tap-target" style={{ display: "flex", justifyContent: "space-between", gap: 10, width: "100%", fontSize: 13.5, color: colors.text, textDecoration: "none", padding: "6px 0" }}>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><CalendarIcon size={14} /> {dateLabel(d.date)} · {d.time}</span>
+                    <span style={{ color: d.spotsLeft === 0 ? colors.muted : colors.greenText, fontWeight: 600 }}>
+                      {d.spotsLeft === 0 ? "Full" : d.spotsLeft === null ? "Open" : `${d.spotsLeft} left`}
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </Card>}
 
       <ConfirmDialog
         open={confirmOpen}
@@ -575,6 +860,7 @@ export function GameJoinCard({ game, resident, isHost, onRefresh }: JoinCardProp
  * plus a sticky "book now" bar above it, rather than reordering the whole
  * page to pull the desktop card up near the hero. */
 export function MobileJoinBar({ game, resident, isHost, onRefresh }: JoinCardProps) {
+  const toast = useToast();
   const paidOpen = usePaidCheckoutOpen();
   // Commercial release gate — a paid join can't start while paid checkout is closed (the server refuses it too).
   const paidClosed = paidOpen === false && !!game.priceCents;
@@ -586,6 +872,31 @@ export function MobileJoinBar({ game, resident, isHost, onRefresh }: JoinCardPro
 
   const state = computeState(game, resident, isHost);
   const notify = useGameNotifyMe(game.id, resident, state === "coming-soon");
+  if (state === "ended") {
+    return (
+      <div className="mobile-join-bar">
+        <div>
+          <div style={{ fontWeight: 800, fontSize: 15, fontFamily: fonts.display, color: colors.muted }}>Ended</div>
+          <div style={{ fontSize: 12.5, color: colors.mutedLight }}>{dateLabel(game.date)} · {game.time}</div>
+        </div>
+        <Button onClick={() => navigate(`/games?activity=${encodeURIComponent(game.activityLabel)}`)} style={{ flex: "none" }}>See upcoming dates</Button>
+      </div>
+    );
+  }
+  // Going: a slim reminder with the calendar, so it's one tap on a phone too.
+  if (state === "joined" && new Date(`${game.date}T${game.time}:00`).getTime() > Date.now()) {
+    return (
+      <div className="mobile-join-bar">
+        <div>
+          <div style={{ fontWeight: 800, fontSize: 15, fontFamily: fonts.display, color: colors.greenText }}>You're going</div>
+          <div style={{ fontSize: 12.5, color: colors.mutedLight }}>{dateLabel(game.date)} · {game.time}</div>
+        </div>
+        <Button variant="ghost" onClick={() => downloadGameIcs(game.id)} style={{ flex: "none" }}>
+          <CalendarIcon size={15} /> Add to calendar
+        </Button>
+      </div>
+    );
+  }
   if (state === "cancelled" || state === "host" || state === "joined" || state === "requested" || state === "declined" || state === "closed") return null;
 
   if (state === "coming-soon") {
@@ -615,6 +926,19 @@ export function MobileJoinBar({ game, resident, isHost, onRefresh }: JoinCardPro
       joinGameWaitlist(game.id).then(onRefresh).finally(() => setBusy(false));
       return;
     }
+    // One tap for a free, open activity, same as the booking box (the box,
+    // in the page, then shows "You're in · Undo").
+    if (!game.priceCents && game.joinMode !== "approval" && !game.minAge) {
+      setBusy(true);
+      joinGame(game.id)
+        .then(() => {
+          toast.success(`You're in: ${game.activityLabel}`);
+          onRefresh();
+        })
+        .catch((e) => toast.error(e instanceof Error ? e.message : "Couldn't join, try again."))
+        .finally(() => setBusy(false));
+      return;
+    }
     setConfirmOpen(true);
   };
 
@@ -625,7 +949,7 @@ export function MobileJoinBar({ game, resident, isHost, onRefresh }: JoinCardPro
           <div style={{ fontWeight: 800, fontSize: 15, fontFamily: fonts.display }}>
             {game.status === "pending_participants" ? "Needs players" : game.spotsLeft === 0 ? "Full" : `${game.spotsLeft} spot${game.spotsLeft === 1 ? "" : "s"} left`}
           </div>
-          <div style={{ fontSize: 12.5, color: colors.mutedLight }}>{formatPrice(game.priceCents)}</div>
+          <div style={{ fontSize: 12.5, color: colors.mutedLight }}>{dateLabel(game.date)} · {game.time} · {formatPrice(game.priceCents)}</div>
         </div>
         <Button onClick={onClick} disabled={busy} style={{ flex: "none" }}>{busy ? "Please wait…" : label}</Button>
       </div>

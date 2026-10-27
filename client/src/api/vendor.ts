@@ -394,8 +394,8 @@ export function fetchVendorDemand(scope: "own" | "all" = "own"): Promise<DemandR
 }
 
 /** Release 3 — `status` "no_show" records a no-show; default is a check-in. */
-export function checkInBooking(kind: "booking" | "registration", ref: string, status: "present" | "no_show" = "present"): Promise<{ ok: boolean }> {
-  return request(`/vendor/checkin/${kind}/${encodeURIComponent(ref)}`, { method: "POST", body: JSON.stringify({ status }) });
+export function checkInBooking(kind: "booking" | "registration", ref: string, status: "present" | "no_show" = "present", source?: "qr"): Promise<{ ok: boolean }> {
+  return request(`/vendor/checkin/${kind}/${encodeURIComponent(ref)}`, { method: "POST", body: JSON.stringify({ status, source }) });
 }
 
 export function markExperienceAttendance(experienceId: string, ref: string, status: "present" | "no_show"): Promise<{ ok: boolean }> {

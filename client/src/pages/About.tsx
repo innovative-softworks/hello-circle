@@ -1,3 +1,4 @@
+import { Compass as CompassLucide } from "lucide-react";
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { ArrowRightIcon, BuildingIcon, GridIcon, PlusIcon, RepeatIcon, TreeIconSmall } from "../components/icons";
@@ -135,6 +136,7 @@ export function About() {
         </div>
       </section>      <CtaBand
         id="about-cta-title"
+        panel={{ title: "Find something to do", text: "Activities, Circles and experiences near you.", icon: <CompassLucide size={20} strokeWidth={2} /> }}
         lines={["Let's make", "things", "happen."]}
         text="A community of people, places and possibilities across Ireland."
         action={{ label: "Find something to do", to: "/explore" }}

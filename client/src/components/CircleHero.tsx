@@ -34,7 +34,9 @@ function foundedLabel(iso: string): string {
   return new Date(iso).toLocaleDateString("en-IE", { month: "long", year: "numeric" });
 }
 
-export function CircleHero({ circle, activeThisWeek }: { circle: Circle; activeThisWeek: boolean }) {
+/** `compact` (Circle Experience 2.0): a shorter banner for members, so Circle
+ * Home leads with what's next instead of a full-height photo. */
+export function CircleHero({ circle, activeThisWeek, compact }: { circle: Circle; activeThisWeek: boolean; compact?: boolean }) {
   const closed = circle.status === "closed";
   const coverSrc = getCircleCoverUrl(circle);
 
@@ -47,8 +49,7 @@ export function CircleHero({ circle, activeThisWeek }: { circle: Circle; activeT
       iconColor={colors.green}
       variant="hero"
       eager
-      sharedHero
-      style={{ aspectRatio: cardImageRatio.hero, borderRadius: 2, overflow: "hidden" }}
+      style={{ ...(compact ? { height: "clamp(240px, 26vw, 380px)" } : { aspectRatio: cardImageRatio.hero }), borderRadius: 2, overflow: "hidden" }}
       contentStyle={{
         display: "flex",
         flexDirection: "column",

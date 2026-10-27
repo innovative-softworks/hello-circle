@@ -110,8 +110,8 @@ export function DropdownOption({ label, active, onClick }: { label: ReactNode; a
  * amenities/accessibility — every checked box must match, AND not OR). */
 export function DropdownCheckbox({ label, checked, onChange }: { label: ReactNode; checked: boolean; onChange: () => void }) {
   return (
-    <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", fontSize: 13.5, color: colors.textSoft, cursor: "pointer", borderRadius: radius.control }}>
-      <input type="checkbox" checked={checked} onChange={onChange} />
+    <label style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 10px", fontSize: 14, fontWeight: checked ? 700 : 500, color: checked ? colors.text : colors.textSoft, cursor: "pointer", borderRadius: radius.control }}>
+      <input type="checkbox" checked={checked} onChange={onChange} style={{ width: 16, height: 16, margin: 0, flex: "none", accentColor: "var(--color-text)" }} />
       {label}
     </label>
   );

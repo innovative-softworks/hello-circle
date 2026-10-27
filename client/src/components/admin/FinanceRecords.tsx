@@ -27,8 +27,10 @@ import {
 } from "../../api";
 import { ConfirmDialog } from "../ui";
 import { RecordState, RecordView } from "../workspace/RecordView";
+import { DetailStats } from "../workspace/DetailParts";
 import { ObjectActivity } from "./AdminAudit";
-import { AdminButton, Facts, SectionLabel, StatusTag, formatDate } from "./adminUi";
+import { AdminButton, Facts, SectionLabel, StatusTag, formatDate, statusLabel } from "./adminUi";
+import { dueLabel } from "./timeLabels";
 import { useToast } from "../Toast";
 
 // Finance record pages (UI completion 2026-10-14). Each is opened from its
@@ -152,38 +154,23 @@ function SettlementRecord({ id, onBack, onOpen }: { id: string; onBack: () => vo
             statuses={
               <>
                 <Status label="Settlement" value={s.status} />
-                <Status label="Transfer" value={s.transfer_id ? "Sent to partner's Stripe account" : mine.length ? "Attempted — see below" : "Not sent"} status={s.transfer_id ? "approved" : mine.length ? "pending" : "draft"} />
+                <Status label="Transfer" value={s.transfer_id ? "Sent to partner's Stripe account" : mine.length ? "Attempted — see Transfers" : "Not sent"} status={s.transfer_id ? "approved" : mine.length ? "pending" : "draft"} />
               </>
             }
-          >
-            <div className="adm-record-grid">
-              <div>
-                <SectionLabel>Amount</SectionLabel>
-                <Facts
-                  rows={[
-                    ["Net to partner", euro(s.net_minor, s.currency)],
-                    ["Partner", `${s.party_type}:${s.party_id}`],
-                    ["Created", formatDate(s.created_at, true)],
-                    ["Last changed", formatDate(s.updated_at, true)],
-                    ["Paid reference", s.paid_reference || null],
-                    ["Ledger group", s.ledger_group_id ? <span className="adm-mono">{s.ledger_group_id}</span> : null],
-                  ]}
-                />
-                <SectionLabel>What it settles ({detail.items.length})</SectionLabel>
-                {detail.items.length === 0 ? (
-                  <p className="adm-note">No line items.</p>
-                ) : (
-                  <Table caption="Settlement items" head={["Item", "Amount"]}>
-                    {detail.items.map((it) => (
-                      <tr key={it.groupId}>
-                        <td data-label="Item">{it.description}</td>
-                        <td data-label="Amount">{euro(it.amountMinor, s.currency)}</td>
-                      </tr>
-                    ))}
-                  </Table>
-                )}
-              </div>
-              <div>
+            stats={
+              <DetailStats
+                items={
+                  [
+                    { label: "Net to partner", value: euro(s.net_minor, s.currency), sub: "This settlement" },
+                    { label: "Items", value: String(detail.items.length), sub: "Ledger groups settled" },
+                    { label: "Transfers", value: String(mine.length), sub: s.transfer_id ? "Sent" : mine.length ? "Attempted" : "None yet" },
+                    { label: "Created", value: formatDate(s.created_at), sub: `Run ${s.run_id}` },
+                  ]
+                }
+              />
+            }
+            aside={
+              <>
                 <SectionLabel>Transfers</SectionLabel>
                 {mine.length === 0 ? (
                   <p className="adm-note">No transfer has been attempted for this settlement.</p>
@@ -198,10 +185,35 @@ function SettlementRecord({ id, onBack, onOpen }: { id: string; onBack: () => vo
                     ))}
                   </ul>
                 )}
-                <SectionLabel>History</SectionLabel>
-                <ObjectActivity objectIds={[String(s.id), s.party_id]} note="Settlement runs are audited per run; this shows entries recorded against this settlement or partner." />
-              </div>
-            </div>
+              </>
+            }
+          >
+            <SectionLabel>Amount</SectionLabel>
+            <Facts
+              rows={[
+                ["Net to partner", euro(s.net_minor, s.currency)],
+                ["Partner", `${s.party_type}:${s.party_id}`],
+                ["Created", formatDate(s.created_at, true)],
+                ["Last changed", formatDate(s.updated_at, true)],
+                ["Paid reference", s.paid_reference || null],
+                ["Ledger group", s.ledger_group_id ? <span className="adm-mono">{s.ledger_group_id}</span> : null],
+              ]}
+            />
+            <SectionLabel>What it settles ({detail.items.length})</SectionLabel>
+            {detail.items.length === 0 ? (
+              <p className="adm-note">No line items.</p>
+            ) : (
+              <Table caption="Settlement items" head={["Item", "Amount"]}>
+                {detail.items.map((it) => (
+                  <tr key={it.groupId}>
+                    <td data-label="Item">{it.description}</td>
+                    <td data-label="Amount">{euro(it.amountMinor, s.currency)}</td>
+                  </tr>
+                ))}
+              </Table>
+            )}
+            <SectionLabel>History</SectionLabel>
+            <ObjectActivity objectIds={[String(s.id), s.party_id]} note="Settlement runs are audited per run; this shows entries recorded against this settlement or partner." />
           </RecordView>
         );
       }}
@@ -240,61 +252,20 @@ function TransferRecord({ id, onBack, onOpen }: { id: string; onBack: () => void
               <Status label="Reversed" value={Number(t.reversedMinor) > 0 ? euro(t.reversedMinor) : "Nothing reversed"} status={Number(t.reversedMinor) > 0 ? "pending" : "draft"} />
             </>
           }
-        >
-          {t.error && (
-            <p className="adm-note" role="note" style={{ color: "var(--color-danger)" }}>
-              Provider error: {t.error}
-            </p>
-          )}
-          <div className="adm-record-grid">
-            <div>
-              <SectionLabel>Bookings in this transfer ({allocations.length})</SectionLabel>
-              <p className="adm-note">Allocation rows are never edited; a reversal is recorded beside them and only recovers towards this partner's open debt.</p>
-              {allocations.length === 0 ? (
-                <p className="adm-note">No allocations recorded.</p>
-              ) : (
-                <Table caption="Transfer allocations" head={["Booking", "Kind", "Amount", "Reversed", ""]}>
-                  {allocations.map((a) => {
-                    const key = orderKey(a.sourceType, a.sourceRef);
-                    const reversible = Number(a.amountMinor) > Number(a.reversedMinor) && Number(a.amountMinor) > 0;
-                    return (
-                      <tr key={a.id}>
-                        <td data-label="Booking">
-                          {key ? (
-                            <button type="button" className="adm-row-button" onClick={() => onOpen(key)}>
-                              <span className="adm-cell-title">
-                                {a.sourceType} {a.sourceRef}
-                              </span>
-                            </button>
-                          ) : (
-                            "—"
-                          )}
-                        </td>
-                        <td data-label="Kind">{a.kind}</td>
-                        <td data-label="Amount">{euro(a.amountMinor)}</td>
-                        <td data-label="Reversed">{euro(a.reversedMinor)}</td>
-                        <td>
-                          {reversible && (
-                            <AdminButton
-                              size="sm"
-                              onClick={() => {
-                                setReversing(a);
-                                setAmount("");
-                                setReason("");
-                              }}
-                              aria-label={`Reverse part of ${a.sourceRef ?? "this allocation"}`}
-                            >
-                              Reverse part…
-                            </AdminButton>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </Table>
-              )}
-            </div>
-            <div>
+          stats={
+            <DetailStats
+              items={
+                [
+                  { label: "Amount", value: euro(t.amountMinor), sub: `Attempt ${t.attempt}` },
+                  { label: "Reversed", value: euro(t.reversedMinor), sub: Number(t.reversedMinor) > 0 ? "Recovered towards debt" : "Nothing reversed" },
+                  { label: "Bookings", value: String(allocations.length), sub: "In this transfer" },
+                  { label: "Created", value: formatDate(t.createdAt), sub: statusLabel(t.status) },
+                ]
+              }
+            />
+          }
+          aside={
+            <>
               <SectionLabel>Transfer</SectionLabel>
               <Facts
                 rows={[
@@ -311,10 +282,59 @@ function TransferRecord({ id, onBack, onOpen }: { id: string; onBack: () => void
               ) : (
                 <p className="adm-note">Not linked to a settlement.</p>
               )}
-              <SectionLabel>History</SectionLabel>
-              <ObjectActivity objectIds={[String(t.id), t.partyId]} note="Shows audited entries for this transfer or partner." />
-            </div>
-          </div>
+            </>
+          }
+        >
+          {t.error && (
+            <p className="adm-note" role="note" style={{ color: "var(--color-danger)" }}>
+              Provider error: {t.error}
+            </p>
+          )}
+          <SectionLabel>Bookings in this transfer ({allocations.length})</SectionLabel>
+          <p className="adm-note">Allocation rows are never edited; a reversal is recorded beside them and only recovers towards this partner's open debt.</p>
+          {allocations.length === 0 ? (
+            <p className="adm-note">No allocations recorded.</p>
+          ) : (
+            <Table caption="Transfer allocations" head={["Booking", "Kind", "Amount", "Reversed", ""]}>
+              {allocations.map((a) => {
+                const key = orderKey(a.sourceType, a.sourceRef);
+                const reversible = Number(a.amountMinor) > Number(a.reversedMinor) && Number(a.amountMinor) > 0;
+                return (
+                  <tr key={a.id}>
+                    <td data-label="Booking">
+                      {key ? (
+                        <button type="button" className="adm-row-button" onClick={() => onOpen(key)}>
+                          <span className="adm-cell-title">
+                            {a.sourceType} {a.sourceRef}
+                          </span>
+                        </button>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                    <td data-label="Kind">{a.kind}</td>
+                    <td data-label="Amount">{euro(a.amountMinor)}</td>
+                    <td data-label="Reversed">{euro(a.reversedMinor)}</td>
+                    <td>
+                      {reversible && (
+                        <AdminButton
+                          size="sm"
+                          onClick={() => {
+                            setReversing(a);
+                            setAmount("");
+                            setReason("");
+                          }}
+                          aria-label={`Reverse part of ${a.sourceRef ?? "this allocation"}`}
+                        >
+                          Reverse part…
+                        </AdminButton>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </Table>
+          )}
           <ConfirmDialog
             open={!!reversing}
             title={`Reverse part of ${reversing?.sourceRef ?? "this allocation"}?`}
@@ -337,6 +357,8 @@ function TransferRecord({ id, onBack, onOpen }: { id: string; onBack: () => void
             </div>
             <ReasonField value={reason} onChange={setReason} />
           </ConfirmDialog>
+          <SectionLabel>History</SectionLabel>
+          <ObjectActivity objectIds={[String(t.id), t.partyId]} note="Shows audited entries for this transfer or partner." />
         </RecordView>
       )}
     </Gate>
@@ -391,6 +413,37 @@ function EventRecord({ id, onBack, onOpen }: { id: string; onBack: () => void; o
                 </AdminButton>
               ) : null
             }
+            stats={
+              <DetailStats
+                items={
+                  [
+                    { label: "Amount", value: sum.amount !== undefined ? euro(sum.amount, sum.currency ?? "EUR") : "—", sub: sum.object ?? undefined },
+                    { label: "Received", value: formatDate(e.receivedAt), sub: e.provider },
+                    { label: "Processed", value: e.processedAt ? formatDate(e.processedAt) : "Not yet", sub: statusLabel(e.status) },
+                  ]
+                }
+              />
+            }
+            aside={
+              <>
+                <SectionLabel>Timing</SectionLabel>
+                <Facts
+                  rows={[
+                    ["Received", formatDate(e.receivedAt, true)],
+                    ["Processed", e.processedAt ? formatDate(e.processedAt, true) : "Not processed"],
+                    ["Provider", e.provider],
+                  ]}
+                />
+                <SectionLabel>Related records</SectionLabel>
+                {key ? (
+                  <AdminButton size="sm" onClick={() => onOpen(key)}>
+                    Open order {sum.metadata?.type} {sum.metadata?.ref}
+                  </AdminButton>
+                ) : (
+                  <p className="adm-note">This event isn't linked to an order.</p>
+                )}
+              </>
+            }
           >
             {e.lastError && (
               <div className="adm-callout" data-tone="error" role="note" style={{ marginBottom: 12 }}>
@@ -411,42 +464,18 @@ function EventRecord({ id, onBack, onOpen }: { id: string; onBack: () => void; o
                 </ol>
               </section>
             )}
-            <div className="adm-record-grid">
-              <div>
-                <SectionLabel>What Stripe sent (stored summary)</SectionLabel>
-                <Facts
-                  rows={[
-                    ["Object", sum.object ? `${sum.object} ${sum.id ?? ""}` : null],
-                    ["Amount", sum.amount !== undefined ? euro(sum.amount, sum.currency ?? "EUR") : null],
-                    ["Payment status at Stripe", sum.payment_status ?? null],
-                    ["Object status", sum.status ?? null],
-                    ["Payment intent", sum.payment_intent ? <span className="adm-mono">{sum.payment_intent}</span> : null],
-                    ["Order", sum.metadata?.type ? `${sum.metadata.type} ${sum.metadata.ref ?? ""}` : null],
-                  ]}
-                />
-                <p className="adm-note">Only identifiers, amounts and statuses are stored — never card or personal data.</p>
-              </div>
-              <div>
-                <SectionLabel>Timing</SectionLabel>
-                <Facts
-                  rows={[
-                    ["Received", formatDate(e.receivedAt, true)],
-                    ["Processed", e.processedAt ? formatDate(e.processedAt, true) : "Not processed"],
-                    ["Provider", e.provider],
-                  ]}
-                />
-                <SectionLabel>Related records</SectionLabel>
-                {key ? (
-                  <AdminButton size="sm" onClick={() => onOpen(key)}>
-                    Open order {sum.metadata?.type} {sum.metadata?.ref}
-                  </AdminButton>
-                ) : (
-                  <p className="adm-note">This event isn't linked to an order.</p>
-                )}
-                <SectionLabel>History</SectionLabel>
-                <ObjectActivity objectIds={[e.eventId]} note="Replays are recorded with their reason." />
-              </div>
-            </div>
+            <SectionLabel>What Stripe sent (stored summary)</SectionLabel>
+            <Facts
+              rows={[
+                ["Object", sum.object ? `${sum.object} ${sum.id ?? ""}` : null],
+                ["Amount", sum.amount !== undefined ? euro(sum.amount, sum.currency ?? "EUR") : null],
+                ["Payment status at Stripe", sum.payment_status ?? null],
+                ["Object status", sum.status ?? null],
+                ["Payment intent", sum.payment_intent ? <span className="adm-mono">{sum.payment_intent}</span> : null],
+                ["Order", sum.metadata?.type ? `${sum.metadata.type} ${sum.metadata.ref ?? ""}` : null],
+              ]}
+            />
+            <p className="adm-note">Only identifiers, amounts and statuses are stored — never card or personal data.</p>
             <ConfirmDialog
               open={replaying}
               title={`Replay ${e.eventType}?`}
@@ -464,6 +493,8 @@ function EventRecord({ id, onBack, onOpen }: { id: string; onBack: () => void; o
             >
               <ReasonField value={reason} onChange={setReason} />
             </ConfirmDialog>
+            <SectionLabel>History</SectionLabel>
+            <ObjectActivity objectIds={[e.eventId]} note="Replays are recorded with their reason." />
           </RecordView>
         );
       }}
@@ -491,22 +522,19 @@ function RefundRecord({ id, onBack, onOpen }: { id: string; onBack: () => void; 
                 <Status label="Kind" value={r.kind} status="draft" />
               </>
             }
-          >
-            <div className="adm-record-grid">
-              <div>
-                <SectionLabel>Refund</SectionLabel>
-                <Facts
-                  rows={[
-                    ["Amount", euro(r.amount_minor, r.currency ?? "EUR")],
-                    ["Origin", r.origin === "in_app" ? "Issued in HelloCircle" : r.origin === "provider" ? "Made at Stripe, reconciled here" : r.origin],
-                    ["Borne by", r.responsible],
-                    ["Reason", r.reason],
-                    ["Stripe refund", r.provider_refund_id ? <span className="adm-mono">{r.provider_refund_id}</span> : null],
-                    ["Created", formatDate(r.created_at, true)],
-                  ]}
-                />
-              </div>
-              <div>
+            stats={
+              <DetailStats
+                items={
+                  [
+                    { label: "Amount", value: euro(r.amount_minor, r.currency ?? "EUR"), sub: statusLabel(r.status) },
+                    { label: "Borne by", value: statusLabel(r.responsible), sub: r.origin === "in_app" ? "Issued in HelloCircle" : r.origin === "provider" ? "Made at Stripe" : undefined },
+                    { label: "Created", value: formatDate(r.created_at), sub: `${r.source_type} ${r.source_ref}` },
+                  ]
+                }
+              />
+            }
+            aside={
+              <>
                 <SectionLabel>Related records</SectionLabel>
                 {key ? (
                   <AdminButton size="sm" onClick={() => onOpen(key)}>
@@ -515,10 +543,22 @@ function RefundRecord({ id, onBack, onOpen }: { id: string; onBack: () => void; 
                 ) : (
                   <p className="adm-note">No linked order.</p>
                 )}
-                <SectionLabel>History</SectionLabel>
-                <ObjectActivity objectIds={[r.source_ref]} note="Refunds issued in HelloCircle are audited against the order." />
-              </div>
-            </div>
+              </>
+            }
+          >
+            <SectionLabel>Refund</SectionLabel>
+            <Facts
+              rows={[
+                ["Amount", euro(r.amount_minor, r.currency ?? "EUR")],
+                ["Origin", r.origin === "in_app" ? "Issued in HelloCircle" : r.origin === "provider" ? "Made at Stripe, reconciled here" : r.origin],
+                ["Borne by", r.responsible],
+                ["Reason", r.reason],
+                ["Stripe refund", r.provider_refund_id ? <span className="adm-mono">{r.provider_refund_id}</span> : null],
+                ["Created", formatDate(r.created_at, true)],
+              ]}
+            />
+            <SectionLabel>History</SectionLabel>
+            <ObjectActivity objectIds={[r.source_ref]} note="Refunds issued in HelloCircle are audited against the order." />
           </RecordView>
         );
       }}
@@ -573,22 +613,19 @@ function DisputeRecord({ id, onBack, onOpen }: { id: string; onBack: () => void;
                 </>
               ) : null
             }
-          >
-            <div className="adm-record-grid">
-              <div>
-                <SectionLabel>Dispute</SectionLabel>
-                <Facts
-                  rows={[
-                    ["Amount", euro(d.amount_minor, d.currency ?? "EUR")],
-                    ["Card network reason", d.reason],
-                    ["Evidence due", d.evidence_due_by ? formatDate(d.evidence_due_by, true) : null],
-                    ["Payment intent", d.payment_intent_id ? <span className="adm-mono">{d.payment_intent_id}</span> : null],
-                    ["Opened", d.created_at ? formatDate(d.created_at, true) : null],
-                  ]}
-                />
-                {!decidable && d.status !== "lost" && <p className="adm-note">A recovery decision is only possible once the dispute is lost.</p>}
-              </div>
-              <div>
+            stats={
+              <DetailStats
+                items={
+                  [
+                    { label: "Amount", value: euro(d.amount_minor, d.currency ?? "EUR"), sub: d.reason },
+                    { label: "Evidence due", value: d.evidence_due_by ? formatDate(d.evidence_due_by) : "—", sub: dueLabel(d.evidence_due_by) ?? undefined },
+                    { label: "Stripe status", value: statusLabel(d.status), sub: `Recovery: ${statusLabel(d.recovery_status)}` },
+                  ]
+                }
+              />
+            }
+            aside={
+              <>
                 <SectionLabel>Related records</SectionLabel>
                 {key ? (
                   <AdminButton size="sm" onClick={() => onOpen(key)}>
@@ -597,10 +634,20 @@ function DisputeRecord({ id, onBack, onOpen }: { id: string; onBack: () => void;
                 ) : (
                   <p className="adm-note">Not matched to an order.</p>
                 )}
-                <SectionLabel>History</SectionLabel>
-                <ObjectActivity objectIds={[String(d.id)]} note="Recovery decisions are audited with their reason." />
-              </div>
-            </div>
+              </>
+            }
+          >
+            <SectionLabel>Dispute</SectionLabel>
+            <Facts
+              rows={[
+                ["Amount", euro(d.amount_minor, d.currency ?? "EUR")],
+                ["Card network reason", d.reason],
+                ["Evidence due", d.evidence_due_by ? formatDate(d.evidence_due_by, true) : null],
+                ["Payment intent", d.payment_intent_id ? <span className="adm-mono">{d.payment_intent_id}</span> : null],
+                ["Opened", d.created_at ? formatDate(d.created_at, true) : null],
+              ]}
+            />
+            {!decidable && d.status !== "lost" && <p className="adm-note">A recovery decision is only possible once the dispute is lost.</p>}
             <ConfirmDialog
               open={!!deciding}
               title={deciding === "partner" ? `Recover ${euro(d.amount_minor)} from the partner?` : `Have HelloCircle absorb ${euro(d.amount_minor)}?`}
@@ -622,6 +669,8 @@ function DisputeRecord({ id, onBack, onOpen }: { id: string; onBack: () => void;
             >
               <ReasonField value={reason} onChange={setReason} />
             </ConfirmDialog>
+            <SectionLabel>History</SectionLabel>
+            <ObjectActivity objectIds={[String(d.id)]} note="Recovery decisions are audited with their reason." />
           </RecordView>
         );
       }}
@@ -694,59 +743,19 @@ function OrderRecord({ type, refId, onBack, onOpen, backLabel }: { type: string;
                 </AdminButton>
               ) : null
             }
-          >
-            {!pay && (
-              <p className="adm-note" role="note">
-                No payment has been recorded for this order. Either it was free or paid at the venue, it hasn't been paid, or its payment event is waiting in Payment events → Needs review.
-              </p>
-            )}
-            <div className="adm-record-grid">
-              <div>
-                <SectionLabel>Payment</SectionLabel>
-                {pay ? (
-                  <Facts
-                    rows={[
-                      ["Amount", euro(pay.amount_minor, pay.currency)],
-                      ["Provider", pay.provider],
-                      ["Checkout session", pay.checkout_session_id ? <span className="adm-mono">{pay.checkout_session_id}</span> : null],
-                      ["Payment intent", pay.payment_intent_id ? <span className="adm-mono">{pay.payment_intent_id}</span> : null],
-                      ["Estimated processing fee", pay.fee_estimate_minor !== null ? euro(pay.fee_estimate_minor) : null],
-                      ["Recorded", formatDate(pay.created_at, true)],
-                    ]}
-                  />
-                ) : (
-                  <p className="adm-note">None.</p>
-                )}
-                <SectionLabel>Refunds ({refunds.length})</SectionLabel>
-                {refunds.length === 0 ? (
-                  <p className="adm-note">None.</p>
-                ) : (
-                  <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 6 }}>
-                    {refunds.map((r) => (
-                      <li key={r.id}>
-                        <AdminButton size="sm" onClick={() => onOpen(`refund:${r.id}`)}>
-                          Refund #{r.id} · {euro(r.amount_minor)} · {r.status}
-                        </AdminButton>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                <SectionLabel>Disputes ({disputes.length})</SectionLabel>
-                {disputes.length === 0 ? (
-                  <p className="adm-note">None.</p>
-                ) : (
-                  <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 6 }}>
-                    {disputes.map((d) => (
-                      <li key={d.id}>
-                        <AdminButton size="sm" onClick={() => onOpen(`dispute:${d.id}`)}>
-                          Dispute {d.provider_dispute_id} · {d.status}
-                        </AdminButton>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-              <div>
+            stats={
+              <DetailStats
+                items={
+                  [
+                    { label: "Paid", value: pay ? euro(pay.amount_minor, pay.currency) : "—", sub: pay ? statusLabel(pay.status) : "No payment recorded" },
+                    { label: "Refunded", value: euro(refunded), sub: refunds.length ? `${refunds.length} refund${refunds.length === 1 ? "" : "s"}` : "None" },
+                    { label: "Disputes", value: String(disputes.length), sub: disputes.length ? "See below" : "None" },
+                  ]
+                }
+              />
+            }
+            aside={
+              <>
                 <SectionLabel>Who is owed what</SectionLabel>
                 {allocation ? (
                   <>
@@ -766,10 +775,57 @@ function OrderRecord({ type, refId, onBack, onOpen, backLabel }: { type: string;
                 ) : (
                   <p className="adm-note">No allocation was frozen for this order (it is frozen when a payment is confirmed with the settlement ledger on).</p>
                 )}
-                <SectionLabel>History</SectionLabel>
-                <ObjectActivity objectIds={[refId]} note="Audited actions on this order (refunds, cancellations)." />
-              </div>
-            </div>
+              </>
+            }
+          >
+            {!pay && (
+              <p className="adm-note" role="note">
+                No payment has been recorded for this order. Either it was free or paid at the venue, it hasn't been paid, or its payment event is waiting in Payment events → Needs review.
+              </p>
+            )}
+            <SectionLabel>Payment</SectionLabel>
+            {pay ? (
+              <Facts
+                rows={[
+                  ["Amount", euro(pay.amount_minor, pay.currency)],
+                  ["Provider", pay.provider],
+                  ["Checkout session", pay.checkout_session_id ? <span className="adm-mono">{pay.checkout_session_id}</span> : null],
+                  ["Payment intent", pay.payment_intent_id ? <span className="adm-mono">{pay.payment_intent_id}</span> : null],
+                  ["Estimated processing fee", pay.fee_estimate_minor !== null ? euro(pay.fee_estimate_minor) : null],
+                  ["Recorded", formatDate(pay.created_at, true)],
+                ]}
+              />
+            ) : (
+              <p className="adm-note">None.</p>
+            )}
+            <SectionLabel>Refunds ({refunds.length})</SectionLabel>
+            {refunds.length === 0 ? (
+              <p className="adm-note">None.</p>
+            ) : (
+              <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 6 }}>
+                {refunds.map((r) => (
+                  <li key={r.id}>
+                    <AdminButton size="sm" onClick={() => onOpen(`refund:${r.id}`)}>
+                      Refund #{r.id} · {euro(r.amount_minor)} · {r.status}
+                    </AdminButton>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <SectionLabel>Disputes ({disputes.length})</SectionLabel>
+            {disputes.length === 0 ? (
+              <p className="adm-note">None.</p>
+            ) : (
+              <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 6 }}>
+                {disputes.map((d) => (
+                  <li key={d.id}>
+                    <AdminButton size="sm" onClick={() => onOpen(`dispute:${d.id}`)}>
+                      Dispute {d.provider_dispute_id} · {d.status}
+                    </AdminButton>
+                  </li>
+                ))}
+              </ul>
+            )}
             <ConfirmDialog
               open={refunding}
               title={`Refund ${type} ${refId}?`}
@@ -800,6 +856,8 @@ function OrderRecord({ type, refId, onBack, onOpen, backLabel }: { type: string;
               </div>
               <ReasonField value={reason} onChange={setReason} />
             </ConfirmDialog>
+            <SectionLabel>History</SectionLabel>
+            <ObjectActivity objectIds={[refId]} note="Audited actions on this order (refunds, cancellations)." />
           </RecordView>
         );
       }}
@@ -898,51 +956,20 @@ function ReviewRecord({ id, onBack, onOpen }: { id: string; onBack: () => void; 
                 Recheck with Stripe…
               </AdminButton>
             }
-          >
-            {urgent && r.status === "open" && (
-              <div className="adm-callout" data-tone="error" role="note" style={{ marginBottom: 12 }}>
-                <strong>Urgent:</strong> {r.urgency === "after_start" ? "it had already started when the payment arrived" : "it starts within the lead time"}, so no place is held and it can't be confirmed. Contact the customer.
-              </div>
-            )}
-            <div className="adm-callout" role="note" style={{ marginBottom: 12 }}>
-              <strong>Why it's here:</strong> {REVIEW_REASON[r.reason] ?? r.reason}
-              {r.detail ? ` — ${r.detail}` : ""}
-            </div>
-            <div className="adm-record-grid">
-              <div>
-                <SectionLabel>Money</SectionLabel>
-                <Facts
-                  rows={[
-                    ["Received (Stripe)", r.receivedMinor !== null ? euro(r.receivedMinor, cur) : "Unknown"],
-                    ["Agreed at checkout", r.agreedMinor !== null ? euro(r.agreedMinor, r.agreedCurrency ?? "EUR") : "—"],
-                    ["Payment record", payment ? `${euro(payment.amountMinor, payment.currency)} · ${payment.status}` : "None (not applied to the order)"],
-                    ["Refunded so far", euro(refunds.filter((x) => x.status === "succeeded" || x.status === "reconciled").reduce((a, x) => a + Number(x.amountMinor), 0), cur)],
-                    ["Automatic refund", AUTO_REFUND_LABEL[r.autoRefund] ?? r.autoRefund],
-                    ["Automatic refund note", r.autoRefundNote],
-                  ]}
-                />
-                <SectionLabel>Deadline and booking</SectionLabel>
-                <Facts
-                  rows={[
-                    ["Flagged", formatDate(r.flaggedAt, true)],
-                    ["Place held until", r.reviewHoldUntil ? formatDate(r.reviewHoldUntil, true) : "—"],
-                    ["Starts", r.startAt ? formatDate(r.startAt, true) : "No single start"],
-                    ["Urgency", r.urgency === "none" ? "—" : r.urgency.replace(/_/g, " ")],
-                    ["Order total", order && !order.missing ? euro(order.totalMinor ?? 0) : null],
-                  ]}
-                />
-                <SectionLabel>Stripe references</SectionLabel>
-                <Facts
-                  rows={[
-                    ["Checkout session", <span className="adm-mono">{r.checkoutSessionId}</span>],
-                    ["Payment intent", r.paymentIntentId ? <span className="adm-mono">{r.paymentIntentId}</span> : null],
-                    ["Charge", r.chargeId ? <span className="adm-mono">{r.chargeId}</span> : null],
-                    ["Last recheck", r.lastRecheckAt ? `${formatDate(r.lastRecheckAt, true)} — ${r.lastRecheckOutcome ?? ""}` : "Not rechecked yet"],
-                    ["Closed", r.resolvedAt ? `${formatDate(r.resolvedAt, true)}${r.resolution ? ` — ${r.resolution}` : ""}` : null],
-                  ]}
-                />
-              </div>
-              <div>
+            stats={
+              <DetailStats
+                items={
+                  [
+                    { label: "Received", value: r.receivedMinor !== null ? euro(r.receivedMinor, cur) : "Unknown", sub: "At Stripe" },
+                    { label: "Agreed", value: r.agreedMinor !== null ? euro(r.agreedMinor, r.agreedCurrency ?? "EUR") : "—", sub: "At checkout" },
+                    { label: "Place held", value: r.reviewHoldUntil ? dueLabel(r.reviewHoldUntil) ?? "—" : "Not held", sub: r.reviewHoldUntil ? `until ${formatDate(r.reviewHoldUntil, true)}` : undefined },
+                    { label: "Refunded so far", value: euro(refunds.filter((x) => x.status === "succeeded" || x.status === "reconciled").reduce((a, x) => a + Number(x.amountMinor), 0), cur), sub: AUTO_REFUND_LABEL[r.autoRefund] ?? r.autoRefund },
+                  ]
+                }
+              />
+            }
+            aside={
+              <>
                 <SectionLabel>Refunds</SectionLabel>
                 {refunds.length ? (
                   <Table caption="Refunds for this order" head={["Amount", "Status", "Origin", "Stripe refund"]}>
@@ -972,21 +999,63 @@ function ReviewRecord({ id, onBack, onOpen }: { id: string; onBack: () => void; 
                 ) : (
                   <p className="adm-note">No stored events.</p>
                 )}
-                <SectionLabel>Investigation history</SectionLabel>
-                <ul className="adm-note" style={{ margin: "0 0 8px", paddingLeft: 18 }}>
-                  {alerts.map((a) => (
-                    <li key={a.kind}>{ALERT_LABEL[a.kind] ?? a.kind} — {formatDate(a.createdAt, true)}</li>
-                  ))}
-                  {!alerts.length && <li>No alerts yet.</li>}
-                </ul>
-                <ObjectActivity objectIds={[`review-${r.id}`, ...(r.sourceRef ? [r.sourceRef] : [])]} note="Rechecks, automatic refunds and expiries are recorded with their outcome." />
+                <SectionLabel>Order</SectionLabel>
                 {key && (
                   <AdminButton size="sm" onClick={() => onOpen(key)}>
                     Open order {r.sourceType} {r.sourceRef}
                   </AdminButton>
                 )}
+              </>
+            }
+          >
+            {urgent && r.status === "open" && (
+              <div className="adm-callout" data-tone="error" role="note" style={{ marginBottom: 12 }}>
+                <strong>Urgent:</strong> {r.urgency === "after_start" ? "it had already started when the payment arrived" : "it starts within the lead time"}, so no place is held and it can't be confirmed. Contact the customer.
               </div>
+            )}
+            <div className="adm-callout" role="note" style={{ marginBottom: 12 }}>
+              <strong>Why it's here:</strong> {REVIEW_REASON[r.reason] ?? r.reason}
+              {r.detail ? ` — ${r.detail}` : ""}
             </div>
+            <SectionLabel>Money</SectionLabel>
+            <Facts
+              rows={[
+                ["Received (Stripe)", r.receivedMinor !== null ? euro(r.receivedMinor, cur) : "Unknown"],
+                ["Agreed at checkout", r.agreedMinor !== null ? euro(r.agreedMinor, r.agreedCurrency ?? "EUR") : "—"],
+                ["Payment record", payment ? `${euro(payment.amountMinor, payment.currency)} · ${payment.status}` : "None (not applied to the order)"],
+                ["Refunded so far", euro(refunds.filter((x) => x.status === "succeeded" || x.status === "reconciled").reduce((a, x) => a + Number(x.amountMinor), 0), cur)],
+                ["Automatic refund", AUTO_REFUND_LABEL[r.autoRefund] ?? r.autoRefund],
+                ["Automatic refund note", r.autoRefundNote],
+              ]}
+            />
+            <SectionLabel>Deadline and booking</SectionLabel>
+            <Facts
+              rows={[
+                ["Flagged", formatDate(r.flaggedAt, true)],
+                ["Place held until", r.reviewHoldUntil ? formatDate(r.reviewHoldUntil, true) : "—"],
+                ["Starts", r.startAt ? formatDate(r.startAt, true) : "No single start"],
+                ["Urgency", r.urgency === "none" ? "—" : r.urgency.replace(/_/g, " ")],
+                ["Order total", order && !order.missing ? euro(order.totalMinor ?? 0) : null],
+              ]}
+            />
+            <SectionLabel>Stripe references</SectionLabel>
+            <Facts
+              rows={[
+                ["Checkout session", <span className="adm-mono">{r.checkoutSessionId}</span>],
+                ["Payment intent", r.paymentIntentId ? <span className="adm-mono">{r.paymentIntentId}</span> : null],
+                ["Charge", r.chargeId ? <span className="adm-mono">{r.chargeId}</span> : null],
+                ["Last recheck", r.lastRecheckAt ? `${formatDate(r.lastRecheckAt, true)} — ${r.lastRecheckOutcome ?? ""}` : "Not rechecked yet"],
+                ["Closed", r.resolvedAt ? `${formatDate(r.resolvedAt, true)}${r.resolution ? ` — ${r.resolution}` : ""}` : null],
+              ]}
+            />
+            <SectionLabel>Investigation history</SectionLabel>
+            <ul className="adm-note" style={{ margin: "0 0 8px", paddingLeft: 18 }}>
+              {alerts.map((a) => (
+                <li key={a.kind}>{ALERT_LABEL[a.kind] ?? a.kind} — {formatDate(a.createdAt, true)}</li>
+              ))}
+              {!alerts.length && <li>No alerts yet.</li>}
+            </ul>
+            <ObjectActivity objectIds={[`review-${r.id}`, ...(r.sourceRef ? [r.sourceRef] : [])]} note="Rechecks, automatic refunds and expiries are recorded with their outcome." />
             <ConfirmDialog
               open={open}
               title="Recheck this payment with Stripe?"

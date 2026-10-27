@@ -1,14 +1,15 @@
 import { useEffect, useId, useState, type ReactNode } from "react";
-import { Building2, CalendarRange, CircleDot, Compass, Search, Ticket, Trophy, UserRound, Users, type LucideIcon, ShoppingBag, Undo2 } from "lucide-react";
+import { Building2, CalendarClock, CalendarRange, CircleDot, Compass, Search, ShoppingBag, Ticket, Trophy, Undo2, UserRound, Users, type LucideIcon } from "lucide-react";
 import { cancelOrderAsAdmin, proposeBookingChangeAsAdmin, fetchSupportOrder, fetchSupportPerson, supportSearch, type SupportOrder, type SupportOrderKind, type SupportPerson } from "../../api";
 import { ConfirmDialog } from "../ui";
 import { ObjectActivity } from "./AdminAudit";
 import { ProposeChangeDialog } from "../workspace/BookingChangeParts";
 import { useRecordParam, useUrlParam } from "../../useUrlTab";
 import { RecordState, RecordView } from "../workspace/RecordView";
+import { ContextSection, CopyValue, DetailFacts, DetailSection, DetailStats } from "../workspace/DetailParts";
 import type { AdminTab } from "./adminNav";
 import { useAdminCan } from "./adminPermissions";
-import { AdminButton, Badge, Box, EmptyMessage, ErrorMessage, Facts, LoadingRows, SectionLabel, StatusTag, formatDate, useAdminAction, useAdminData } from "./adminUi";
+import { AdminButton, Badge, Box, EmptyMessage, ErrorMessage, Facts, LoadingRows, OverflowMenu, SectionLabel, StatusTag, formatDate, statusLabel, useAdminAction, useAdminData } from "./adminUi";
 
 // Support (2026-10-16). One search across every kind of order, the people
 // behind them (resident email sign-ins and partner/admin logins, one row per
@@ -43,7 +44,7 @@ export function PaymentTag({ status }: { status: string | null }) {
   return <Badge tone={tone}>{label}</Badge>;
 }
 
-function OrderRow({ o, onOpen }: { o: SupportOrder; onOpen: () => void }) {
+function OrderRow({ o, onOpen, showPerson = true }: { o: SupportOrder; onOpen: () => void; showPerson?: boolean }) {
   const k = KIND[o.kind];
   const Icon = k.icon;
   return (
@@ -54,7 +55,8 @@ function OrderRow({ o, onOpen }: { o: SupportOrder; onOpen: () => void }) {
       <div className="adm-ov-main">
         <div className="adm-ov-title">{o.listingName || k.label}</div>
         <div className="adm-ov-detail">
-          {[o.name, o.email].filter(Boolean).join(" · ") || "No customer details"} · <span className="adm-mono">{o.ref}</span>
+          {showPerson && <>{[o.name, o.email].filter(Boolean).join(" · ") || "No customer details"} · </>}
+          <span className="adm-mono">{o.ref}</span>
         </div>
       </div>
       <div className="adm-ov-kind">
@@ -136,39 +138,28 @@ function PersonRecord({ email, onBack, openOrder, onNavigate }: { email: string;
           <AdminButton onClick={() => onNavigate("vendors", { record: p.account!.id })}>Open partner account</AdminButton>
         ) : undefined
       }
-    >
-      <div className="adm-stack">
-        <section aria-label="Order summary" className="adm-ov-totals">
-          <div>
-            <strong>{p.orders.length}</strong>
-            {p.orders.length === 1 ? "order" : "orders"}
-          </div>
-          <div>
-            <strong>{euro(paid)}</strong>paid in total
-          </div>
-          <div data-tone={problems ? "alert" : undefined}>
-            <strong>{problems}</strong>pending or failed payments
-          </div>
-          <div>
-            <strong>{refunded}</strong>refunded
-          </div>
-        </section>
-
-        <Box icon={ShoppingBag} title="Orders" subtitle={p.orders.length ? "Newest first, every kind" : undefined} flush>
-            {p.orders.length === 0 ? (
-              <EmptyMessage title="No orders" detail="Nothing has been booked with this email or account." />
-            ) : (
-              <ul className="adm-ov-list">
-                {p.orders.map((o) => (
-                  <OrderRow key={`${o.kind}:${o.ref}`} o={o} onOpen={() => openOrder(o)} />
-                ))}
-              </ul>
-            )}
-        </Box>
-        <Box icon={UserRound} title="Accounts">
-            <SectionLabel>Resident (email sign-in)</SectionLabel>
+      stats={
+        <DetailStats
+          items={[
+            { label: "Orders", value: String(p.orders.length), sub: "Every kind" },
+            { label: "Paid in total", value: euro(paid) || "€0.00", sub: "Online payments" },
+            { label: "Pending or failed", value: String(problems), sub: problems ? "Needs a look" : "None" },
+            { label: "Refunded", value: String(refunded), sub: refunded === 1 ? "order" : "orders" },
+          ]}
+        />
+      }
+      asideLabel="Identity and accounts"
+      aside={
+        <>
+          <ContextSection title="Contact">
+            <a className="wd-ctx-sub" href={`mailto:${p.email}`}>
+              Email {p.email}
+            </a>
+          </ContextSection>
+          <ContextSection title="Resident account">
             {p.resident ? (
-              <Facts
+              <DetailFacts
+                columns={1}
                 rows={[
                   ["Name", p.resident.name || null],
                   ["County", p.resident.county || null],
@@ -179,20 +170,34 @@ function PersonRecord({ email, onBack, openOrder, onNavigate }: { email: string;
             ) : (
               <p className="adm-note">No resident account. Orders made without signing in are matched by email.</p>
             )}
-            {p.account && (
-              <>
-                <SectionLabel>{p.account.role === "vendor" ? "Partner login" : "Admin login"}</SectionLabel>
-                <Facts
-                  rows={[
-                    ["Name", p.account.name || null],
-                    ["Status", <StatusTag status={p.account.status} label={p.account.status === "approved" ? "Approved" : undefined} />],
-                    ["Created", formatDate(p.account.createdAt)],
-                  ]}
-                />
-              </>
-            )}
-        </Box>
-      </div>
+          </ContextSection>
+          {p.account && (
+            <ContextSection title={p.account.role === "vendor" ? "Partner login" : "Admin login"}>
+              <DetailFacts
+                columns={1}
+                rows={[
+                  ["Name", p.account.name || null],
+                  ["Status", <StatusTag status={p.account.status} label={p.account.status === "approved" ? "Approved" : undefined} />],
+                  ["Created", formatDate(p.account.createdAt)],
+                  ["Account ID", <CopyValue value={p.account.id} label="account ID" />],
+                ]}
+              />
+            </ContextSection>
+          )}
+        </>
+      }
+    >
+      <DetailSection title="Orders" note={p.orders.length ? "Newest first, every kind" : undefined}>
+        {p.orders.length === 0 ? (
+          <EmptyMessage title="No orders" detail="Nothing has been booked with this email or account." />
+        ) : (
+          <ul className="adm-ov-list adm-box" style={{ padding: 0 }}>
+            {p.orders.map((o) => (
+              <OrderRow key={`${o.kind}:${o.ref}`} o={o} onOpen={() => openOrder(o)} showPerson={false} />
+            ))}
+          </ul>
+        )}
+      </DetailSection>
     </RecordView>
   );
 }
@@ -216,6 +221,13 @@ const EXTRA_LABEL: Record<string, string> = {
   creditsUsed: "Credits used",
   expiresAt: "Expires",
 };
+
+/** "2026-10-16 18:00" as a date with the time underneath; other wording as given. */
+function whenStat(whenText: string | null | undefined) {
+  const m = /^(\d{4}-\d{2}-\d{2})(?:\s+(.+))?$/.exec(whenText ?? "");
+  if (!m) return { label: "When", value: whenText || "—" };
+  return { label: "When", value: formatDate(m[1]), sub: m[2] };
+}
 
 function OrderRecord({ kind, refId, onBack, openPerson, onNavigate }: { kind: string; refId: string; onBack: () => void; openPerson: (email: string) => void; onNavigate: (tab: AdminTab, extra?: Record<string, string>) => void }) {
   const can = useAdminCan();
@@ -257,105 +269,108 @@ function OrderRecord({ kind, refId, onBack, openPerson, onNavigate }: { kind: st
       }
       actions={
         <>
-          {o.email && <AdminButton onClick={() => openPerson(o.email!)}>View customer</AdminButton>}
-          {o.email && (
-            <a className="adm-btn" href={`mailto:${o.email}?subject=${encodeURIComponent(`Your HelloCircle order ${o.ref}`)}`}>
-              Email customer
-            </a>
-          )}
+          {o.email && <AdminButton onClick={() => openPerson(o.email!)}><UserRound size={15} strokeWidth={2} aria-hidden="true" /> View customer</AdminButton>}
           {o.kind === "booking" && o.status !== "cancelled" && o.paymentStatus === "paid" && o.whenText && can("orders.cancel") && (
-            <AdminButton onClick={() => setProposing(true)}>Propose a new time…</AdminButton>
+            <AdminButton onClick={() => setProposing(true)}><CalendarClock size={15} strokeWidth={2} aria-hidden="true" /> Propose a new time…</AdminButton>
           )}
-          {CANCELLABLE.includes(o.kind) && o.status !== "cancelled" && can("orders.cancel") && (
-            <AdminButton variant="danger" onClick={() => setCancelling(true)}>
-              Cancel on behalf…
-            </AdminButton>
-          )}
-          {can("finance.operate") && (
-            <AdminButton onClick={() => onNavigate("finance", { section: "refunds", record: `order:${o.kind}:${o.ref}` })}>
-              View in Finance
-            </AdminButton>
-          )}
+          {(() => {
+            const menu = [
+              ...(can("finance.operate") ? [{ label: "View in Finance", onSelect: () => onNavigate("finance", { section: "refunds", record: `order:${o.kind}:${o.ref}` }) }] : []),
+              ...(CANCELLABLE.includes(o.kind) && o.status !== "cancelled" && can("orders.cancel") ? [{ label: "Cancel on behalf…", danger: true, onSelect: () => setCancelling(true) }] : []),
+            ];
+            return menu.length ? <OverflowMenu label={`More actions for ${o.ref}`} actions={menu} /> : null;
+          })()}
+        </>
+      }
+      stats={
+        <DetailStats
+          items={[
+            { label: "Amount", value: euro(o.amountCents) || "Free", sub: k.label },
+            {
+              label: "Refunded",
+              value: euro(refunds.filter((r) => r.status === "succeeded").reduce((a, r) => a + Number(r.amountMinor), 0)) || "€0.00",
+              sub: refunds.length ? `${refunds.length} refund${refunds.length === 1 ? "" : "s"}` : "None",
+            },
+            whenStat(o.whenText),
+            { label: "Placed", value: formatDate(o.createdAt), sub: o.residentId ? "Signed in" : "As a guest" },
+          ]}
+        />
+      }
+      asideLabel="Customer and order details"
+      aside={
+        <>
+          <ContextSection title="Customer">
+            <div className="wd-ctx-name">{o.name || "No name given"}</div>
+            {o.email && (
+              <a className="wd-ctx-sub" href={`mailto:${o.email}?subject=${encodeURIComponent(`Your HelloCircle order ${o.ref}`)}`}>
+                {o.email}
+              </a>
+            )}
+            {extra.phone && <div className="wd-ctx-sub">Phone {String(extra.phone)}</div>}
+            <div className="wd-ctx-sub">{o.residentId ? "Signed in with a resident account" : "Booked as a guest"}</div>
+          </ContextSection>
+          <ContextSection title="Order details">
+            <DetailFacts
+              columns={1}
+              rows={[
+                ["Reference", <CopyValue value={o.ref} label="order reference" />],
+                ["Type", k.label],
+              ]}
+            />
+          </ContextSection>
         </>
       }
     >
       {underReview && (
-        <div className="adm-callout" style={{ marginBottom: 16 }}>
+        <div className="adm-callout" style={{ marginBottom: 8 }}>
           Stripe received money for this order, but it couldn't be confirmed automatically. Finance is reviewing it. Don't tell the customer they're booked until it's resolved.
         </div>
       )}
-      <div className="adm-grid-2">
-        <Box icon={ShoppingBag} title="Order">
-          <Facts
-            rows={[
-              ["What", o.listingName ?? k.label],
-              ["Type", k.label],
-              ["When", o.whenText],
-              ...extraRows.filter(([label]) => label !== "Phone"),
-              ["Amount", euro(o.amountCents) || null],
-              ["Placed", formatDate(o.createdAt, true)],
-              ["Reference", <span className="adm-mono">{o.ref}</span>],
-            ]}
-          />
-        </Box>
-        <Box icon={UserRound} title="Customer">
-          <Facts
-            rows={[
-              ["Name", o.name],
-              [
-                "Email",
-                o.email ? (
-                  <button type="button" className="adm-linkish" onClick={() => openPerson(o.email!)}>
-                    {o.email}
-                  </button>
-                ) : null,
-              ],
-              ["Phone", extra.phone ? String(extra.phone) : null],
-              ["Signed in", o.residentId ? "Yes, with a resident account" : "No, booked as a guest"],
-            ]}
-          />
-        </Box>
-      </div>
-      <div style={{ marginTop: 24 }}>
-        <Box icon={Undo2} title="Refunds" flush>
-          {refunds.length === 0 ? (
-            <p className="adm-note" style={{ padding: "14px 24px", margin: 0 }}>
-              No refunds on this order.
-            </p>
-          ) : (
-            <div className="adm-table-wrap">
-              <table className="adm-table adm-table--stack">
-                <thead>
-                  <tr>
-                    <th scope="col">Amount</th>
-                    <th scope="col">Type</th>
-                    <th scope="col">Status</th>
-                    <th scope="col">Reason</th>
-                    <th scope="col">Date</th>
+      <DetailSection title="Booking">
+        <DetailFacts
+          rows={[
+            ["Type", k.label],
+            ...extraRows.filter(([label]) => label !== "Phone"),
+          ]}
+        />
+      </DetailSection>
+      <DetailSection title="Refunds">
+        {refunds.length === 0 ? (
+          <p className="adm-note" style={{ margin: 0 }}>
+            No refunds on this order.
+          </p>
+        ) : (
+          <div className="adm-table-wrap">
+            <table className="adm-table adm-table--stack">
+              <thead>
+                <tr>
+                  <th scope="col">Amount</th>
+                  <th scope="col">Type</th>
+                  <th scope="col">Status</th>
+                  <th scope="col">Reason</th>
+                  <th scope="col">Date</th>
+                </tr>
+              </thead>
+              <tbody>
+                {refunds.map((r, i) => (
+                  <tr key={i}>
+                    <td data-label="Amount">{euro(r.amountMinor)}</td>
+                    <td data-label="Type">{r.kind === "full" ? "Full" : r.kind === "partial" ? "Partial" : r.kind}</td>
+                    <td data-label="Status">
+                      <StatusTag status={r.status === "succeeded" ? "active" : r.status === "failed" ? "rejected" : "pending"} label={r.status.charAt(0).toUpperCase() + r.status.slice(1).replace(/_/g, " ")} />
+                    </td>
+                    <td data-label="Reason">{r.reason}</td>
+                    <td data-label="Date">{formatDate(r.createdAt)}</td>
                   </tr>
-                </thead>
-                <tbody>
-                  {refunds.map((r, i) => (
-                    <tr key={i}>
-                      <td data-label="Amount">{euro(r.amountMinor)}</td>
-                      <td data-label="Type">{r.kind === "full" ? "Full" : r.kind === "partial" ? "Partial" : r.kind}</td>
-                      <td data-label="Status">
-                        <StatusTag status={r.status === "succeeded" ? "active" : r.status === "failed" ? "rejected" : "pending"} label={r.status.charAt(0).toUpperCase() + r.status.slice(1).replace(/_/g, " ")} />
-                      </td>
-                      <td data-label="Reason">{r.reason}</td>
-                      <td data-label="Date">{formatDate(r.createdAt)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Box>
-      </div>
-      <div style={{ marginTop: 24 }}>
-        <SectionLabel>Activity</SectionLabel>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </DetailSection>
+      <DetailSection title="Timeline">
         <ObjectActivity objectIds={[o.ref]} note="Cancellations, refunds and payment changes on this order are recorded." />
-      </div>
+      </DetailSection>
       {o.kind === "booking" && o.whenText && (
         <ProposeChangeDialog
           open={proposing}

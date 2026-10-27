@@ -92,7 +92,7 @@ export function Contact() {
             .{!company.privacyEmail && " A dedicated privacy contact will be listed here once it's confirmed."}
           </ContactCard>
 
-          <ContactCard icon={<ShieldIcon size={20} />} title="Safety" actions={<PageLink to="/profile?tab=safety">Safety Centre</PageLink>}>
+          <ContactCard icon={<ShieldIcon size={20} />} title="Safety" actions={<PageLink to="/profile?tab=privacy">Safety Centre</PageLink>}>
             If someone is in danger right now, call <strong style={{ color: colors.text }}>112</strong> or <strong style={{ color: colors.text }}>999</strong>. To report a person or a
             message, use the report option next to it, or the Safety Centre.
           </ContactCard>

@@ -18,8 +18,9 @@ import { ObjectActivity } from "./AdminAudit";
 import { DecisionHistory, DecisionReasonFields, emptyReason, reasonComplete, toReasonInput, type ReasonDraft } from "./DecisionReason";
 import { useAdminCan } from "./adminPermissions";
 import { RecordState, RecordView } from "../workspace/RecordView";
+import { ContextSection, CopyValue, DetailFacts, DetailSection, DetailStats } from "../workspace/DetailParts";
 import { useRecordParam, useUrlParam } from "../../useUrlTab";
-import { AdminButton, Box, EmptyMessage, Facts, Loaded, Pager, SearchField, SectionLabel, StatusTag, Toolbar, ViewTabs, formatDate, matches, useAdminData, usePaged, type AdminData } from "./adminUi";
+import { AdminButton, Box, EmptyMessage, Facts, Loaded, Pager, SearchField, SectionLabel, StatusTag, Toolbar, ViewTabs, formatDate, matches, useAdminData, usePaged, statusLabel, BulkBar, RowMenu, SelectAllHeader, SelectCell, useRowSelection, type AdminData } from "./adminUi";
 import { useToast } from "../Toast";
 import { flattenListings, rowKey as listingKey } from "./AdminListings";
 import { similarListings } from "./listingReview";
@@ -75,6 +76,8 @@ function QueueTable<T>({
   rowKey,
   resetKey,
   noun,
+  bulk,
+  copy,
 }: {
   caption: string;
   rows: T[];
@@ -84,15 +87,48 @@ function QueueTable<T>({
   rowKey: (r: T) => string | number;
   resetKey: string;
   noun: string;
+  /** A decision that can be made for several rows at once (the same call per row). */
+  bulk?: { label: string; eligible: (r: T) => boolean; title: (n: number) => string; message: string; run: (r: T) => Promise<unknown>; onDone: () => void };
+  /** What the row menu's "Copy reference" copies. */
+  copy?: (r: T) => string;
 }) {
   const paged = usePaged(rows, 20, resetKey, "page");
+  const toast = useToast();
+  const sel = useRowSelection(bulk ? paged.slice.filter(bulk.eligible).map((r) => String(rowKey(r))) : []);
+  const [confirming, setConfirming] = useState(false);
+  const runBulk = async () => {
+    if (!bulk) return;
+    const targets = rows.filter((r) => sel.has(String(rowKey(r))));
+    let done = 0;
+    for (const r of targets) {
+      try {
+        await bulk.run(r);
+        done++;
+      } catch {
+        // counted below
+      }
+    }
+    setConfirming(false);
+    sel.clear();
+    bulk.onDone();
+    if (done === targets.length) toast.success(`${done} ${noun.replace(/s$/, "")}${done === 1 ? "" : "s"} done`);
+    else toast.error(`${done} of ${targets.length} done; open the others to see why.`);
+  };
   return (
     <>
+      {bulk && (
+        <BulkBar sel={sel} noun={noun.replace(/s$/, "")}>
+          <AdminButton variant="primary" size="sm" onClick={() => setConfirming(true)}>
+            {bulk.label} {sel.count}
+          </AdminButton>
+        </BulkBar>
+      )}
       <div className="adm-table-wrap">
         <table className="adm-table adm-table--stack">
           <caption className="adm-visually-hidden">{caption}</caption>
           <thead>
             <tr>
+              {bulk && <SelectAllHeader sel={sel} label={`Select all ${noun} on this page`} />}
               {columns.map((c) => (
                 <th scope="col" key={c.label}>
                   {c.label}
@@ -106,6 +142,7 @@ function QueueTable<T>({
           <tbody>
             {paged.slice.map((r) => (
               <tr key={rowKey(r)}>
+                {bulk && <SelectCell sel={sel} rowKey={String(rowKey(r))} label={reviewLabel(r).replace(/^Review /, "Select ")} disabled={!bulk.eligible(r)} />}
                 {columns.map((c) => (
                   <td key={c.label} data-label={c.label}>
                     {c.render(r)}
@@ -116,6 +153,7 @@ function QueueTable<T>({
                     <AdminButton size="sm" onClick={() => onReview(r)} aria-label={reviewLabel(r)}>
                       Review
                     </AdminButton>
+                    <RowMenu name={reviewLabel(r).replace(/^Review /, "")} items={[{ label: "Review", onSelect: () => onReview(r) }]} copy={{ value: copy ? copy(r) : String(rowKey(r)) }} />
                   </div>
                 </td>
               </tr>
@@ -124,6 +162,9 @@ function QueueTable<T>({
         </table>
       </div>
       <Pager {...paged} noun={noun} />
+      {bulk && (
+        <ConfirmDialog open={confirming} title={bulk.title(sel.count)} message={bulk.message} confirmLabel={`${bulk.label} ${sel.count}`} tone="neutral" onConfirm={runBulk} onCancel={() => setConfirming(false)} />
+      )}
     </>
   );
 }
@@ -165,17 +206,47 @@ function ClaimRecord({ claim, onBack, onOpenVendor, onOpenListing, onDecided }: 
   return (
     <RecordView
       title={`Claim on ${listingName}`}
-      reference={
-        <>
-          Listing ownership claim · <span className="adm-mono">{claim.id}</span>
-        </>
-      }
+      reference={`Listing ownership claim · ${typeLabel}`}
       backLabel="Claims"
       onBack={onBack}
+      stats={
+        <DetailStats
+          items={[
+            { label: decided ? "Decided" : "Waiting", value: decided ? decided.label : (waitingLabel(claim.createdAt) ?? "").replace("Waiting ", "") || "—", sub: `Since ${formatDate(claim.createdAt)}` },
+            { label: "Listing", value: typeLabel, sub: listingName },
+            { label: "Partner account", value: claim.vendorStatus === "approved" ? "Approved" : statusLabel(claim.vendorStatus), sub: vendorReady ? "Can take ownership" : "Approve the account first" },
+          ]}
+        />
+      }
+      asideLabel="Partner, listing and claim details"
+      aside={
+        <>
+          <ContextSection title="Claimed by">
+            <div className="wd-ctx-name">{claim.vendorName}</div>
+            <a className="wd-ctx-sub" href={`mailto:${claim.vendorEmail}`}>
+              {claim.vendorEmail}
+            </a>
+            <div style={{ marginTop: 10 }} />
+            <AdminButton size="sm" onClick={() => onOpenVendor(claim.vendorId)}>
+              Open partner account
+            </AdminButton>
+          </ContextSection>
+          <ContextSection title="Listing">
+            <div className="wd-ctx-name">{listingName}</div>
+            <div className="wd-ctx-sub" style={{ marginBottom: 10 }}>{typeLabel}</div>
+            <AdminButton size="sm" onClick={() => onOpenListing(`${claim.listingType}:${claim.listingId}`)}>
+              Open listing
+            </AdminButton>
+          </ContextSection>
+          <ContextSection title="Claim details">
+            <DetailFacts columns={1} rows={[["Claim ID", <CopyValue value={String(claim.id)} label="claim ID" />], ["Submitted", formatDate(claim.createdAt, true)]]} />
+          </ContextSection>
+        </>
+      }
       statuses={
         <>
           <span className="adm-note">Claim:</span> <StatusTag status={decided?.status ?? "pending"} label={decided?.label ?? "Waiting for a decision"} />
-          <span className="adm-note">Partner account:</span> <StatusTag status={claim.vendorStatus} />
+          <span className="adm-note">Partner account:</span> <StatusTag status={claim.vendorStatus} label={claim.vendorStatus === "approved" ? "Approved" : undefined} />
         </>
       }
       actions={
@@ -199,42 +270,15 @@ function ClaimRecord({ claim, onBack, onOpenVendor, onOpenListing, onDecided }: 
           Decision saved. This claim has left the queue; it stays in the audit log.
         </p>
       )}
-      <div className="adm-record-grid">
-        <div>
-          <SectionLabel>Claim</SectionLabel>
-          <Facts
-            rows={[
-              ["Listing", listingName],
-              ["Listing type", typeLabel],
-              ["Submitted", formatDate(claim.createdAt, true)],
-              ["Message from partner", claim.message ? <span style={{ whiteSpace: "pre-wrap" }}>{claim.message}</span> : "None"],
-            ]}
-          />
-          <SectionLabel>Decisions</SectionLabel>
-          <DecisionHistory objectType="claim" objectId={String(claim.id)} refreshKey={decided?.status} />
-          <SectionLabel>History</SectionLabel>
-          <ObjectActivity objectIds={[claim.listingId]} note="Claim decisions are recorded against the listing, so this shows the listing's recent audited changes too." />
-        </div>
-        <div>
-          <SectionLabel>Claimed by</SectionLabel>
-          <Facts
-            rows={[
-              ["Partner", claim.vendorName],
-              ["Email", claim.vendorEmail],
-              ["Account", claim.vendorStatus],
-            ]}
-          />
-          <SectionLabel>Related records</SectionLabel>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-start" }}>
-            <AdminButton size="sm" onClick={() => onOpenVendor(claim.vendorId)}>
-              Open partner account
-            </AdminButton>
-            <AdminButton size="sm" onClick={() => onOpenListing(`${claim.listingType}:${claim.listingId}`)}>
-              Open listing
-            </AdminButton>
-          </div>
-        </div>
-      </div>
+      <DetailSection title="Message from the partner">
+        <p className="adm-review-text">{claim.message || <span className="adm-note">None.</span>}</p>
+      </DetailSection>
+      <DetailSection title="Decisions">
+        <DecisionHistory objectType="claim" objectId={String(claim.id)} refreshKey={decided?.status} />
+      </DetailSection>
+      <DetailSection title="History">
+        <ObjectActivity objectIds={[claim.listingId]} note="Claim decisions are recorded against the listing, so this shows the listing's recent audited changes too." />
+      </DetailSection>
       <ConfirmDialog
         open={confirm === "approved"}
         title={`Approve ${claim.vendorName}'s claim on ${listingName}?`}
@@ -261,6 +305,7 @@ function ClaimRecord({ claim, onBack, onOpenVendor, onOpenListing, onDecided }: 
 }
 
 export function AdminClaimsPage({ onOpenVendor, onOpenListing, onCountsChanged }: { onOpenVendor: (id: string) => void; onOpenListing: (key: string) => void; onCountsChanged?: () => void }) {
+  const can = useAdminCan();
   const state = useAdminData(fetchClaims);
   const [q, setQ] = useUrlParam<string>("q", "");
   const [record, openRecord, closeRecord] = useRecordParam();
@@ -307,6 +352,22 @@ export function AdminClaimsPage({ onOpenVendor, onOpenListing, onCountsChanged }
               resetKey={q}
               rows={rows}
               rowKey={(c) => c.id}
+              copy={(c) => String(c.id)}
+              bulk={
+                can("queues.decide")
+                  ? {
+                      label: "Approve",
+                      eligible: (c) => c.vendorStatus === "approved",
+                      title: (n) => `Approve ${n} claim${n === 1 ? "" : "s"}?`,
+                      message: "Each partner becomes the owner of the listing they claimed, the same as approving one claim from its page. Claims from accounts that aren't approved can't be selected. The server refuses a claim if another partner took ownership in the meantime.",
+                      run: (c) => setClaimStatus(c.id, "approved"),
+                      onDone: () => {
+                        state.reload();
+                        onCountsChanged?.();
+                      },
+                    }
+                  : undefined
+              }
               onReview={(c) => openRecord(`claim:${c.id}`)}
               reviewLabel={(c) => `Review claim on ${c.listingName ?? c.listingId}`}
               columns={[
@@ -351,13 +412,36 @@ function HostApplicationRecord({ app, onBack, onDecided }: { app: HostApplicatio
   return (
     <RecordView
       title={app.name}
-      reference={
-        <>
-          Verified Host application · resident <span className="adm-mono">{app.id}</span>
-        </>
-      }
+      reference="Verified Host application"
       backLabel="Host applications"
       onBack={onBack}
+      stats={
+        <DetailStats
+          items={[
+            { label: decided ? "Decided" : "Waiting", value: decided ? decided.label : (waitingLabel(app.appliedAt) ?? "").replace("Waiting ", "") || "—", sub: `Applied ${formatDate(app.appliedAt)}` },
+            { label: "About them", value: app.bio ? `${app.bio.trim().split(/\s+/).length} words` : "Not given", sub: "Written by the applicant" },
+            { label: "Phone", value: app.phone ? "Given" : "Not given", sub: app.phone || undefined },
+          ]}
+        />
+      }
+      asideLabel="Contact and application details"
+      aside={
+        <>
+          <ContextSection title="Contact">
+            <div className="wd-ctx-name">{app.name}</div>
+            <a className="wd-ctx-sub" href={`mailto:${app.email}`}>
+              {app.email}
+            </a>
+            <div className="wd-ctx-sub">{app.phone ? `Phone ${app.phone}` : "No phone given"}</div>
+          </ContextSection>
+          <ContextSection title="Application details">
+            <DetailFacts columns={1} rows={[["Resident ID", <CopyValue value={app.id} label="resident ID" />], ["Applied", formatDate(app.appliedAt, true)]]} />
+          </ContextSection>
+          <ContextSection title="What this decides">
+            <p className="adm-note">Residents can host Games and Circles either way — this only grants or declines the Verified Host badge. There's no separate admin page for a resident account.</p>
+          </ContextSection>
+        </>
+      }
       statuses={
         <>
           <span className="adm-note">Application:</span> <StatusTag status={decided?.status ?? "pending"} label={decided?.label ?? "Waiting for a decision"} />
@@ -379,31 +463,15 @@ function HostApplicationRecord({ app, onBack, onDecided }: { app: HostApplicatio
           Decision saved. This application has left the queue; it stays in the audit log.
         </p>
       )}
-      <div className="adm-record-grid">
-        <div>
-          <SectionLabel>Application</SectionLabel>
-          <Facts
-            rows={[
-              ["Applied", formatDate(app.appliedAt, true)],
-              ["About them", app.bio ? <span style={{ whiteSpace: "pre-wrap" }}>{app.bio}</span> : "Not provided"],
-            ]}
-          />
-          <SectionLabel>Decisions</SectionLabel>
-          <DecisionHistory objectType="host_application" objectId={app.id} refreshKey={decided?.status} />
-          <SectionLabel>History</SectionLabel>
-          <ObjectActivity objectIds={[app.id]} note="Host status decisions for this resident are recorded." />
-        </div>
-        <div>
-          <SectionLabel>Contact</SectionLabel>
-          <Facts
-            rows={[
-              ["Email", app.email],
-              ["Phone", app.phone || "Not provided"],
-            ]}
-          />
-          <p className="adm-note">Residents can host Games and Circles either way — this only grants or declines the Verified Host badge. There's no separate admin page for a resident account.</p>
-        </div>
-      </div>
+      <DetailSection title="About them">
+        <p className="adm-review-text">{app.bio || <span className="adm-note">Not provided.</span>}</p>
+      </DetailSection>
+      <DetailSection title="Decisions">
+        <DecisionHistory objectType="host_application" objectId={app.id} refreshKey={decided?.status} />
+      </DetailSection>
+      <DetailSection title="History">
+        <ObjectActivity objectIds={[app.id]} note="Host status decisions for this resident are recorded." />
+      </DetailSection>
       <ConfirmDialog
         open={confirm === "verified"}
         title={`Approve ${app.name} as a Verified Host?`}
@@ -430,6 +498,7 @@ function HostApplicationRecord({ app, onBack, onDecided }: { app: HostApplicatio
 }
 
 export function AdminHostApplicationsPage({ onCountsChanged }: { onCountsChanged?: () => void }) {
+  const can = useAdminCan();
   const state = useAdminData(fetchHostApplications);
   const [q, setQ] = useUrlParam<string>("q", "");
   const [record, openRecord, closeRecord] = useRecordParam();
@@ -473,6 +542,22 @@ export function AdminHostApplicationsPage({ onCountsChanged }: { onCountsChanged
               resetKey={q}
               rows={rows}
               rowKey={(a) => a.id}
+              copy={(a) => a.email}
+              bulk={
+                can("queues.decide")
+                  ? {
+                      label: "Approve",
+                      eligible: () => true,
+                      title: (n) => `Approve ${n} application${n === 1 ? "" : "s"} as Verified Host?`,
+                      message: "Each person gets the Verified Host badge, the same as approving one application from its page. Their ability to host doesn't change.",
+                      run: (a) => setHostApplicationStatus(a.id, "verified"),
+                      onDone: () => {
+                        state.reload();
+                        onCountsChanged?.();
+                      },
+                    }
+                  : undefined
+              }
               onReview={(a) => openRecord(`host:${a.id}`)}
               reviewLabel={(a) => `Review ${a.name}'s application`}
               columns={[
@@ -516,13 +601,57 @@ function SuggestionRecord({ s, onBack, onOpenListing, onDecided }: { s: PlaceSug
   return (
     <RecordView
       title={s.suggestedName}
-      reference={
-        <>
-          Place suggestion · <span className="adm-mono">{s.id}</span>
-        </>
-      }
+      reference={`Place suggestion · ${s.category === "club" ? "Sports club" : "Community centre"}${s.county ? ` · ${s.county}` : ""}`}
       backLabel="Place suggestions"
       onBack={onBack}
+      stats={
+        <DetailStats
+          items={[
+            { label: s.status === "pending" ? "Waiting" : "Status", value: s.status === "pending" ? (waitingLabel(s.createdAt) ?? "").replace("Waiting ", "") || "—" : SUGGESTION_LABEL[s.status], sub: `Since ${formatDate(s.createdAt)}` },
+            { label: "Type", value: s.category === "club" ? "Sports club" : "Community centre", sub: [s.area, s.county].filter(Boolean).join(", ") || "No area given" },
+            { label: "Possible duplicates", value: listings.data ? String(similar.length) : "…", sub: similar.length ? "Check before publishing" : "None found" },
+          ]}
+        />
+      }
+      asideLabel="Duplicates, contact and suggestion details"
+      aside={
+        <>
+          {similar.length > 0 && (
+            <ContextSection title="Possibly already listed">
+              <div className="wd-ctx" data-tone="warn" style={{ margin: 0 }}>
+                <p className="adm-note">Check these before publishing, so the same place isn't listed twice.</p>
+                <ul className="adm-similar">
+                  {similar.map((l) => (
+                    <li key={listingKey(l)}>
+                      <button type="button" className="adm-linkish" onClick={() => onOpenListing(listingKey(l))}>
+                        {l.item.name}
+                      </button>
+                      <span className="adm-cell-sub">
+                        {[l.item.area, l.item.county].filter(Boolean).join(", ")} · {l.item.vendorName ?? "Unclaimed"}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </ContextSection>
+          )}
+          <ContextSection title="Contact given">
+            <p style={{ overflowWrap: "anywhere" }}>{s.contactInfo || <span className="adm-note">None</span>}</p>
+          </ContextSection>
+          <ContextSection title="Published listing">
+            {s.publishedListingId ? (
+              <AdminButton size="sm" onClick={() => onOpenListing(`${s.category}:${s.publishedListingId}`)}>
+                Open published listing
+              </AdminButton>
+            ) : (
+              <p className="adm-note">{s.status === "rejected" ? "No listing was created." : "A listing is created when this is approved."}</p>
+            )}
+          </ContextSection>
+          <ContextSection title="Suggestion details">
+            <DetailFacts columns={1} rows={[["Suggestion ID", <CopyValue value={s.id} label="suggestion ID" />], ["Submitted", formatDate(s.createdAt, true)]]} />
+          </ContextSection>
+        </>
+      }
       statuses={
         <>
           <span className="adm-note">Suggestion:</span> <StatusTag status={s.status} label={SUGGESTION_LABEL[s.status]} />
@@ -539,54 +668,23 @@ function SuggestionRecord({ s, onBack, onOpenListing, onDecided }: { s: PlaceSug
         ) : null
       }
     >
-      <div className="adm-record-grid">
-        <div>
-          <SectionLabel>Suggested place</SectionLabel>
-          <Facts
-            rows={[
-              ["Type", s.category === "club" ? "Sports club" : "Community centre"],
-              ["Area", s.area || "Not given"],
-              ["County", s.county || "Not given"],
-              ["Description", s.description ? <span style={{ whiteSpace: "pre-wrap" }}>{s.description}</span> : "None"],
-              ["Submitted", formatDate(s.createdAt, true)],
-            ]}
-          />
-          <SectionLabel>Decisions</SectionLabel>
-          <DecisionHistory objectType="place_suggestion" objectId={s.id} currentNeedsReason={s.status === "rejected"} refreshKey={s.status} />
-          <SectionLabel>History</SectionLabel>
-          <ObjectActivity objectIds={[s.id]} note="Approval and rejection are recorded." />
-        </div>
-        <div>
-          {similar.length > 0 && (
-            <section className="adm-review-card" data-tone="warn" style={{ marginTop: 16 }}>
-              <h2 className="adm-review-h">Possibly already listed</h2>
-              <p className="adm-note" style={{ margin: "0 0 8px" }}>Check these before publishing, so the same place isn't listed twice.</p>
-              <ul className="adm-similar">
-                {similar.map((l) => (
-                  <li key={listingKey(l)}>
-                    <button type="button" className="adm-linkish" onClick={() => onOpenListing(listingKey(l))}>
-                      {l.item.name}
-                    </button>
-                    <span className="adm-cell-sub">
-                      {[l.item.area, l.item.county].filter(Boolean).join(", ")} · {l.item.vendorName ?? "Unclaimed"}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
-          <SectionLabel>Contact given</SectionLabel>
-          <p style={{ margin: 0, fontSize: 13.5 }}>{s.contactInfo || "None"}</p>
-          <SectionLabel>Related records</SectionLabel>
-          {s.publishedListingId ? (
-            <AdminButton size="sm" onClick={() => onOpenListing(`${s.category}:${s.publishedListingId}`)}>
-              Open published listing
-            </AdminButton>
-          ) : (
-            <p className="adm-note">{s.status === "rejected" ? "No listing was created." : "A listing is created when this is approved."}</p>
-          )}
-        </div>
-      </div>
+      <DetailSection title="Suggested place">
+        <DetailFacts
+          rows={[
+            ["Type", s.category === "club" ? "Sports club" : "Community centre"],
+            ["Area", s.area || "Not given"],
+            ["County", s.county || "Not given"],
+          ]}
+        />
+        <h3 className="wd-sub">Description</h3>
+        <p className="adm-review-text">{s.description || <span className="adm-note">None.</span>}</p>
+      </DetailSection>
+      <DetailSection title="Decisions">
+        <DecisionHistory objectType="place_suggestion" objectId={s.id} currentNeedsReason={s.status === "rejected"} refreshKey={s.status} />
+      </DetailSection>
+      <DetailSection title="History">
+        <ObjectActivity objectIds={[s.id]} note="Approval and rejection are recorded." />
+      </DetailSection>
       <ConfirmDialog
         open={confirm === "approved"}
         title={`Publish ${s.suggestedName} as a ${typeLabel}?`}
@@ -613,6 +711,7 @@ function SuggestionRecord({ s, onBack, onOpenListing, onDecided }: { s: PlaceSug
 }
 
 export function AdminPlaceSuggestionsPage({ onOpenListing, onCountsChanged }: { onOpenListing: (key: string) => void; onCountsChanged?: () => void }) {
+  const can = useAdminCan();
   const [view, setView] = useUrlParam<"pending" | "all">("view", "pending");
   const [q, setQ] = useUrlParam<string>("q", "");
   const [record, openRecord, closeRecord] = useRecordParam();
@@ -668,6 +767,22 @@ export function AdminPlaceSuggestionsPage({ onOpenListing, onCountsChanged }: { 
               resetKey={`${q}|${view}`}
               rows={rows}
               rowKey={(s) => s.id}
+              copy={(s) => s.id}
+              bulk={
+                can("queues.decide")
+                  ? {
+                      label: "Approve & publish",
+                      eligible: (s) => s.status === "pending",
+                      title: (n) => `Publish ${n} suggestion${n === 1 ? "" : "s"}?`,
+                      message: "Each creates a live, unowned listing at an approximate map position, the same as approving one suggestion from its page. A partner can claim it later. Only suggestions still waiting can be selected.",
+                      run: (s) => setPlaceSuggestionStatus(s.id, "approved"),
+                      onDone: () => {
+                        state.reload();
+                        onCountsChanged?.();
+                      },
+                    }
+                  : undefined
+              }
               onReview={(s) => openRecord(`suggestion:${s.id}`)}
               reviewLabel={(s) => `Review ${s.suggestedName}`}
               columns={[

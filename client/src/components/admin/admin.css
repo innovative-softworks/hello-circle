@@ -30,7 +30,7 @@
   --adm-focus: #ff4b24;
   --adm-active-bg: #ffffff;
   --adm-display: "Bricolage Grotesque Variable", "Bricolage Grotesque", system-ui, sans-serif;
-  /* Secondary/body font for the admin workspace only — Figtree elsewhere. */
+  /* Secondary/body font — Inter, the same as the rest of the app (2026-10-22). */
   --adm-body: "Inter Variable", "Inter", system-ui, sans-serif;
   font-family: var(--adm-body);
   font-size: 14px;
@@ -142,10 +142,10 @@
   font-weight: 700;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   text-decoration: none;
   white-space: nowrap;
-  padding: 6px 0;
+  padding: 8px 0;
 }
 .adm-strip a:hover {
   text-decoration: underline;
@@ -197,7 +197,7 @@
 /* ---------- collapsible sidebar (desktop) ---------- */
 @media (min-width: 1025px) {
   .adm-layout {
-    transition: grid-template-columns 0.18s ease;
+    transition: none; /* UX polish 2026-10-20: no width animation (motion: transform/opacity only) */
   }
   .adm-layout[data-collapsed="true"] {
     grid-template-columns: 64px minmax(0, 1fr);
@@ -209,7 +209,7 @@
   }
 }
 .adm-side-toggle {
-  padding: 0 14px 12px;
+  padding: 0 16px 12px;
   margin-bottom: 12px;
   border-bottom: 1px solid var(--adm-line);
 }
@@ -218,14 +218,14 @@
   justify-content: flex-start;
   color: var(--adm-muted);
   font-weight: 600;
-  padding-left: 7px;
+  padding-left: 8px;
 }
 [data-collapsed="true"] .adm-side-toggle {
-  padding: 0 10px 12px;
+  padding: 0 12px 12px;
 }
 [data-collapsed="true"] .adm-side-toggle .adm-btn {
   justify-content: center;
-  padding: 7px 0;
+  padding: 8px 0;
 }
 /* Collapsed rail: icons only. Labels stay in the accessibility tree
    (visually hidden) and show as a native tooltip via title. */
@@ -238,13 +238,13 @@
   white-space: nowrap;
 }
 [data-collapsed="true"] .adm-nav-group + .adm-nav-group {
-  margin-top: 10px;
-  padding-top: 10px;
+  margin-top: 12px;
+  padding-top: 12px;
   border-top: 1px solid var(--adm-line);
 }
 [data-collapsed="true"] .adm-nav-item {
   justify-content: center;
-  padding: 10px 0;
+  padding: 12px 0;
   position: relative;
 }
 [data-collapsed="true"] .adm-nav-label,
@@ -269,7 +269,7 @@
 
 /* ---------- grouped nav ---------- */
 .adm-nav-group + .adm-nav-group {
-  margin-top: 18px;
+  margin-top: 16px;
 }
 .adm-nav-heading {
   font-size: 10.5px;
@@ -290,7 +290,7 @@
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   min-height: 40px;
   padding: 8px 12px 8px 21px;
   border: none;
@@ -329,7 +329,7 @@
   font-size: 11px;
   font-weight: 700;
   min-width: 20px;
-  padding: 1px 6px;
+  padding: 1px 4px;
   text-align: center;
   background: var(--adm-brand);
   color: var(--adm-on-brand);
@@ -346,8 +346,8 @@
 .adm-mobile-nav {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 18px;
+  gap: 12px;
+  margin-bottom: 16px;
 }
 @media (min-width: 1025px) {
   .adm-mobile-nav {
@@ -376,9 +376,9 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 16px 14px 24px;
+  padding: 16px 16px 16px 24px;
   border-bottom: 1px solid var(--adm-line);
-  margin-bottom: 14px;
+  margin-bottom: 16px;
   font-family: var(--adm-display);
   font-weight: 700;
 }
@@ -393,7 +393,7 @@
 .adm-crumbs {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px;
   list-style: none;
   margin: 0 0 8px;
   padding: 0;
@@ -402,7 +402,7 @@
 }
 .adm-crumbs li + li::before {
   content: "/";
-  margin-right: 6px;
+  margin-right: 8px;
 }
 .adm-crumbs button {
   background: none;
@@ -512,7 +512,7 @@
 }
 .adm-btn--sm {
   min-height: 36px;
-  padding: 6px 12px;
+  padding: 8px 12px;
   font-size: 13px;
 }
 
@@ -589,14 +589,14 @@
   color: var(--adm-muted);
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
 }
 .adm-metric-value {
   font-family: var(--adm-display);
   font-size: 30px;
   font-weight: 700;
   line-height: 1.15;
-  margin: 6px 0 2px;
+  margin: 8px 0 2px;
   font-variant-numeric: tabular-nums;
 }
 .adm-metric-period {
@@ -617,7 +617,7 @@
   text-decoration: underline;
   text-underline-offset: 3px;
   cursor: pointer;
-  margin-top: 6px;
+  margin-top: 8px;
 }
 
 /* ---------- toolbar ---------- */
@@ -632,7 +632,7 @@
 .adm-field {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   font-size: 13px;
   font-weight: 600;
   color: var(--adm-text);
@@ -681,7 +681,7 @@
   font-weight: 600;
   color: var(--adm-muted);
   min-height: 44px;
-  padding: 12px 8px 10px;
+  padding: 12px 8px 12px;
   border-bottom: 2px solid transparent;
   margin-bottom: -1px;
   cursor: pointer;
@@ -692,7 +692,7 @@
   border-bottom-color: var(--adm-brand);
 }
 .adm-view-count {
-  margin-left: 6px;
+  margin-left: 8px;
   font-size: 11.5px;
   color: var(--adm-soft);
   font-variant-numeric: tabular-nums;
@@ -721,7 +721,7 @@
 }
 .adm-table td {
   height: 56px;
-  padding: 10px 16px;
+  padding: 12px 16px;
   border-bottom: 1px solid var(--adm-line);
   vertical-align: middle;
 }
@@ -794,7 +794,7 @@
   }
   .adm-table--stack tr {
     border-bottom: 1px solid var(--adm-line);
-    padding: 10px 0;
+    padding: 12px 0;
   }
   .adm-table--stack tbody tr:last-child {
     border-bottom: none;
@@ -818,7 +818,7 @@
   .adm-table--stack .adm-cell-actions {
     justify-content: flex-start;
     flex-wrap: wrap;
-    padding-top: 6px;
+    padding-top: 8px;
   }
   .adm-table--stack .adm-num {
     text-align: left;
@@ -829,7 +829,7 @@
 .adm-badge {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   font-size: 12px;
   font-weight: 700;
   padding: 2px 8px;
@@ -878,7 +878,7 @@
 }
 .adm-pager-buttons {
   display: flex;
-  gap: 6px;
+  gap: 8px;
 }
 
 /* ---------- states ---------- */
@@ -927,7 +927,7 @@
   border: 1px solid var(--adm-line);
   border-left: 3px solid var(--color-orange-dark);
   background: var(--adm-panel);
-  padding: 10px 14px;
+  padding: 12px 16px;
   font-size: 13px;
 }
 .adm-callout[data-tone="error"] {
@@ -973,7 +973,7 @@
   flex-direction: column;
   align-items: flex-start;
   gap: 2px;
-  padding: 16px 18px;
+  padding: 16px 16px;
   background: var(--adm-panel);
   border: 1px solid var(--adm-line);
   font: inherit;
@@ -993,7 +993,7 @@ button.adm-ov-card:hover {
   place-items: center;
   width: 32px;
   height: 32px;
-  margin-bottom: 10px;
+  margin-bottom: 12px;
   background: var(--adm-head);
   border: 1px solid var(--adm-line);
   color: var(--adm-muted);
@@ -1019,7 +1019,7 @@ button.adm-ov-card:hover {
   color: var(--adm-brand-ink);
 }
 .adm-ov-cardlabel {
-  margin-top: 6px;
+  margin-top: 8px;
   font-weight: 600;
 }
 .adm-ov-cardhint {
@@ -1033,7 +1033,7 @@ button.adm-ov-card:hover {
   align-items: center;
   gap: 8px;
   margin: 0;
-  padding: 10px 24px;
+  padding: 12px 24px;
   background: var(--adm-head);
   border-bottom: 1px solid var(--adm-line);
   font-family: var(--adm-body);
@@ -1044,7 +1044,7 @@ button.adm-ov-card:hover {
   color: var(--adm-muted);
 }
 .adm-ov-group span {
-  padding: 0 6px;
+  padding: 0 8px;
   background: var(--adm-panel);
   border: 1px solid var(--adm-line);
   letter-spacing: 0;
@@ -1060,7 +1060,7 @@ button.adm-ov-card:hover {
   grid-template-columns: 40px minmax(0, 1fr) 150px 210px 104px;
   gap: 16px;
   align-items: center;
-  padding: 14px 24px;
+  padding: 16px 24px;
   border-bottom: 1px solid var(--adm-line);
 }
 .adm-ov-list:last-of-type .adm-ov-row:last-child {
@@ -1123,7 +1123,7 @@ button.adm-ov-card:hover {
   border: 1px solid var(--adm-line);
 }
 .adm-ov-totals > div {
-  padding: 12px 18px;
+  padding: 12px 16px;
   border-right: 1px solid var(--adm-line);
   margin-right: -1px;
   font-size: 12.5px;
@@ -1183,7 +1183,7 @@ button.adm-ov-card:hover {
   .adm-ov-row {
     grid-template-columns: 40px minmax(0, 1fr);
     gap: 4px 12px;
-    padding: 14px 16px;
+    padding: 16px 16px;
   }
   .adm-ov-row > .adm-ov-main {
     grid-column: 2;
@@ -1201,7 +1201,7 @@ button.adm-ov-card:hover {
   .adm-ov-row > .adm-btn {
     grid-column: 2;
     justify-self: start;
-    margin-top: 6px;
+    margin-top: 8px;
   }
   .adm-ov-group,
   .adm-queue-more {
@@ -1254,8 +1254,8 @@ button.adm-ov-card:hover {
 .adm-tech dl {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
-  gap: 3px 12px;
-  margin: 6px 0 0;
+  gap: 4px 12px;
+  margin: 8px 0 0;
   font-size: 12px;
 }
 .adm-tech dt {
@@ -1336,7 +1336,7 @@ button.adm-ov-card:hover {
 .adm-facts {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
-  gap: 6px 16px;
+  gap: 8px 16px;
   margin: 0;
   font-size: 13.5px;
 }
@@ -1363,7 +1363,7 @@ button.adm-ov-card:hover {
   font-size: 13px;
   font-weight: 600;
   color: var(--adm-muted);
-  padding: 9px 11px 8px;
+  padding: 8px 12px 8px;
   border-bottom: 2px solid transparent;
   margin-bottom: -1px;
   cursor: pointer;
@@ -1476,7 +1476,7 @@ button.adm-ov-card:hover {
 .adm-visibility {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   font-size: 12px;
   font-weight: 600;
   color: var(--adm-muted);
@@ -1511,18 +1511,20 @@ body.in-workspace {
   --radius-pill: 8px;
   --radius-small: 8px;
   --radius-manage-card: 8px;
+  /* Public buttons went to 12px (2026-10-24); workspace buttons stay as they were. */
+  --radius-button: 4px;
 }
 
 /* ---------- record pages (UI completion 2026-10-14) ---------- */
 .adm-record-back {
-  margin: 0 0 6px -10px;
+  margin: 0 0 8px -12px;
 }
 .adm-record-statuses {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
-  margin: -6px 0 20px;
+  margin: -8px 0 20px;
 }
 .adm-record .adm-section-label {
   margin-top: 24px;
@@ -1549,7 +1551,7 @@ body.in-workspace {
   font-weight: 700;
   letter-spacing: 0.02em;
   text-transform: uppercase;
-  padding: 1px 6px;
+  padding: 1px 8px;
   border: 1px solid currentColor;
   vertical-align: 1px;
 }
@@ -1591,7 +1593,7 @@ body.in-workspace {
   display: grid;
   grid-template-columns: 2fr 1fr 1fr;
   grid-template-rows: 150px 150px;
-  gap: 6px;
+  gap: 8px;
 }
 .adm-gallery img {
   width: 100%;
@@ -1631,20 +1633,20 @@ body.in-workspace {
 .adm-review-loc {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin: 16px 0 10px;
+  gap: 8px;
+  margin: 16px 0 12px;
   color: var(--adm-muted);
 }
 .adm-review-facts {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px;
   list-style: none;
   margin: 0;
   padding: 0;
 }
 .adm-review-facts li {
-  padding: 4px 10px;
+  padding: 4px 12px;
   background: var(--adm-panel);
   border: 1px solid var(--adm-line);
   font-size: 13px;
@@ -1676,14 +1678,14 @@ body.in-workspace {
 .adm-review-card {
   background: var(--adm-panel);
   border: 1px solid var(--adm-line);
-  padding: 18px 20px;
+  padding: 16px 20px;
 }
 .adm-review-card[data-tone="warn"] {
   border-color: var(--adm-brand-line);
   background: var(--adm-brand-soft);
 }
 .adm-review-h {
-  margin: 0 0 6px;
+  margin: 0 0 8px;
   font-family: var(--adm-display);
   font-size: 17px;
 }
@@ -1692,7 +1694,7 @@ body.in-workspace {
   margin: 0;
   padding: 0;
   display: grid;
-  gap: 10px;
+  gap: 12px;
 }
 .adm-checks li {
   display: grid;
@@ -1790,9 +1792,9 @@ body.in-workspace {
 }
 .adm-fin-card {
   display: flex;
-  gap: 14px;
+  gap: 16px;
   align-items: flex-start;
-  padding: 18px;
+  padding: 16px;
   background: var(--adm-panel);
   border: 1px solid var(--adm-line);
   font: inherit;
@@ -1859,14 +1861,14 @@ body.in-workspace {
 .adm-itabs button {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
   border: none;
   background: none;
   font: inherit;
   font-size: 13.5px;
   font-weight: 600;
   color: var(--adm-muted);
-  padding: 10px 12px 10px;
+  padding: 12px 12px 12px;
   border-bottom: 2px solid transparent;
   margin-bottom: -1px;
   cursor: pointer;
@@ -1883,11 +1885,11 @@ body.in-workspace {
   width: 1px;
   height: 20px;
   background: var(--adm-line-strong);
-  margin: 0 8px 11px;
+  margin: 0 8px 12px;
 }
 .adm-itabs-count {
   min-width: 18px;
-  padding: 0 5px;
+  padding: 0 4px;
   background: var(--adm-brand);
   color: var(--adm-on-brand);
   font-size: 11px;
@@ -1907,7 +1909,7 @@ body.in-workspace {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 14px 18px;
+  padding: 16px 16px;
   background: var(--adm-brand-soft);
   border: 1px solid var(--adm-brand-line);
 }
@@ -1924,8 +1926,8 @@ body.in-workspace {
 .adm-chip {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 3px 8px;
+  gap: 4px;
+  padding: 4px 8px;
   font-size: 12px;
   font-weight: 600;
   white-space: nowrap;
@@ -1960,7 +1962,7 @@ body.in-workspace {
   grid-template-columns: 36px minmax(0, 1fr) auto 104px;
   gap: 16px;
   align-items: center;
-  padding: 16px 22px;
+  padding: 16px 24px;
 }
 .adm-rule-row > .adm-btn {
   justify-content: center;
@@ -1985,7 +1987,7 @@ body.in-workspace {
   white-space: nowrap;
 }
 .adm-rule-body {
-  padding: 18px 22px 20px 74px;
+  padding: 16px 24px 20px 74px;
 }
 @media (max-width: 760px) {
   .adm-rule-row {
@@ -2020,7 +2022,7 @@ body.in-workspace {
 .adm-dlg-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px 16px;
+  gap: 16px 16px;
   align-items: start;
 }
 .adm-dlg-grid > .adm-span {
@@ -2149,7 +2151,7 @@ body.in-workspace .hc-header-row {
   flex-direction: column;
   align-items: flex-start;
   gap: 2px;
-  padding: 16px 18px;
+  padding: 16px 16px;
   background: var(--adm-panel);
   border: 1px solid var(--adm-line);
   border-radius: var(--radius-card);
@@ -2160,7 +2162,7 @@ body.in-workspace .hc-header-row {
   place-items: center;
   width: 32px;
   height: 32px;
-  margin-bottom: 10px;
+  margin-bottom: 12px;
   background: var(--adm-head);
   border: 1px solid var(--adm-line);
   border-radius: var(--radius-control);
@@ -2174,7 +2176,7 @@ body.in-workspace .hc-header-row {
   font-variant-numeric: tabular-nums;
 }
 .ws-stat-label {
-  margin-top: 6px;
+  margin-top: 8px;
   font-weight: 600;
 }
 .ws-stat-sub {
@@ -2201,7 +2203,7 @@ body.in-workspace .hc-header-row {
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
-  padding: 14px 20px;
+  padding: 16px 20px;
   background: var(--adm-panel);
   border: 1px solid var(--adm-line);
   border-radius: var(--radius-card);
@@ -2222,7 +2224,7 @@ body.in-workspace .hc-header-row {
   grid-template-columns: auto repeat(3, minmax(0, 1fr)) auto;
   gap: 16px;
   align-items: start;
-  padding: 14px 16px 14px 20px;
+  padding: 16px 16px 16px 20px;
   background: var(--adm-head);
   border: 1px solid var(--adm-line);
   border-radius: var(--radius-card);
@@ -2279,7 +2281,7 @@ body.in-workspace .hc-header-row {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  margin-top: 10px;
+  margin-top: 12px;
 }
 .ws-fchip {
   cursor: pointer;
@@ -2321,8 +2323,8 @@ body.in-workspace .hc-header-row {
 .ws-seg button {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
+  gap: 8px;
+  padding: 8px 12px;
   border: none;
   background: none;
   font: inherit;
@@ -2340,7 +2342,7 @@ body.in-workspace .hc-header-row {
 }
 /* Icon-only ⋯ row menu. */
 .action-menu-button.ws-icon-menu {
-  padding: 6px 8px !important;
+  padding: 8px 8px !important;
   min-height: 32px;
   gap: 0 !important;
 }
@@ -2352,7 +2354,7 @@ body.in-workspace .hc-header-row {
     flex-basis: 100%;
   }
   .ws-tabrow > .ws-seg {
-    margin: 0 0 10px;
+    margin: 0 0 12px;
   }
 }
 /* Notification rows: icon | text (opens the order) | when | ref. */
@@ -2418,14 +2420,14 @@ body.in-workspace .hc-header-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
 }
 .ws-review-body {
   margin: 0;
   line-height: 1.5;
 }
 .ws-review-reply {
-  padding: 10px 14px;
+  padding: 12px 16px;
   background: var(--adm-head);
   border-left: 3px solid var(--adm-line);
   font-size: 13.5px;
@@ -2439,11 +2441,11 @@ body.in-workspace .hc-header-row {
 }
 .ws-review-quote {
   margin: 0;
-  padding: 10px 14px;
+  padding: 12px 16px;
   background: var(--adm-head);
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 .ws-stars {
   display: inline-flex;
@@ -2458,7 +2460,7 @@ body.in-workspace .hc-header-row {
   display: inline-block;
   width: 120px;
   height: 6px;
-  margin-right: 10px;
+  margin-right: 12px;
   vertical-align: middle;
   background: var(--adm-head);
   border: 1px solid var(--adm-line);
@@ -2487,7 +2489,7 @@ body.in-workspace .hc-header-row {
 .ws-act-main {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   min-width: 220px;
   flex: 1 1 320px;
 }
@@ -2508,7 +2510,7 @@ body.in-workspace .hc-header-row {
 .ws-sec-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
+  gap: 16px;
 }
 .ws-sec-grid > .ws-sec:first-child {
   grid-column: 1 / -1;
@@ -2531,7 +2533,7 @@ body.in-workspace .hc-header-row {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 14px 18px;
+  padding: 16px 16px;
   border-bottom: 1px solid var(--adm-line);
 }
 .ws-sec-title {
@@ -2542,13 +2544,13 @@ body.in-workspace .hc-header-row {
   font-weight: 700;
 }
 .ws-sec-body {
-  padding: 14px 18px 16px;
+  padding: 16px 16px 16px;
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
 .ws-sec-errors {
-  margin-top: 14px;
-  padding: 10px 14px;
+  margin-top: 16px;
+  padding: 12px 16px;
   border: 1px solid var(--adm-brand-line);
   background: var(--adm-brand-soft);
   color: var(--adm-brand-ink);
@@ -2563,15 +2565,15 @@ body.in-workspace .hc-header-row {
   top: 16px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 16px;
 }
 .ws-rail-card {
-  padding: 16px 18px;
+  padding: 16px 16px;
 }
 .ws-meter {
   display: block;
   height: 6px;
-  margin: 10px 0 12px;
+  margin: 12px 0 12px;
   background: var(--adm-head);
   border: 1px solid var(--adm-line);
   border-radius: 99px;
@@ -2608,7 +2610,7 @@ body.in-workspace .hc-header-row {
   place-items: center;
   width: 100%;
   height: 130px;
-  margin-top: 10px;
+  margin-top: 12px;
   object-fit: cover;
   border-radius: var(--radius-control);
   border: 1px solid var(--adm-line);
@@ -2659,7 +2661,7 @@ body.in-workspace .hc-header-row {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 16px 18px 18px;
+  padding: 16px 16px 16px;
   flex: 1;
 }
 .ws-card-title {
@@ -2679,7 +2681,7 @@ body.in-workspace .hc-header-row {
   font-weight: 600;
 }
 .ws-card .ws-meter {
-  margin: 6px 0 0;
+  margin: 8px 0 0;
 }
 .ws-card-stats {
   display: flex;
@@ -2729,7 +2731,7 @@ body.in-workspace .hc-header-row {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-  padding: 14px 18px;
+  padding: 16px 16px;
   border-top: 1px solid var(--adm-line);
   background: var(--adm-head);
 }
@@ -2745,8 +2747,8 @@ body.in-workspace .hc-header-row {
 .ws-steps li {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 6px 8px;
+  gap: 12px;
+  padding: 8px 8px;
   border-radius: var(--radius-control);
   color: var(--adm-muted);
 }
@@ -2809,15 +2811,15 @@ body.in-workspace .hc-header-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 12px;
   flex-wrap: wrap;
   padding-top: 8px;
 }
 .ws-facts > div {
   display: flex;
   justify-content: space-between;
-  gap: 10px;
-  padding: 6px 0;
+  gap: 12px;
+  padding: 8px 0;
   border-top: 1px solid var(--adm-line);
   font-size: 13.5px;
 }
@@ -2827,4 +2829,2185 @@ body.in-workspace .hc-header-row {
 .ws-sec[data-error] {
   border-color: var(--color-danger, #b42318);
   box-shadow: 0 0 0 1px var(--color-danger, #b42318);
+}
+
+/* ---------- detail-page template (2026-10-20) ----------
+   RecordView with an `aside`: 70% main column (header, hero, tabs, sections
+   divided by rules) and a 30% context panel behind a thin vertical divider.
+   The split is of the content area beside the workspace sidebar. */
+.wd-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 7fr) minmax(260px, 3fr);
+  align-items: start;
+}
+.wd-main {
+  min-width: 0;
+  padding-right: 24px;
+}
+.wd-aside {
+  min-width: 0;
+  padding-left: 24px;
+  border-left: 1px solid var(--adm-line);
+  align-self: stretch;
+}
+.wd .adm-head {
+  padding-bottom: 20px;
+  margin-bottom: 20px;
+}
+.wd .adm-record-statuses {
+  margin: -8px 0 20px;
+}
+@media (max-width: 1100px) {
+  .wd-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .wd-main {
+    padding-right: 0;
+  }
+  .wd-aside {
+    padding-left: 0;
+    border-left: none;
+    border-top: 1px solid var(--adm-line);
+    margin-top: 8px;
+    padding-top: 8px;
+  }
+}
+
+/* Sections: a rule between them, no boxes. */
+.wd-sec {
+  padding: 24px 0;
+  border-top: 1px solid var(--adm-line);
+}
+.wd-sec:first-child,
+.wd-tabpanel > .wd-sec:first-child {
+  border-top: none;
+  padding-top: 8px;
+}
+.wd-sec:last-child {
+  padding-bottom: 8px;
+}
+.wd-sec-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.wd-sec-title {
+  margin: 0;
+  font-family: var(--adm-display);
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+.wd-sec-action {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+.wd-sec-note {
+  margin: -8px 0 12px;
+  color: var(--adm-muted);
+  font-size: 13px;
+}
+.wd-sec .adm-table-wrap {
+  border: 1px solid var(--adm-line);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+  background: var(--adm-panel);
+}
+
+/* Label/value pairs. */
+.wd-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 24px;
+  margin: 0;
+}
+.wd-facts[data-columns="1"] {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+}
+.wd-fact dt {
+  color: var(--adm-muted);
+  font-size: 12.5px;
+  margin-bottom: 2px;
+}
+.wd-fact dd {
+  margin: 0;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.wd-facts[data-columns="1"] .wd-fact {
+  display: grid;
+  grid-template-columns: minmax(84px, 40%) minmax(0, 1fr);
+  gap: 12px;
+  padding: 8px 0;
+  border-top: 1px solid var(--adm-line);
+  font-size: 13.5px;
+}
+.wd-facts[data-columns="1"] .wd-fact:first-child {
+  border-top: none;
+}
+.wd-facts[data-columns="1"] .wd-fact dt {
+  margin: 0;
+  font-size: 13px;
+}
+.wd-facts[data-columns="1"] .wd-fact dd {
+  font-size: 13.5px;
+}
+@media (max-width: 640px) {
+  .wd-facts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Hero: a compact panoramic image, not a gallery wall. */
+.wd-hero {
+  position: relative;
+  height: 220px;
+  margin: 0 0 8px;
+  border-radius: var(--radius-card);
+  overflow: hidden;
+  background: var(--adm-head);
+}
+.wd-hero img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.wd-hero--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  height: 64px;
+  border: 1px dashed var(--adm-line-strong);
+  color: var(--adm-muted);
+  font-weight: 600;
+  font-size: 13.5px;
+  flex-wrap: wrap;
+  padding: 0 16px;
+}
+.wd-hero-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--adm-line);
+  border-radius: var(--radius-control);
+  background: var(--adm-panel);
+  color: var(--adm-text);
+  cursor: pointer;
+  opacity: 0.94;
+}
+.wd-hero-nav[data-side="prev"] {
+  left: 12px;
+}
+.wd-hero-nav[data-side="next"] {
+  right: 12px;
+}
+.wd-hero-nav:hover {
+  opacity: 1;
+}
+.wd-hero-count {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  padding: 2px 8px;
+  border-radius: var(--radius-control);
+  background: rgba(23, 32, 25, 0.72);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+}
+@media (max-width: 640px) {
+  .wd-hero {
+    height: 180px;
+  }
+}
+
+/* Record tabs: underline, scroll inside the bar on narrow screens. */
+.wd-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--adm-line);
+  margin: 16px 0 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.wd-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--adm-muted);
+  padding: 12px 12px;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.wd-tab:hover {
+  color: var(--adm-text);
+}
+.wd-tab[aria-selected="true"] {
+  color: var(--adm-text);
+  border-bottom-color: var(--adm-brand);
+}
+.wd-tab-count {
+  font-size: 12px;
+  color: var(--adm-muted);
+  font-weight: 600;
+}
+.wd-tabpanel {
+  padding-top: 16px;
+}
+
+/* Context panel: blocks divided by rules, visually secondary. */
+.wd-ctx {
+  padding: 16px 0;
+  border-top: 1px solid var(--adm-line);
+}
+.wd-ctx:first-child {
+  border-top: none;
+  padding-top: 4px;
+}
+.wd-ctx-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.wd-ctx-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--adm-muted);
+}
+.wd-ctx p {
+  margin: 0 0 12px;
+  font-size: 13.5px;
+}
+.wd-ctx .adm-review-actions {
+  margin-top: 4px;
+}
+.wd-ctx-name {
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.wd-ctx-sub {
+  color: var(--adm-muted);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.wd-ctx[data-tone="warn"] {
+  margin: 4px 0;
+  padding: 16px 16px;
+  border: 1px solid var(--adm-brand-line);
+  border-radius: var(--radius-card);
+  background: var(--adm-brand-soft);
+}
+.wd-ctx[data-tone="warn"] + .wd-ctx {
+  border-top: none;
+}
+.wd-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+}
+.wd-copy .adm-mono {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.wd-copy-btn {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--adm-line);
+  border-radius: var(--radius-control);
+  background: var(--adm-panel);
+  color: var(--adm-muted);
+  cursor: pointer;
+}
+.wd-copy-btn:hover {
+  color: var(--adm-text);
+}
+.wd-actions {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+}
+.wd-action {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 0;
+  border: none;
+  border-top: 1px solid var(--adm-line);
+  background: none;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--adm-text);
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+.wd-actions li:first-child .wd-action {
+  border-top: none;
+}
+.wd-action:hover:not(:disabled) {
+  color: var(--adm-brand-ink);
+}
+.wd-action[data-danger] {
+  color: var(--adm-brand-ink);
+}
+.wd-action:disabled {
+  color: var(--adm-faint);
+  cursor: not-allowed;
+}
+.wd-action svg {
+  color: var(--adm-muted);
+  flex-shrink: 0;
+}
+.wd-action[aria-pressed="true"] svg {
+  color: var(--adm-brand);
+}
+.wd-map {
+  margin-top: 12px;
+}
+.wd-clamp {
+  display: -webkit-box;
+  -webkit-line-clamp: 6;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.wd-photos {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 8px;
+}
+.wd-photos li {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  border-radius: var(--radius-card);
+  overflow: hidden;
+  background: var(--adm-head);
+}
+.wd-photos img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.wd-photo-tag {
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  padding: 1px 8px;
+  border-radius: var(--radius-control);
+  background: var(--adm-panel);
+  font-size: 11.5px;
+  font-weight: 700;
+}
+/* Compact record rows inside a detail section (members, attendees…). */
+.wd-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.wd-rows > li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 0;
+  border-top: 1px solid var(--adm-line);
+}
+.wd-rows > li:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+.wd-rows-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1 1 220px;
+}
+.wd-sub {
+  margin: 20px 0 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--adm-muted);
+}
+/* Record pages still written with SectionLabel + Facts get the same rhythm:
+   in the main column a label is a section heading with a rule above it; in the
+   context panel it is the panel's small heading, and facts stack label/value. */
+.wd-main .adm-section-label {
+  margin: 24px 0 12px;
+  padding-top: 24px;
+  border-top: 1px solid var(--adm-line);
+  font-family: var(--adm-display);
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--adm-text);
+}
+.wd-main .adm-head + .adm-section-label,
+.wd-main .adm-record-statuses + .adm-section-label,
+.wd-main .adm-callout + .adm-section-label,
+.wd-main > .adm-note + .adm-section-label:first-of-type {
+  border-top: none;
+  padding-top: 0;
+  margin-top: 8px;
+}
+.wd-aside .adm-section-label {
+  margin: 16px 0 12px;
+  padding-top: 16px;
+  border-top: 1px solid var(--adm-line);
+}
+.wd-aside > .adm-section-label:first-child {
+  margin-top: 0;
+  padding-top: 4px;
+  border-top: none;
+}
+.wd-aside .adm-facts {
+  grid-template-columns: minmax(84px, 40%) minmax(0, 1fr);
+  gap: 8px 12px;
+}
+/* Boxes inside a detail page's main column read as sections: a rule above,
+   no frame. Lists and tables inside keep their own border. */
+.wd-main section.adm-box {
+  background: transparent;
+  border: none;
+  border-top: 1px solid var(--adm-line);
+  border-radius: 0;
+  margin-top: 24px;
+}
+.wd-main section.adm-box > .adm-box-head {
+  padding: 24px 0 12px;
+  border-bottom: none;
+}
+.wd-main section.adm-box > .adm-box-head .adm-box-title {
+  font-size: 17px;
+  font-weight: 700;
+}
+.wd-main section.adm-box > .adm-box-body {
+  padding: 0;
+}
+.wd-main section.adm-box > .adm-table-wrap,
+.wd-main section.adm-box > .adm-ov-list {
+  border: 1px solid var(--adm-line);
+  border-radius: var(--radius-card);
+  background: var(--adm-panel);
+  overflow: hidden;
+}
+.wd-main .adm-stack {
+  gap: 0;
+}
+
+/* Partner editors (centre, club, experience, programme) on the detail-page
+   template (2026-10-20): 70% sections divided by rules, 30% context panel
+   (readiness and preview) behind a divider, stacked below on narrow screens. */
+.ws-editor:not(.ws-editor--wizard) {
+  grid-template-columns: minmax(0, 7fr) minmax(260px, 3fr);
+  gap: 0;
+}
+.ws-editor:not(.ws-editor--wizard) > .ws-sec-grid {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+}
+.ws-editor:not(.ws-editor--wizard) > :first-child {
+  padding-right: 24px;
+}
+/* Panels in an editor's main column (programme sessions, enrolments) read as sections. */
+.ws-editor:not(.ws-editor--wizard) > :first-child > section.adm-box {
+  background: transparent;
+  border: none;
+  border-top: 1px solid var(--adm-line);
+  border-radius: 0;
+}
+.ws-editor:not(.ws-editor--wizard) > :first-child > section.adm-box:first-of-type {
+  border-top: none;
+}
+.ws-editor:not(.ws-editor--wizard) > :first-child > section.adm-box > .adm-box-head {
+  padding: 16px 0 12px;
+  border-bottom: none;
+}
+.ws-editor:not(.ws-editor--wizard) > :first-child > section.adm-box > .adm-box-body {
+  padding: 0 0 16px;
+}
+.ws-editor:not(.ws-editor--wizard) > :first-child > section.adm-box > :not(.adm-box-head):not(.adm-box-body) {
+  border: 1px solid var(--adm-line);
+  border-radius: var(--radius-card);
+  background: var(--adm-panel);
+  margin-bottom: 16px;
+}
+.ws-editor:not(.ws-editor--wizard) .ws-sec {
+  background: transparent;
+  border: none;
+  border-top: 1px solid var(--adm-line);
+  border-radius: 0;
+}
+.ws-editor:not(.ws-editor--wizard) .ws-sec:first-child {
+  border-top: none;
+}
+.ws-editor:not(.ws-editor--wizard) .ws-sec[data-error] {
+  box-shadow: inset 3px 0 0 var(--color-danger, #b42318);
+  padding-left: 12px;
+}
+.ws-editor:not(.ws-editor--wizard) .ws-sec-head {
+  padding: 16px 0 8px;
+  border-bottom: none;
+}
+.ws-editor:not(.ws-editor--wizard) .ws-sec-body {
+  padding: 0 0 16px 48px;
+}
+.ws-editor:not(.ws-editor--wizard) > .ws-rail {
+  align-self: stretch;
+  gap: 0;
+  padding-left: 24px;
+  border-left: 1px solid var(--adm-line);
+}
+.ws-editor:not(.ws-editor--wizard) > .ws-rail > .adm-box,
+.ws-editor:not(.ws-editor--wizard) > .ws-rail > .ws-rail-card {
+  background: transparent;
+  border: none;
+  border-top: 1px solid var(--adm-line);
+  border-radius: 0;
+  padding: 16px 0;
+}
+.ws-editor:not(.ws-editor--wizard) > .ws-rail > :first-child {
+  border-top: none;
+  padding-top: 4px;
+}
+@media (max-width: 1100px) {
+  .ws-editor:not(.ws-editor--wizard) > :first-child {
+    padding-right: 0;
+  }
+  .ws-editor:not(.ws-editor--wizard) > .ws-rail {
+    order: 0;
+    padding-left: 0;
+    border-left: none;
+    border-top: 1px solid var(--adm-line);
+    margin-top: 8px;
+  }
+}
+@media (max-width: 640px) {
+  .ws-editor:not(.ws-editor--wizard) .ws-sec-body {
+    padding-left: 0;
+  }
+}
+
+/* Review pass (2026-10-20): a stacked context panel uses the width it gets —
+   two columns of blocks on tablets — and facts become compact label/value
+   rows on phones instead of tall stacks. */
+@media (min-width: 641px) and (max-width: 1100px) {
+  .wd-aside {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 32px;
+    align-items: start;
+  }
+  .wd-aside > .wd-ctx:nth-child(2) {
+    border-top: none;
+    padding-top: 4px;
+  }
+}
+@media (max-width: 640px) {
+  .wd-facts:not([data-columns="1"]) {
+    gap: 0;
+  }
+  .wd-facts:not([data-columns="1"]) .wd-fact {
+    display: grid;
+    grid-template-columns: minmax(96px, 40%) minmax(0, 1fr);
+    gap: 12px;
+    padding: 8px 0;
+    border-top: 1px solid var(--adm-line);
+  }
+  .wd-facts:not([data-columns="1"]) .wd-fact:first-child {
+    border-top: none;
+  }
+  .wd-facts:not([data-columns="1"]) .wd-fact dt {
+    margin: 0;
+    font-size: 13px;
+  }
+}
+/* A fieldset legend inside a titled section repeats the section title:
+   keep it for screen readers, hide it visually. */
+.wd-sec legend.adm-section-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+@media (max-width: 640px) {
+  .wd-sec {
+    padding: 16px 0;
+  }
+  .wd-ctx {
+    padding: 12px 0;
+  }
+  .wd-main .adm-section-label {
+    margin-top: 16px;
+    padding-top: 16px;
+  }
+  .wd .adm-head {
+    padding-bottom: 16px;
+    margin-bottom: 16px;
+  }
+}
+
+/* Richer header (2026-10-20, owner's pick): title, statuses and actions read as
+   one block; key numbers sit in a strip under it; the context panel stays in
+   view while the main column scrolls. */
+.wd .adm-head {
+  border-bottom: none;
+  padding-bottom: 8px;
+  margin-bottom: 0;
+}
+.wd .adm-title {
+  font-size: 32px;
+}
+.wd .adm-record-statuses {
+  margin: 8px 0 20px;
+}
+.wd-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  margin: 0 0 8px;
+  border-top: 1px solid var(--adm-line);
+  border-bottom: 1px solid var(--adm-line);
+}
+.wd-stat {
+  padding: 16px 16px 16px 0;
+  min-width: 0;
+}
+.wd-stat + .wd-stat {
+  padding-left: 16px;
+  border-left: 1px solid var(--adm-line);
+}
+.wd-stat dt {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--adm-muted);
+}
+.wd-stat dd {
+  margin: 4px 0 0;
+  display: flex;
+  flex-direction: column;
+}
+.wd-stat-value {
+  font-family: var(--adm-display);
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+}
+.wd-stat-sub {
+  font-size: 12.5px;
+  color: var(--adm-muted);
+}
+@media (min-width: 1101px) {
+  .wd-aside-inner {
+    position: sticky;
+    top: 86px;
+    max-height: calc(100vh - 102px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+  }
+}
+.wd-hero[data-variant="panel"] {
+  height: auto;
+  aspect-ratio: 4 / 3;
+  margin: 0 0 4px;
+}
+.wd-hero--empty[data-variant="panel"] {
+  aspect-ratio: auto;
+  height: 64px;
+}
+@media (max-width: 640px) {
+  .wd .adm-title {
+    font-size: 26px;
+  }
+  .wd-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .wd-stat:nth-child(odd) {
+    padding-left: 0;
+    border-left: none;
+  }
+  .wd-stat:nth-child(n + 3) {
+    border-top: 1px solid var(--adm-line);
+  }
+  .wd-stat-value {
+    font-size: 20px;
+  }
+}
+/* Record pages without a key-numbers strip keep a rule under the header. */
+.wd-main:not(:has(> .wd-stats)) > .adm-record-statuses {
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--adm-line);
+  margin-bottom: 8px;
+}
+.wd-main:not(:has(> .wd-stats)):not(:has(> .adm-record-statuses)) > .adm-head {
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--adm-line);
+  margin-bottom: 8px;
+}
+
+/* White surfaces (owner, 2026-10-20): the header stays on the workspace
+   background; the key numbers, the main working area and the context panel
+   each sit on a subtle white card. The cards replace the column divider. */
+.wd-stats {
+  background: var(--adm-panel);
+  border: 1px solid var(--adm-line);
+  border-radius: var(--radius-card);
+  margin: 0 0 16px;
+}
+.wd-stat {
+  padding: 16px 16px;
+}
+.wd-stat + .wd-stat {
+  padding-left: 16px;
+}
+.wd-layout {
+  column-gap: 20px;
+}
+.wd-main {
+  padding-right: 0;
+}
+.wd-body {
+  background: var(--adm-panel);
+  border: 1px solid var(--adm-line);
+  border-radius: var(--radius-card);
+  padding: 8px 24px 16px;
+  min-width: 0;
+}
+.wd-body > .wd-tabs:first-child {
+  margin-top: 0;
+}
+.wd-aside {
+  padding-left: 0;
+  border-left: none;
+}
+.wd-aside-inner {
+  background: var(--adm-panel);
+  border: 1px solid var(--adm-line);
+  border-radius: var(--radius-card);
+  padding: 8px 20px;
+}
+/* A record without statuses or key numbers: the white body already marks
+   where content starts, so no extra rule under the header. */
+.wd-main:not(:has(> .wd-stats)) > .adm-record-statuses,
+.wd-main:not(:has(> .wd-stats)):not(:has(> .adm-record-statuses)) > .adm-head {
+  border-bottom: none;
+  padding-bottom: 8px;
+}
+.wd-main > .adm-record-statuses {
+  margin-bottom: 16px;
+}
+@media (max-width: 1100px) {
+  .wd-aside {
+    border-top: none;
+    margin-top: 16px;
+    padding-top: 0;
+  }
+  .wd-aside-inner {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 32px;
+    align-items: start;
+  }
+  .wd-aside-inner > .wd-ctx:nth-child(2) {
+    border-top: none;
+    padding-top: 4px;
+  }
+}
+@media (max-width: 640px) {
+  .wd-body {
+    padding: 4px 16px 12px;
+  }
+  .wd-aside-inner {
+    display: block;
+    padding: 4px 16px;
+  }
+  .wd-stat {
+    padding: 12px 16px;
+  }
+  .wd-stat:nth-child(odd) {
+    padding-left: 16px;
+  }
+}
+/* Partner editors: the sections and the readiness rail as the same white cards. */
+.ws-editor:not(.ws-editor--wizard) {
+  column-gap: 20px;
+}
+.ws-editor:not(.ws-editor--wizard) > :first-child {
+  padding: 4px 24px 8px;
+  background: var(--adm-panel);
+  border: 1px solid var(--adm-line);
+  border-radius: var(--radius-card);
+}
+.ws-editor:not(.ws-editor--wizard) > .ws-rail {
+  padding: 8px 20px;
+  border-left: none;
+  background: var(--adm-panel);
+  border: 1px solid var(--adm-line);
+  border-radius: var(--radius-card);
+  align-self: start;
+}
+@media (max-width: 1100px) {
+  .ws-editor:not(.ws-editor--wizard) > .ws-rail {
+    border-top: 1px solid var(--adm-line);
+    margin-top: 16px;
+  }
+}
+@media (max-width: 640px) {
+  .ws-editor:not(.ws-editor--wizard) > :first-child {
+    padding: 4px 16px 8px;
+  }
+  .ws-editor:not(.ws-editor--wizard) > .ws-rail {
+    padding: 4px 16px;
+  }
+}
+/* The first block inside a white card needs no rule above it. */
+.wd-body > .adm-section-label:first-child,
+.wd-body > .adm-note:first-child + .adm-section-label,
+.wd-body > p[role]:first-child + .adm-section-label {
+  border-top: none;
+  padding-top: 8px;
+  margin-top: 8px;
+}
+.wd-body > section.adm-box:first-child {
+  border-top: none;
+  margin-top: 0;
+}
+/* The panel scrolls with the page: a white card cut off by a fixed height
+   hides its last actions (review, 2026-10-20). */
+@media (min-width: 1101px) {
+  .wd-aside-inner {
+    position: static;
+    max-height: none;
+    overflow: visible;
+  }
+}
+.wd-aside-inner > .adm-section-label:first-child {
+  margin-top: 0;
+  padding-top: 8px;
+  border-top: none;
+}
+.wd-aside-inner > .wd-ctx:last-child {
+  padding-bottom: 12px;
+}
+@media (min-width: 641px) and (max-width: 1100px) {
+  /* The two-column grid belongs to the white card inside the panel, not the panel. */
+  .wd-aside {
+    display: block;
+  }
+}
+/* Owner (2026-10-20): the right panel sits on the page background, not a card,
+   so it stays visually secondary to the white working area. */
+.wd-aside-inner,
+.ws-editor:not(.ws-editor--wizard) > .ws-rail {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0 4px;
+}
+@media (max-width: 1100px) {
+  .ws-editor:not(.ws-editor--wizard) > .ws-rail {
+    border-top: none;
+  }
+}
+@media (max-width: 640px) {
+  .wd-aside-inner,
+  .ws-editor:not(.ws-editor--wizard) > .ws-rail {
+    padding: 0;
+  }
+}
+
+/* Owner (2026-10-20, later): no white backgrounds. The key numbers, the main
+   working area and the editors sit on the workspace background again, divided
+   by rules, with a thin divider between the main column and the panel. */
+.wd-stats {
+  background: transparent;
+  border: none;
+  border-top: 1px solid var(--adm-line);
+  border-bottom: 1px solid var(--adm-line);
+  border-radius: 0;
+  margin: 0 0 8px;
+}
+.wd-stat {
+  padding: 16px 16px 16px 0;
+}
+.wd-stat + .wd-stat {
+  padding-left: 16px;
+}
+.wd-body {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+}
+.wd-layout {
+  column-gap: 0;
+}
+.wd-main {
+  padding-right: 24px;
+}
+.ws-editor:not(.ws-editor--wizard) {
+  column-gap: 0;
+}
+.ws-editor:not(.ws-editor--wizard) > :first-child {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0 24px 0 0;
+}
+@media (min-width: 1101px) {
+  .wd-aside,
+  .ws-editor:not(.ws-editor--wizard) > .ws-rail {
+    padding-left: 24px;
+    border-left: 1px solid var(--adm-line);
+  }
+}
+@media (max-width: 1100px) {
+  .wd-main,
+  .ws-editor:not(.ws-editor--wizard) > :first-child {
+    padding-right: 0;
+  }
+  .wd-aside,
+  .ws-editor:not(.ws-editor--wizard) > .ws-rail {
+    border-top: 1px solid var(--adm-line);
+    padding-top: 8px;
+  }
+}
+@media (max-width: 640px) {
+  .wd-body,
+  .ws-editor:not(.ws-editor--wizard) > :first-child {
+    padding: 0;
+  }
+  .wd-stat {
+    padding: 12px 12px 12px 0;
+  }
+  .wd-stat:nth-child(even) {
+    padding-left: 12px;
+  }
+  .wd-stat:nth-child(odd) {
+    padding-left: 0;
+  }
+}
+
+/* Owner (2026-10-20): header actions on record and editor pages are compact —
+   32px buttons beside the ⋯ menu, so the title stays the strongest element.
+   Covers the admin buttons and the partner/host workspace buttons. */
+.wd .adm-head-actions,
+.adm:has(.wd-stats) .adm-head-actions {
+  gap: 8px;
+  align-items: center;
+}
+.wd .adm-head-actions .adm-btn,
+.wd .adm-head-actions .btn,
+.wd .adm-head-actions a.adm-btn,
+.adm:has(.wd-stats) .adm-head-actions .adm-btn,
+.adm:has(.wd-stats) .adm-head-actions .btn {
+  min-height: 32px !important;
+  height: 32px;
+  padding: 0 12px !important;
+  font-size: 13px !important;
+  gap: 8px;
+}
+.wd .adm-head-actions .adm-btn--quiet.adm-btn--sm,
+.adm:has(.wd-stats) .adm-head-actions .adm-btn--quiet.adm-btn--sm {
+  width: 32px;
+  padding: 0 !important;
+}
+.wd .adm-head-actions svg,
+.adm:has(.wd-stats) .adm-head-actions svg {
+  width: 15px;
+  height: 15px;
+}
+
+/* Owner (2026-10-20): primary buttons in the workspaces are near-black with
+   white text instead of brand orange, for contrast. Dark theme inverts them
+   (light button, dark text). Orange stays an accent: active tab, nav marker. */
+.adm,
+.adm-sheet,
+.adm-panel,
+.adm-dlg {
+  --adm-primary: var(--adm-text);
+  --adm-on-primary: var(--adm-panel);
+  --adm-primary-hover: color-mix(in srgb, var(--adm-text) 82%, var(--adm-panel));
+}
+.adm-btn--primary,
+.adm .btn-primary,
+.adm .btn-orange,
+.adm-dlg .btn-primary,
+.adm-sheet .btn-primary {
+  background: var(--adm-primary) !important;
+  border-color: var(--adm-primary) !important;
+  color: var(--adm-on-primary) !important;
+}
+.adm-btn--primary:hover:not(:disabled),
+.adm .btn-primary:hover:not(:disabled),
+.adm .btn-orange:hover:not(:disabled) {
+  background: var(--adm-primary-hover) !important;
+  border-color: var(--adm-primary-hover) !important;
+}
+
+/* Detail icons (2026-10-20): a small tinted tile per section, panel heading and
+   key number; colour by meaning (see workspace/detailIcons.ts). */
+.adm,
+.adm-sheet,
+.adm-dlg {
+  --tone-green: #1f7a45;
+  --tone-green-bg: #e3f2e8;
+  --tone-blue: #2357b8;
+  --tone-blue-bg: #e6eefb;
+  --tone-amber: #9a5b00;
+  --tone-amber-bg: #fdf0d5;
+  --tone-violet: #6b3fb5;
+  --tone-violet-bg: #efe8fb;
+  --tone-rose: #b4234a;
+  --tone-rose-bg: #fce8ed;
+  --tone-neutral: #4b544d;
+  --tone-neutral-bg: #ecebe4;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .adm,
+  :root:not([data-theme="light"]) .adm-sheet,
+  :root:not([data-theme="light"]) .adm-dlg {
+    --tone-green: #74d39c;
+    --tone-green-bg: rgba(116, 211, 156, 0.14);
+    --tone-blue: #8fb3ff;
+    --tone-blue-bg: rgba(143, 179, 255, 0.14);
+    --tone-amber: #f2c14e;
+    --tone-amber-bg: rgba(242, 193, 78, 0.14);
+    --tone-violet: #c3a6ff;
+    --tone-violet-bg: rgba(195, 166, 255, 0.14);
+    --tone-rose: #ff8fab;
+    --tone-rose-bg: rgba(255, 143, 171, 0.14);
+    --tone-neutral: #c4cbc5;
+    --tone-neutral-bg: rgba(196, 203, 197, 0.12);
+  }
+}
+:root[data-theme="dark"] .adm,
+:root[data-theme="dark"] .adm-sheet,
+:root[data-theme="dark"] .adm-dlg {
+  --tone-green: #74d39c;
+  --tone-green-bg: rgba(116, 211, 156, 0.14);
+  --tone-blue: #8fb3ff;
+  --tone-blue-bg: rgba(143, 179, 255, 0.14);
+  --tone-amber: #f2c14e;
+  --tone-amber-bg: rgba(242, 193, 78, 0.14);
+  --tone-violet: #c3a6ff;
+  --tone-violet-bg: rgba(195, 166, 255, 0.14);
+  --tone-rose: #ff8fab;
+  --tone-rose-bg: rgba(255, 143, 171, 0.14);
+  --tone-neutral: #c4cbc5;
+  --tone-neutral-bg: rgba(196, 203, 197, 0.12);
+}
+.wd-ico {
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  color: var(--tone-neutral);
+  background: var(--tone-neutral-bg);
+}
+.wd-ico[data-size="sm"] {
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+}
+.wd-ico[data-tone="green"] { color: var(--tone-green); background: var(--tone-green-bg); }
+.wd-ico[data-tone="blue"] { color: var(--tone-blue); background: var(--tone-blue-bg); }
+.wd-ico[data-tone="amber"] { color: var(--tone-amber); background: var(--tone-amber-bg); }
+.wd-ico[data-tone="violet"] { color: var(--tone-violet); background: var(--tone-violet-bg); }
+.wd-ico[data-tone="rose"] { color: var(--tone-rose); background: var(--tone-rose-bg); }
+.wd-sec-title,
+.wd-ctx-title,
+.wd-stat dt {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.wd-ctx-title,
+.wd-stat dt {
+  gap: 8px;
+}
+/* Key numbers: the value lines up with the label text after its icon. */
+.wd-stat-value {
+  padding-left: 28px;
+}
+.wd-stat-sub {
+  padding-left: 28px;
+}
+@media (max-width: 640px) {
+  .wd-stat-value,
+  .wd-stat-sub {
+    padding-left: 0;
+  }
+}
+
+/* SectionLabel icons show only on detail pages and editors. */
+.adm-section-label .sl-ico {
+  display: none;
+}
+.wd .adm-section-label,
+.ws-editor .adm-section-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.wd .adm-section-label .sl-ico,
+.ws-editor .adm-section-label .sl-ico {
+  display: inline-flex;
+}
+.wd-main .adm-section-label .wd-ico {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+}
+.wd-main .adm-section-label .wd-ico svg {
+  width: 16px;
+  height: 16px;
+}
+.wd-main .adm-section-label {
+  gap: 12px;
+}
+/* Editor section tiles take the detail colours (a missing section is rose). */
+.ws-sec-head > .adm-itile.wd-ico {
+  width: 34px;
+  height: 34px;
+  border: none;
+}
+
+/* ===== Whole workspaces, very little card style (owner, 2026-10-20) =====
+   The detail-page look across every Admin, Partner and Host page: panels are
+   sections divided by rules on the workspace background, number tiles form one
+   strip, and rows line up with their headings. Callouts, photo cards, dialogs
+   and the detail pages' own tables keep their frames. */
+
+/* Box panels become sections. */
+:where(.adm) section.adm-box:not(.wd-main section.adm-box) {
+  background: transparent;
+  border: none;
+  border-top: 1px solid var(--adm-line);
+  border-radius: 0;
+  box-shadow: none;
+}
+:where(.adm) section.adm-box:not(.wd-main section.adm-box) > .adm-box-head {
+  padding: 20px 0 12px;
+  border-bottom: none;
+}
+:where(.adm) section.adm-box:not(.wd-main section.adm-box) > .adm-box-body {
+  padding: 0 0 8px;
+}
+:where(.adm) section.adm-box:not(.wd-main section.adm-box) > .adm-box-head .adm-box-title {
+  font-size: 17px;
+  font-weight: 700;
+}
+.adm .adm-stack > section.adm-box:first-child {
+  border-top: none;
+}
+.adm .adm-stack > section.adm-box:first-child > .adm-box-head {
+  padding-top: 4px;
+}
+/* Contents of a flush section line up with its heading. */
+:where(.adm) section.adm-box:not(.wd-main section.adm-box) .adm-toolbar {
+  padding-left: 0;
+  padding-right: 0;
+}
+:where(.adm) section.adm-box:not(.wd-main section.adm-box) .adm-ov-row {
+  padding-left: 0;
+  padding-right: 0;
+}
+:where(.adm) section.adm-box:not(.wd-main section.adm-box) .adm-pager {
+  padding-left: 0;
+  padding-right: 0;
+}
+:where(.adm) section.adm-box:not(.wd-main section.adm-box) .adm-table th:first-child,
+:where(.adm) section.adm-box:not(.wd-main section.adm-box) .adm-table td:first-child {
+  padding-left: 0;
+}
+:where(.adm) section.adm-box:not(.wd-main section.adm-box) .adm-table th:last-child,
+:where(.adm) section.adm-box:not(.wd-main section.adm-box) .adm-table td:last-child {
+  padding-right: 0;
+}
+:where(.adm) section.adm-box:not(.wd-main section.adm-box) .adm-table thead th {
+  background: transparent;
+}
+
+/* Number tiles: one strip with rules and dividers, not a row of cards. */
+.adm .adm-ov-cards,
+.adm .ws-stats,
+.adm .adm-metrics,
+.adm .adm-ov-totals {
+  gap: 0;
+  background: transparent;
+  border: none;
+  border-top: 1px solid var(--adm-line);
+  border-bottom: 1px solid var(--adm-line);
+  border-radius: 0;
+}
+.adm .adm-ov-card,
+.adm .ws-stat,
+.adm .adm-metric,
+.adm .adm-ov-totals > * {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  margin: 0;
+  padding: 16px 16px;
+}
+.adm .adm-ov-card + .adm-ov-card,
+.adm .ws-stat + .ws-stat,
+.adm .adm-metric + .adm-metric,
+.adm .adm-ov-totals > * + * {
+  border-left: 1px solid var(--adm-line);
+}
+.adm .adm-ov-cards > :first-child,
+.adm .ws-stats > :first-child,
+.adm .adm-metrics > :first-child,
+.adm .adm-ov-totals > :first-child {
+  padding-left: 0;
+}
+.adm button.adm-ov-card:hover {
+  background: var(--adm-head);
+}
+.adm .adm-ov-cardicon.wd-ico,
+.adm .ws-stat-icon.wd-ico {
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 7px;
+  margin-bottom: 8px;
+}
+.adm .ws-stat-icon.wd-ico {
+  color: var(--tone-neutral);
+}
+.adm .ws-stat-icon.wd-ico[data-tone="green"] { color: var(--tone-green); }
+.adm .ws-stat-icon.wd-ico[data-tone="blue"] { color: var(--tone-blue); }
+.adm .ws-stat-icon.wd-ico[data-tone="amber"] { color: var(--tone-amber); }
+.adm .ws-stat-icon.wd-ico[data-tone="violet"] { color: var(--tone-violet); }
+.adm .ws-stat-icon.wd-ico[data-tone="rose"] { color: var(--tone-rose); }
+.adm .adm-ov-card[data-state="hot"] .adm-ov-cardicon.wd-ico {
+  border: none;
+}
+.adm .adm-ov-cardvalue,
+.adm .ws-stat-value {
+  font-size: 26px;
+}
+@media (max-width: 640px) {
+  .adm .adm-ov-cards,
+  .adm .ws-stats,
+  .adm .adm-metrics,
+  .adm .adm-ov-totals {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .adm .adm-ov-cards > :nth-child(odd),
+  .adm .ws-stats > :nth-child(odd),
+  .adm .adm-metrics > :nth-child(odd),
+  .adm .adm-ov-totals > :nth-child(odd) {
+    border-left: none;
+    padding-left: 0;
+  }
+  .adm .adm-ov-cards > :nth-child(n + 3),
+  .adm .ws-stats > :nth-child(n + 3),
+  .adm .adm-metrics > :nth-child(n + 3),
+  .adm .adm-ov-totals > :nth-child(n + 3) {
+    border-top: 1px solid var(--adm-line);
+  }
+}
+
+/* Legacy cards and finance tiles become ruled rows. */
+.adm .card-surface:not(.ws-card):not(.wd-main .card-surface) {
+  background: transparent !important;
+  border: none !important;
+  border-top: 1px solid var(--adm-line) !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+.adm .adm-fin-card,
+.adm .adm-review-card {
+  background: transparent;
+  border: none;
+  border-top: 1px solid var(--adm-line);
+  border-radius: 0;
+  padding-left: 0;
+  padding-right: 0;
+}
+.adm button.adm-fin-card:hover {
+  background: var(--adm-head);
+}
+/* The page header already ends with a rule: a section right under it needs none. */
+.adm .adm-head + section.adm-box,
+.adm .adm-head + * > section.adm-box:first-child,
+.adm .adm-head + * > *:first-child > section.adm-box:first-child,
+.adm .adm-head + * > .adm-ov-cards:first-child,
+.adm .adm-head + * > .ws-stats:first-child {
+  border-top: none;
+}
+.adm .adm-head + section.adm-box > .adm-box-head,
+.adm .adm-head + * > section.adm-box:first-child > .adm-box-head,
+.adm .adm-head + * > *:first-child > section.adm-box:first-child > .adm-box-head {
+  padding-top: 0;
+}
+/* Tips: a ruled strip, not a framed card. */
+.adm .ws-tips {
+  background: transparent;
+  border: none;
+  border-top: 1px solid var(--adm-line);
+  border-bottom: 1px solid var(--adm-line);
+  border-radius: 0;
+  padding-left: 0;
+  padding-right: 0;
+}
+/* Info lines (host status, "Your circles") and the next-up feature: ruled rows. */
+.adm .ws-line {
+  background: transparent;
+  border: none;
+  border-top: 1px solid var(--adm-line);
+  border-bottom: 1px solid var(--adm-line);
+  border-radius: 0;
+  padding-left: 0;
+  padding-right: 0;
+}
+.adm .ws-line + .ws-line,
+.adm * + .ws-line {
+  border-top: none;
+}
+/* A section a few levels below the page header still needs no second rule. */
+.adm .adm-head ~ * section.adm-box:first-child:not(.wd-main section.adm-box) {
+  border-top-color: transparent;
+}
+
+/* ===== Owner (2026-10-20, later): each section is its own bordered container,
+   with spacing between them. Light frame only: transparent fill, 1px line,
+   8px corners, no shadow. The right-hand context panel keeps plain rules. ===== */
+:where(.adm) section.adm-box,
+.wd-sec,
+.ws-editor:not(.ws-editor--wizard) .ws-sec,
+.ws-editor:not(.ws-editor--wizard) > :first-child > section.adm-box {
+  background: transparent !important;
+  border: 1px solid var(--adm-line) !important;
+  border-radius: var(--radius-card) !important;
+  padding: 16px 24px 20px !important;
+  margin: 0 0 16px !important;
+  box-shadow: none !important;
+}
+:where(.adm) section.adm-box > .adm-box-head,
+.ws-editor:not(.ws-editor--wizard) .ws-sec-head {
+  padding: 0 0 12px !important;
+  border-bottom: none !important;
+}
+:where(.adm) section.adm-box > .adm-box-body,
+.ws-editor:not(.ws-editor--wizard) .ws-sec-body {
+  padding: 0 !important;
+}
+.wd-sec:first-child,
+.wd-tabpanel > .wd-sec:first-child {
+  padding-top: 16px !important;
+}
+.wd-sec:last-child {
+  padding-bottom: 20px !important;
+}
+.wd-tabpanel {
+  padding-top: 16px;
+}
+/* Sections stack with a 16px gap, so stacks and grids don't add their own. */
+.adm .adm-stack {
+  gap: 0;
+}
+.ws-editor:not(.ws-editor--wizard) > .ws-sec-grid {
+  gap: 0;
+}
+/* Rows, tables and toolbars inside a bordered section run to its padding. */
+:where(.adm) section.adm-box .adm-toolbar {
+  padding: 0 0 12px !important;
+}
+:where(.adm) section.adm-box .adm-pager {
+  padding: 12px 0 0 !important;
+}
+:where(.adm) section.adm-box .adm-ov-row {
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+:where(.adm) section.adm-box > .adm-ov-list > .adm-ov-row:last-child,
+:where(.adm) section.adm-box > .adm-ov-list > li:last-child {
+  border-bottom: none;
+}
+/* Tables/lists inside a framed section don't need a second frame. */
+.wd-main section.adm-box > .adm-table-wrap,
+.wd-main section.adm-box > .adm-ov-list,
+.ws-editor:not(.ws-editor--wizard) > :first-child > section.adm-box > :not(.adm-box-head):not(.adm-box-body) {
+  border: none !important;
+  background: transparent !important;
+  margin-bottom: 0 !important;
+}
+/* Key numbers: one bordered container with dividers. */
+.wd-stats,
+.adm .adm-ov-cards,
+.adm .ws-stats,
+.adm .adm-metrics,
+.adm .adm-ov-totals {
+  border: 1px solid var(--adm-line) !important;
+  border-radius: var(--radius-card) !important;
+  margin-bottom: 16px !important;
+}
+.wd-stat:first-child,
+.adm .adm-ov-cards > :first-child,
+.adm .ws-stats > :first-child,
+.adm .adm-metrics > :first-child,
+.adm .adm-ov-totals > :first-child {
+  padding-left: 16px !important;
+}
+.wd-stat,
+.adm .adm-ov-card,
+.adm .ws-stat,
+.adm .adm-metric,
+.adm .adm-ov-totals > * {
+  padding: 16px 16px !important;
+}
+/* Info lines and tips: framed too. */
+.adm .ws-line,
+.adm .ws-tips,
+.adm .card-surface:not(.ws-card):not(.wd-main .card-surface) {
+  border: 1px solid var(--adm-line) !important;
+  border-radius: var(--radius-card) !important;
+  padding-left: 20px !important;
+  padding-right: 20px !important;
+}
+.adm .adm-head ~ * section.adm-box:first-child {
+  border-top-color: var(--adm-line) !important;
+}
+@media (max-width: 640px) {
+  :where(.adm) section.adm-box,
+  .wd-sec,
+  .ws-editor:not(.ws-editor--wizard) .ws-sec {
+    padding: 16px 16px 16px !important;
+  }
+  .wd-stat,
+  .adm .adm-ov-card,
+  .adm .ws-stat,
+  .adm .adm-metric,
+  .adm .adm-ov-totals > * {
+    padding: 12px 16px !important;
+  }
+  .wd-stat:nth-child(odd),
+  .adm .adm-ov-cards > :nth-child(odd),
+  .adm .ws-stats > :nth-child(odd) {
+    padding-left: 16px !important;
+  }
+}
+
+/* Owner (2026-10-20): the right-hand context panel has its own lighter
+   background, distinct from the main column (no column divider). */
+.adm,
+.adm-sheet,
+.adm-dlg {
+  --adm-aside: #fdfcf8;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .adm,
+  :root:not([data-theme="light"]) .adm-sheet,
+  :root:not([data-theme="light"]) .adm-dlg {
+    --adm-aside: var(--adm-head);
+  }
+}
+:root[data-theme="dark"] .adm,
+:root[data-theme="dark"] .adm-sheet,
+:root[data-theme="dark"] .adm-dlg {
+  --adm-aside: var(--adm-head);
+}
+.wd-aside,
+.ws-editor:not(.ws-editor--wizard) > .ws-rail {
+  border-left: none !important;
+  padding-left: 0 !important;
+}
+.wd-layout {
+  column-gap: 20px !important;
+}
+.wd-main {
+  padding-right: 0 !important;
+}
+.ws-editor:not(.ws-editor--wizard) {
+  column-gap: 20px !important;
+}
+.ws-editor:not(.ws-editor--wizard) > :first-child {
+  padding-right: 0 !important;
+}
+.wd-aside-inner,
+.ws-editor:not(.ws-editor--wizard) > .ws-rail {
+  background: var(--adm-aside) !important;
+  border: 1px solid var(--adm-line) !important;
+  border-radius: var(--radius-card) !important;
+  padding: 8px 20px 8px !important;
+  align-self: start;
+}
+@media (max-width: 1100px) {
+  .wd-aside,
+  .ws-editor:not(.ws-editor--wizard) > .ws-rail {
+    border-top: none !important;
+    margin-top: 0 !important;
+    padding-top: 0 !important;
+  }
+}
+@media (max-width: 640px) {
+  .wd-aside-inner,
+  .ws-editor:not(.ws-editor--wizard) > .ws-rail {
+    padding: 4px 16px 8px !important;
+  }
+}
+/* The bulk bar is dark: its primary button is light (black-on-black otherwise). */
+.adm-bulk .adm-btn--primary {
+  background: var(--adm-bg) !important;
+  border-color: var(--adm-bg) !important;
+  color: var(--adm-text) !important;
+}
+
+/* ===== Owner (2026-10-20, latest): dividers, not boxes, between sections;
+   the right-hand panel is a full-height column with its own lighter
+   background, running to the page edge (not a floating card). ===== */
+:where(.adm) section.adm-box,
+.wd-sec,
+.ws-editor:not(.ws-editor--wizard) .ws-sec,
+.ws-editor:not(.ws-editor--wizard) > :first-child > section.adm-box {
+  border: none !important;
+  border-top: 1px solid var(--adm-line) !important;
+  border-radius: 0 !important;
+  padding: 24px 0 !important;
+  margin: 0 !important;
+}
+.wd-sec:first-child,
+.wd-tabpanel > .wd-sec:first-child,
+.wd-body > .wd-sec:first-child,
+.adm .adm-stack > section.adm-box:first-child,
+.ws-editor:not(.ws-editor--wizard) .ws-sec:first-child,
+.adm .adm-head + section.adm-box,
+.adm .adm-head ~ * section.adm-box:first-child:not(.wd-main section.adm-box) {
+  border-top-color: transparent !important;
+  padding-top: 8px !important;
+}
+/* Key numbers and info lines: rules above and below, no side frame. */
+.wd-stats,
+.adm .adm-ov-cards,
+.adm .ws-stats,
+.adm .adm-metrics,
+.adm .adm-ov-totals,
+.adm .ws-line,
+.adm .ws-tips,
+.adm .card-surface:not(.ws-card):not(.wd-main .card-surface) {
+  border: none !important;
+  border-top: 1px solid var(--adm-line) !important;
+  border-bottom: 1px solid var(--adm-line) !important;
+  border-radius: 0 !important;
+}
+.adm .ws-line,
+.adm .ws-tips,
+.adm .card-surface:not(.ws-card):not(.wd-main .card-surface) {
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+.wd-stat:first-child,
+.adm .adm-ov-cards > :first-child,
+.adm .ws-stats > :first-child,
+.adm .adm-metrics > :first-child,
+.adm .adm-ov-totals > :first-child {
+  padding-left: 0 !important;
+}
+
+/* Right-hand panel: a full-height column. */
+.wd-aside-inner,
+.ws-editor:not(.ws-editor--wizard) > .ws-rail {
+  border: none !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  padding: 0 !important;
+}
+@media (min-width: 1101px) {
+  .wd-layout {
+    column-gap: 0 !important;
+    align-items: stretch;
+  }
+  .wd-main {
+    padding-right: 32px !important;
+  }
+  .wd-aside {
+    background: var(--adm-aside);
+    border-left: 1px solid var(--adm-line) !important;
+    padding: 32px 32px 48px 28px !important;
+    margin: -32px -32px -48px 0;
+    align-self: stretch;
+  }
+  .ws-editor:not(.ws-editor--wizard) {
+    column-gap: 0 !important;
+    align-items: stretch;
+  }
+  .ws-editor:not(.ws-editor--wizard) > :first-child {
+    padding-right: 32px !important;
+  }
+  .ws-editor:not(.ws-editor--wizard) > .ws-rail {
+    position: static;
+    align-self: stretch !important;
+    background: var(--adm-aside) !important;
+    border-left: 1px solid var(--adm-line) !important;
+    padding: 16px 32px 48px 28px !important;
+    margin: 0 -32px -48px 0;
+  }
+}
+@media (max-width: 1100px) {
+  .wd-aside,
+  .ws-editor:not(.ws-editor--wizard) > .ws-rail {
+    background: var(--adm-aside) !important;
+    border-top: 1px solid var(--adm-line) !important;
+    margin: 16px -32px -48px !important;
+    padding: 12px 32px 32px !important;
+  }
+}
+@media (max-width: 720px) {
+  .wd-aside,
+  .ws-editor:not(.ws-editor--wizard) > .ws-rail {
+    margin: 16px -16px -40px !important;
+    padding: 8px 16px 24px !important;
+  }
+}
+/* Selectable notification rows: checkbox | icon | text | time | ref | ⋯ */
+.adm-ov-row.ws-note-row--select {
+  grid-template-columns: 20px 40px minmax(0, 1fr) auto 120px 44px;
+}
+.ws-row-check {
+  display: grid;
+  place-items: center;
+}
+@media (max-width: 720px) {
+  .adm-ov-row.ws-note-row--select {
+    grid-template-columns: 20px 40px minmax(0, 1fr) 44px;
+  }
+  .ws-note-row--select > .adm-ov-kind {
+    grid-column: 3;
+  }
+}
+
+/* Row ⋯ menus never shrink below their 32px button. */
+.adm-cell-actions .adm-btn--quiet.adm-btn--sm,
+.ws-note-row--select > :last-child .adm-btn {
+  min-width: 32px;
+  flex-shrink: 0;
+}
+
+/* ===== Global pass (2026-10-20, global UX brief) ===== */
+/* A section that repeats its page's title shows just its description. */
+.adm .adm-box--page {
+  border-top-color: transparent !important;
+  padding-top: 4px !important;
+}
+.adm .adm-box-head--page {
+  padding: 0 0 12px !important;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.adm .adm-box-head--page .adm-box-sub {
+  margin: 0;
+}
+/* Row actions: quiet text buttons; the frame appears on hover/focus. */
+.adm .adm-cell-actions .adm-btn:not(.adm-btn--primary):not(.adm-btn--quiet),
+.adm .adm-ov-row .adm-btn:not(.adm-btn--primary):not(.adm-btn--quiet),
+.adm td .btn-ghost {
+  border-color: transparent !important;
+  background: transparent !important;
+  min-height: 30px !important;
+  padding: 4px 12px !important;
+  font-weight: 600;
+}
+.adm .adm-cell-actions .adm-btn:not(.adm-btn--primary):not(.adm-btn--quiet):hover,
+.adm .adm-ov-row .adm-btn:not(.adm-btn--primary):not(.adm-btn--quiet):hover,
+.adm td .btn-ghost:hover {
+  border-color: var(--adm-line-strong) !important;
+  background: var(--adm-panel) !important;
+}
+.adm .adm-cell-actions {
+  gap: 2px;
+  align-items: center;
+  justify-content: flex-end;
+}
+/* Denser rows. */
+.adm .adm-table td {
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+.adm .adm-ov-row {
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+/* Older card sections: one divider above, not one above and one below. */
+.adm .card-surface:not(.ws-card):not(.wd-main .card-surface) {
+  border-bottom: none !important;
+}
+/* Tabs: tighter so a normal set fits on one line. */
+.adm .adm-itabs button {
+  padding: 12px 12px;
+  gap: 8px;
+}
+/* Lists and panels that still carry the old white frame (ul.adm-box,
+   div.adm-box): rows on the page background between dividers. */
+.adm ul.adm-box,
+.adm ol.adm-box,
+.adm div.adm-box,
+.adm .adm-ov-list.adm-box {
+  background: transparent !important;
+  border: none !important;
+  border-top: 1px solid var(--adm-line) !important;
+  border-bottom: 1px solid var(--adm-line) !important;
+  border-radius: 0 !important;
+}
+.adm ul.adm-box > .adm-ov-row,
+.adm .adm-ov-list.adm-box > .adm-ov-row {
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+.adm ul.adm-box > .adm-ov-row:last-child {
+  border-bottom: none;
+}
+/* Target size (WCAG 2.5.8): breadcrumb and record-title links are at least 24px tall. */
+.adm .adm-crumbs button,
+.adm .adm-crumbs a {
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+}
+.adm td .btn-reset,
+.adm td .adm-linkish,
+.adm td .adm-row-button,
+.adm .adm-ov-main > button {
+  min-height: 24px;
+}
+/* Filter bars line up with the page everywhere (panels have no inner padding now). */
+.adm .adm-toolbar {
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+/* Template F, settings: each group's title and description on the left, its
+   fields in a readable column on the right; stacks below 1000px. */
+@media (min-width: 1000px) {
+  .ws-settings section.adm-box {
+    display: grid !important;
+    grid-template-columns: minmax(200px, 280px) minmax(0, 680px);
+    column-gap: 48px;
+    align-items: start;
+  }
+  .ws-settings section.adm-box > .adm-box-head {
+    grid-column: 1;
+    grid-row: 1 / span 20;
+    padding: 0 !important;
+  }
+  .ws-settings section.adm-box > :not(.adm-box-head) {
+    grid-column: 2;
+  }
+}
+/* List rows line up with their section heading everywhere. */
+.adm .adm-ov-row {
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+
+/* Owner (2026-10-20, latest): a slightly lighter workspace background, and the
+   right-hand context panel on the same background (divider line only). */
+.adm,
+.adm-sheet,
+.adm-panel,
+.adm-dlg {
+  --adm-bg: #fbf9f4;
+  --adm-head: #f5f2e9;
+  --adm-aside: transparent;
+}
+.wd-aside,
+.ws-editor:not(.ws-editor--wizard) > .ws-rail {
+  background: transparent !important;
+}
+/* Long unbroken titles (an event type, a reference) wrap instead of
+   pushing a phone screen sideways. */
+.adm .adm-title {
+  overflow-wrap: anywhere;
+}
+
+/* ===================== UX polish, owner-approved 2026-10-20 =====================
+   2A light table frame · 3 tidy phone lists · 4 tooltips · 7 draft banner. */
+.adm,
+.adm-sheet,
+.adm-panel,
+.adm-dlg {
+  --adm-frame: rgba(23, 32, 25, 0.1);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .adm,
+  :root:not([data-theme="light"]) .adm-sheet,
+  :root:not([data-theme="light"]) .adm-panel,
+  :root:not([data-theme="light"]) .adm-dlg {
+    --adm-frame: rgba(233, 236, 231, 0.12);
+  }
+}
+:root[data-theme="dark"] .adm,
+:root[data-theme="dark"] .adm-sheet,
+:root[data-theme="dark"] .adm-panel,
+:root[data-theme="dark"] .adm-dlg {
+  --adm-frame: rgba(233, 236, 231, 0.12);
+}
+
+/* 2A — list tables get a faint frame (drawn inside, so a scrolling wrapper
+   can't clip it). Record-page tables already have one; phones keep cards. */
+@media (min-width: 901px) {
+  .adm .adm-table:not(.wd-sec .adm-table) {
+    outline: 1px solid var(--adm-frame);
+    outline-offset: -1px;
+  }
+  .adm .adm-table:not(.wd-sec .adm-table) th:first-child,
+  .adm .adm-table:not(.wd-sec .adm-table) td:first-child {
+    padding-left: 12px !important;
+  }
+  /* Short trailing values (dates, Open, ⋯) stay on one line. */
+  .adm .adm-table:not(.wd-sec .adm-table) td:nth-last-child(-n + 3) {
+    white-space: nowrap;
+  }
+  .adm .adm-table:not(.wd-sec .adm-table) th:last-child,
+  .adm .adm-table:not(.wd-sec .adm-table) td:last-child {
+    padding-right: 8px !important;
+  }
+}
+
+/* 3 — phone lists: one divider under the tab row, not two; the select box
+   sits in the card's corner; the tab row fades on the side with more tabs. */
+.adm .ws-tabrow + section.adm-box {
+  border-top: 0 !important;
+  padding-top: 8px !important;
+}
+@media (max-width: 900px) {
+  .adm .adm-table--stack tbody tr {
+    position: relative;
+  }
+  .adm .adm-table--stack td.adm-col-check {
+    position: absolute;
+    top: 12px;
+    right: 8px;
+    padding: 0 !important;
+  }
+}
+.adm .adm-itabs[data-more-end] {
+  -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 40px), transparent);
+  mask-image: linear-gradient(90deg, #000 calc(100% - 40px), transparent);
+}
+.adm .adm-itabs[data-more-start] {
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 40px);
+  mask-image: linear-gradient(90deg, transparent, #000 40px);
+}
+.adm .adm-itabs[data-more-start][data-more-end] {
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 40px, #000 calc(100% - 40px), transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 40px, #000 calc(100% - 40px), transparent);
+}
+
+/* 4 — the ⋯ menu button is square; 44px on touch screens. */
+.adm button[aria-haspopup="menu"].adm-btn--sm {
+  width: 36px;
+  height: 36px;
+  min-height: 36px;
+  padding: 0;
+  justify-content: center;
+}
+@media (pointer: coarse) {
+  .adm button[aria-haspopup="menu"].adm-btn--sm {
+    width: 44px;
+    height: 44px;
+  }
+}
+/* 4 — tooltips for icon-only buttons: on hover and on keyboard focus.
+   The button's aria-label is its accessible name; the tooltip is visual. */
+:where([data-tip]) {
+  position: relative; /* zero specificity: an element's own absolute/fixed position wins */
+}
+[data-tip]::after {
+  content: attr(data-tip);
+  content: attr(data-tip) / "";
+  position: absolute;
+  z-index: 60;
+  right: 0;
+  bottom: calc(100% + 8px);
+  max-width: 260px;
+  width: max-content;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--adm-text, #172019);
+  color: var(--adm-bg, #fbf9f4);
+  font: 600 12px/1.35 var(--adm-font, Inter, system-ui, sans-serif);
+  letter-spacing: 0;
+  text-transform: none;
+  white-space: normal;
+  text-align: left;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+}
+[data-tip][data-tip-align="center"]::after {
+  right: auto;
+  left: 50%;
+  transform: translateX(-50%);
+}
+[data-tip][data-tip-side="bottom"]::after {
+  bottom: auto;
+  top: calc(100% + 8px);
+}
+[data-tip][data-tip-side="right"]::after {
+  right: auto;
+  bottom: auto;
+  left: calc(100% + 8px);
+  top: 50%;
+  transform: translateY(-50%);
+}
+@media (hover: hover) {
+  [data-tip]:hover::after {
+    opacity: 1;
+    visibility: visible;
+    transition: opacity 150ms ease-out 300ms;
+  }
+}
+[data-tip]:focus-visible::after {
+  opacity: 1;
+  visibility: visible;
+}
+[data-tip][aria-expanded="true"]::after {
+  display: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-tip]:hover::after {
+    transition: none;
+  }
+}
+
+/* ===================== Spacing rhythm (owner, 2026-10-20) =====================
+   One vertical rhythm on the 8px grid for every workspace page:
+   page header → content 24 · tabs → content 24 · section heading → search 16 ·
+   search → list 16 · list → pager 16. The first tab lines up with the page edge. */
+
+/* Tabs: the first tab's label starts at the content edge. */
+.adm .adm-itabs > button:first-child,
+.adm .adm-itabs > span:first-child > button,
+.adm .wd-tabs > .wd-tab:first-child,
+.adm .adm-views > .adm-view:first-child {
+  padding-left: 0 !important;
+}
+.adm .adm-views {
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+/* Tabs → what follows: 24px. */
+.adm .adm-itabs,
+.adm .wd-tabs,
+.adm .ws-tabrow {
+  margin-bottom: 24px !important;
+}
+.adm .ws-tabrow > .adm-itabs {
+  margin-bottom: 0 !important;
+}
+.adm .ws-tabrow--end {
+  margin-bottom: 16px !important;
+}
+/* The section right after a tab row doesn't add a second line or gap. */
+.adm .adm-itabs + section.adm-box,
+.adm .ws-tabrow + section.adm-box,
+.adm .adm-itabs + div > section.adm-box:first-child,
+.adm .wd-tabpanel > section:first-child,
+.adm .wd-tabpanel > .wd-sec:first-child {
+  border-top: 0 !important;
+  padding-top: 0 !important;
+}
+/* Sub-views (filter chips like All / Hidden) → what follows: 16px. */
+.adm .adm-views {
+  margin-bottom: 16px !important;
+}
+
+/* Section heading → its search, filters or list: 16px. */
+.adm section.adm-box > .adm-box-head {
+  margin-bottom: 16px !important;
+}
+
+/* Search and filters: no line of their own (the list has its frame), 16px to the list. */
+.adm .adm-toolbar {
+  border-bottom: 0 !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  margin-bottom: 16px !important;
+}
+/* List → pager: 16px. */
+.adm .adm-pager {
+  padding-top: 16px !important;
+}
+/* Tab rows inside a column that already has a gap: subtract it, so the
+   distance to the content is still 24px. */
+.adm [style*="gap: 8px"] > :is(.adm-itabs, .ws-tabrow, .wd-tabs) { margin-bottom: 16px !important; }
+.adm [style*="gap: 12px"] > :is(.adm-itabs, .ws-tabrow, .wd-tabs) { margin-bottom: 12px !important; }
+.adm [style*="gap: 14px"] > :is(.adm-itabs, .ws-tabrow, .wd-tabs) { margin-bottom: 8px !important; }
+.adm [style*="gap: 16px"] > :is(.adm-itabs, .ws-tabrow, .wd-tabs) { margin-bottom: 8px !important; }
+.adm [style*="gap: 18px"] > :is(.adm-itabs, .ws-tabrow, .wd-tabs) { margin-bottom: 8px !important; }
+.adm [style*="gap: 20px"] > :is(.adm-itabs, .ws-tabrow, .wd-tabs) { margin-bottom: 4px !important; }
+.adm [style*="gap: 24px"] > :is(.adm-itabs, .ws-tabrow, .wd-tabs) { margin-bottom: 0 !important; }
+/* The first block after tabs starts at the top of its box. */
+.adm .wd-tabpanel {
+  padding-top: 0 !important;
+}
+.adm.adm :is(.adm-itabs, .ws-tabrow) + * > section.adm-box:first-child,
+.adm.adm :is(.adm-itabs, .ws-tabrow) + section.adm-box {
+  border-top: 0 !important;
+  padding-top: 0 !important;
+}
+.adm :is(.adm-itabs, .ws-tabrow) + section > :is(h2, h3, p):first-child,
+.adm :is(.adm-itabs, .ws-tabrow) + section > .adm-visually-hidden:first-child + :is(p, div) {
+  margin-top: 0 !important;
+}
+/* Owner (2026-10-20): no line under tab rows; only the selected tab keeps its underline. */
+.adm .adm-itabs,
+.adm .ws-tabrow,
+.adm .wd-tabs,
+.adm .adm-views {
+  border-bottom: 0 !important;
+  box-shadow: none !important;
+}
+.adm.adm :is(.adm-itabs, .ws-tabrow) + .adm-stack > section.adm-box.adm-box:first-child {
+  padding-top: 0 !important;
+  border-top: 0 !important;
+}
+/* A section whose title is hidden (it repeats the page title): no gap where the title was. */
+.adm .adm-box-head--page {
+  row-gap: 0 !important;
+}
+/* Phones: the List / Month switch wraps under the tabs; the row's own 24px is the only gap. */
+@media (max-width: 720px) {
+  .adm .ws-tabrow > .ws-seg {
+    margin-bottom: 0 !important;
+  }
+}
+
+/* Breadcrumb alignment (owner, 2026-10-20): links (24px tap target) and plain crumbs share one centre line,
+   the trail stays on one line and the current page truncates instead of wrapping onto a "/"-led second line. */
+.adm .adm-crumbs {
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+  line-height: 16px;
+  min-width: 0;
+}
+.adm .adm-crumbs li {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+  flex: none;
+  white-space: nowrap;
+}
+.adm .adm-crumbs li + li::before {
+  margin-right: 0;
+}
+.adm .adm-crumbs li:last-child {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.adm .adm-crumbs li:last-child > * {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+/* KPI cards (owner, 2026-10-20): key-number strips sit on a white card with a hairline frame;
+   dividers between the numbers stay. */
+.adm .wd-stats,
+.adm .adm-ov-cards,
+.adm .ws-stats,
+.adm .adm-metrics,
+.adm .adm-ov-totals {
+  background: var(--adm-panel) !important;
+  border: 1px solid var(--adm-line) !important;
+  border-radius: var(--radius-card) !important;
+  overflow: hidden;
+}
+.adm .wd-stat:first-child,
+.adm .adm-ov-cards > :first-child,
+.adm .ws-stats > :first-child,
+.adm .adm-metrics > :first-child,
+.adm .adm-ov-totals > :first-child {
+  padding-left: 16px !important;
+}
+.adm .wd-stat {
+  padding-left: 16px !important;
+}
+@media (max-width: 640px) {
+  .adm .adm-ov-cards > *,
+  .adm .ws-stats > *,
+  .adm .adm-metrics > *,
+  .adm .adm-ov-totals > *,
+  .adm .wd-stat {
+    padding-left: 16px !important;
+  }
+}
+
+/* Admin → Categories → Uncategorised (2026-10-22): listing · suggestion ·
+   actions; one column at tablet and phone widths, so nothing is clipped. */
+.cat-review { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--adm-rule, var(--color-border)); }
+.cat-review-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr) auto;
+  gap: 8px 20px;
+  align-items: start;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--adm-rule, var(--color-border));
+}
+.cat-review-id { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11.5px; overflow-wrap: anywhere; }
+.cat-review-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+@media (max-width: 1024px) {
+  .cat-review-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); }
+  .cat-review-actions { grid-column: 1 / -1; justify-content: flex-start; }
+}
+@media (max-width: 640px) {
+  .cat-review-row { grid-template-columns: minmax(0, 1fr); }
 }

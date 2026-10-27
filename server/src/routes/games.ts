@@ -1,3 +1,5 @@
+import { viewerGameState } from "../gameCardFacts.js";
+import { applyListingCategory, categoryFromBody, setListingTags, taxonomyFields, taxonomyFilter } from "../taxonomy.js";
 import { heldRefsFor, shortenReviewHolds } from "../payments/paymentReview.js";
 import { moveBookingSlot, slotRuleError } from "../bookingMove.js";
 import { bookingChangeBlock } from "../selfCancel.js";
@@ -17,7 +19,8 @@ import { db } from "../db/index.js";
 import { commerceSwitch } from "../commerce/switches.js";
 import { partnerBalances } from "../commerce/settlement.js";
 import { countFamiliarCoParticipants } from "../db/queries.js";
-import { isOrganiser as isCircleOrganiser } from "./circleHelpers.js";
+import { isMember as isCircleMember, isOrganiser as isCircleOrganiser } from "./circleHelpers.js";
+import { featureOn } from "../circleFeatures.js";
 import { upgradeFavouriteStatus } from "./favourites.js";
 import { notifyCentreFollowers, notifyHostFollowers } from "./follows.js";
 import { buildIcsEvent } from "../ics.js";
@@ -37,6 +40,8 @@ import { getListingAttributes, setListingAttributes } from "../listingAttributes
 import { getNextSteps } from "../nextSteps.js";
 import { getOpportunities } from "../participationIntents.js";
 import { BadRequestError, ConflictError, generateRef } from "../util.js";
+import { noticeListingCancelled } from "../circlePlanNotices.js";
+import { addListingLink } from "./circleLinks.js";
 import { consumeCoupon, customerKeyOf, endPendingHold, gameSeatSql, holdIsLive } from "../bookingIntegrity.js";
 import { getEffectiveAvailability, getEffectiveLifecycle, getPublicLifecycleLabel, validateLifecycleTransition, type Lifecycle } from "../lifecycle.js";
 import { isSubscribedToNotifyMe, notifyGameNotifyMeSubscribers, subscribeNotifyMe, unsubscribeNotifyMe } from "../notifyMe.js";
@@ -51,11 +56,27 @@ import { activeOfferedCount, claimWaitlistOffer, hasActiveOffer, offerToWaitlist
 // so a repeated open or a retry can't duplicate it.
 async function notifyCircleMembersOfPlan(row: GameRow) {
   if (!row.circle_id) return;
-  const circle = (await db.prepare(`SELECT name FROM circles WHERE id = ?`).get(row.circle_id)) as { name: string } | undefined;
+  // Experience 3.0 — a shared Circle-to-Circle activity is announced to the
+  // partner Circle's members too (same once-per-member guard).
+  const partnerId = (row as unknown as { partner_circle_id?: string | null }).partner_circle_id;
+  if (partnerId) await announceToCircle(row, partnerId, true);
+  await announceToCircle(row, row.circle_id, false);
+}
+
+async function announceToCircle(row: GameRow, circleId: string, asPartner: boolean) {
+  const circle = (await db.prepare(`SELECT name FROM circles WHERE id = ?`).get(circleId)) as { name: string } | undefined;
+  const owner = asPartner ? ((await db.prepare(`SELECT name FROM circles WHERE id = ?`).get(row.circle_id)) as { name: string } | undefined) : undefined;
   if (!circle) return;
   const members = (await db
     .prepare(`SELECT resident_id FROM circle_members WHERE circle_id = ? AND resident_id != ?`)
-    .all(row.circle_id, row.host_resident_id)) as { resident_id: string }[];
+    .all(circleId, row.host_resident_id)) as { resident_id: string }[];
+  // Circle Experience 2.0, Make It Happen — members who said "I'm in" on the
+  // plan idea this activity came from get the same single notice, worded as
+  // the thing they asked for happening (still one notice each, same guard).
+  const planId = (row as unknown as { plan_id?: string | null }).plan_id ?? null;
+  const interested = new Set(
+    planId ? ((await db.prepare(`SELECT resident_id FROM circle_plan_interest WHERE plan_id = ?`).all(planId)) as { resident_id: string }[]).map((r) => r.resident_id) : []
+  );
   for (const m of members) {
     const already = await db
       .prepare(`SELECT 1 FROM notifications WHERE resident_id = ? AND kind = 'circle' AND listing_type = 'game' AND listing_id = ?`)
@@ -64,7 +85,11 @@ async function notifyCircleMembersOfPlan(row: GameRow) {
     await notifyResident({
       residentId: m.resident_id,
       kind: "circle",
-      title: `New plan in ${circle.name}: ${row.activity_label}`,
+      title: asPartner
+        ? `Shared activity with ${owner?.name ?? "another Circle"}: ${row.activity_label}`
+        : interested.has(m.resident_id)
+          ? `It's happening: ${row.activity_label} in ${circle.name}`
+          : `New plan in ${circle.name}: ${row.activity_label}`,
       body: `${row.date} at ${row.time}${row.location_text ? ` · ${row.location_text}` : ""}`,
       listingType: "game",
       listingId: row.id,
@@ -187,6 +212,9 @@ async function toGameJson(row: GameRow) {
   const circle = row.circle_id
     ? ((await db.prepare(`SELECT name, slug FROM circles WHERE id = ?`).get(row.circle_id)) as { name: string; slug: string | null } | undefined)
     : undefined;
+  // Experience 3.0 — the partner Circle of a shared Circle-to-Circle activity.
+  const partnerId = (row as unknown as { partner_circle_id?: string | null }).partner_circle_id;
+  const partnerCircle = partnerId ? ((await db.prepare(`SELECT id, name, slug FROM circles WHERE id = ?`).get(partnerId)) as { id: string; name: string; slug: string | null } | undefined) ?? null : null;
   const effectiveLifecycle = getEffectiveGameLifecycle(row);
   const effectiveAvailability = getEffectiveAvailability(effectiveLifecycle, row.capacity, joined, true);
   return {
@@ -254,6 +282,7 @@ async function toGameJson(row: GameRow) {
     /** HelloCircle Manage Phase 4 — set only when this game was created as a
      * specific Circle's plan (via the "Create plan" deep-link). */
     circleId: row.circle_id,
+    partnerCircle,
     circleName: circle?.name ?? null,
     circleSlug: circle?.slug ?? null,
     // meeting_instructions is deliberately NOT included here — see GET /:id,
@@ -297,7 +326,10 @@ gamesRouter.get("/", async (req, res) => {
   }
   const q = req.query as Record<string, string | undefined>;
   const isoDate = (v?: string) => (v && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : undefined);
-  const where: string[] = ["g.status = 'open'", discoverableGameSql("g"), "g.date >= ?"];
+  // Activities waiting for enough people ('pending_participants') are still
+  // joinable, so they're listed too: they're the ones that most need joiners
+  // (Activities card labels, owner 2026-10-27: "2 more needed").
+  const where: string[] = ["g.status IN ('open', 'pending_participants')", discoverableGameSql("g"), "g.date >= ?"];
   const params: unknown[] = [irelandTodayIso()];
   if (q.county) { where.push("c.county = ?"); params.push(q.county); }
   if (q.centreId) { where.push("g.centre_id = ?"); params.push(q.centreId); }
@@ -314,6 +346,10 @@ gamesRouter.get("/", async (req, res) => {
   if (q.priceMin && /^\d+$/.test(q.priceMin)) { where.push("COALESCE(g.price_cents, 0) >= ?"); params.push(Number(q.priceMin)); }
   if (q.priceMax && /^\d+$/.test(q.priceMax)) { where.push("COALESCE(g.price_cents, 0) <= ?"); params.push(Number(q.priceMax)); }
   if (q.skill && q.skill !== "any") { where.push("(g.skill_level IS NULL OR g.skill_level = '' OR g.skill_level = 'All levels' OR LOWER(g.skill_level) = LOWER(?))"); params.push(q.skill); }
+  // Category system — categoryId/subcategoryId (or …Slug); unknown → no rows.
+  const tax = await taxonomyFilter("game", "g.id", q);
+  if (tax === "none") { setNextCursor(res, null); return res.json([]); }
+  if (tax) { where.push(tax.sql); params.push(...tax.params); }
   if (page.after) {
     const [d, t, id] = page.after;
     where.push("(g.date > ? OR (g.date = ? AND (g.time > ? OR (g.time = ? AND g.id > ?))))");
@@ -326,8 +362,19 @@ gamesRouter.get("/", async (req, res) => {
   const pageRows = more ? rows.slice(0, page.limit) : rows;
   const last = pageRows[pageRows.length - 1];
   setNextCursor(res, more && last ? [String(last.date), String(last.time), String(last.id)] : null);
-  res.json(await Promise.all(pageRows.map(toGameJson)));
+  const games = await Promise.all(pageRows.map(toGameJson));
+  res.json(await withViewerState(games, req.resident?.id ?? null));
 });
+
+/** The signed-in viewer's own state on each listed activity, for the
+ * Activities card labels (owner 2026-10-27): joined, waiting on the
+ * waitlist (or offered a place), or a join request waiting for the host.
+ * Only ever the viewer's own rows; signed out adds nothing. */
+async function withViewerState<T extends { id: string }>(games: T[], residentId: string | null): Promise<T[]> {
+  if (!residentId || games.length === 0) return games;
+  const mine = await viewerGameState(games.map((g) => g.id), residentId);
+  return games.map((g) => ({ ...g, joinedByMe: mine.joined.has(g.id), waitlistedByMe: mine.waiting.has(g.id), joinRequestByMe: mine.requested.has(g.id) ? "requested" : null }));
+}
 
 // Every game this resident is hosting or has joined — the host is always
 // also a participant row (see POST / below), so one query covers both.
@@ -624,6 +671,7 @@ gamesRouter.get("/:id", async (req, res) => {
   // are joining," computed only inside this one game's own context, never
   // as a browsable list. 0 for a signed-out visitor (nothing to compute).
   let familiarCount = 0;
+  let myJoin: { ref: string; paymentReview: boolean } | null = null;
   if (req.resident) {
     // Platform Pre-Launch Polish — Changeset 4E. Self-leave/host-remove now
     // soft-cancel (status='cancelled') rather than deleting the row (see
@@ -631,8 +679,14 @@ gamesRouter.get("/:id", async (req, res) => {
     // "joined", or a resident who left would still see themselves as
     // joined (and the page would still offer "Leave" instead of "Join")
     // after they'd already left.
-    const p = await db.prepare(`SELECT status FROM game_participants WHERE game_id = ? AND resident_id = ? AND status IN ('joined', 'pending_payment')`).get(req.params.id, req.resident.id);
+    const p = (await db
+      .prepare(`SELECT status, ref, payment_status as paymentStatus FROM game_participants WHERE game_id = ? AND resident_id = ? AND status IN ('joined', 'pending_payment')`)
+      .get(req.params.id, req.resident.id)) as { status: string; ref: string | null; paymentStatus: string | null } | undefined;
     joinedByMe = !!p;
+    // The pass (owner 2026-10-27): a paid join's own reference, and whether
+    // its payment is still being checked (D-10) — never shown as booked then.
+    if (p?.ref && p.paymentStatus === "paid") myJoin = { ref: p.ref, paymentReview: false };
+    else if (p?.ref && p.paymentStatus === "pending") myJoin = { ref: p.ref, paymentReview: await paymentUnderReview("game", p.ref) };
     const w = await db
       .prepare(`SELECT id FROM waitlist_entries WHERE listing_type = 'game' AND listing_id = ? AND resident_id = ? AND status = 'waiting'`)
       .get(req.params.id, req.resident.id);
@@ -662,8 +716,29 @@ gamesRouter.get("/:id", async (req, res) => {
   const joinRequestByMe = req.resident
     ? (((await db.prepare(`SELECT status FROM game_join_requests WHERE game_id = ? AND resident_id = ?`).get(row.id, req.resident.id)) as { status: string } | undefined)?.status ?? null)
     : null;
-  res.json({ ...json, joinedByMe, waitlistedByMe, familiarCount, checkedInAt, attended, meetingInstructions, participationAttributes, firstTimerCount, joinRequestByMe });
+  const otherDates = await seriesOtherDates(row, req.resident?.id ?? null);
+  res.json({ ...json, joinedByMe, waitlistedByMe, myJoin, familiarCount, checkedInAt, attended, meetingInstructions, participationAttributes, firstTimerCount, joinRequestByMe, otherDates, ...(await taxonomyFields("game", row.id)) });
 });
+
+/** Detail-page audit DP-15 (2026-10-22) — the upcoming dates of the same
+ * repeating activity (same series_id), so a full, past or cancelled date can
+ * point at the next one. Each sibling goes through the same visibility and
+ * draft rules as the detail route itself; cancelled ones are left out. */
+async function seriesOtherDates(row: GameRow, viewerId: string | null) {
+  if (!row.series_id) return [];
+  const siblings = (await db
+    .prepare(`SELECT * FROM games WHERE series_id = ? AND id != ? AND status != 'cancelled' AND date >= ? ORDER BY date, time LIMIT 12`)
+    .all(row.series_id, row.id, irelandTodayIso())) as GameRow[];
+  const out: { id: string; date: string; time: string; spotsLeft: number | null }[] = [];
+  for (const g of siblings) {
+    if (out.length >= 6) break;
+    if (!(await canViewGame(g, viewerId))) continue;
+    if (getEffectiveGameLifecycle(g) === "draft" && g.host_resident_id !== viewerId) continue;
+    const { n } = (await db.prepare(`SELECT COUNT(*) as n FROM game_participants WHERE game_id = ? AND status = 'joined'`).get(g.id)) as { n: number };
+    out.push({ id: g.id, date: g.date, time: g.time, spotsLeft: computeCapacity(g.capacity, Number(n)).spotsLeft });
+  }
+  return out;
+}
 
 // "Keep the connection going" (community participation upgrade, Release 1)
 // — what to do after a game, in priority order: the game's own Circle, an
@@ -974,6 +1049,8 @@ export async function cancelGameAndNotify(gameId: string, opts: { by: "host" | "
   if (!row) return false;
   const flipped = await db.prepare(`UPDATE games SET status = 'cancelled' WHERE id = ? AND status != 'cancelled'`).run(gameId);
   if (flipped.changes === 0) return false;
+  // Circles 3.0 — Circles that suggested this activity hear it's off.
+  await noticeListingCancelled("game", gameId, { title: row.activity_label, what: "this activity" });
 
   const who =
     opts.by === "host"
@@ -1200,6 +1277,8 @@ gamesRouter.put("/:id", requireResident, async (req, res) => {
   if (!row) return res.status(404).json({ error: "Session not found" });
   if (row.host_resident_id !== req.resident!.id) return res.status(403).json({ error: "Only the host can edit this session" });
   if (row.status === "cancelled") return res.status(409).json({ error: "This session has been cancelled and can no longer be edited" });
+  const category = await categoryFromBody(res, "game", row.id, req.body);
+  if (category === false) return;
   // HC-QA-032 — only a CHANGED date must be in the future; an existing past
   // (completed) activity can still have its other details corrected.
   if (b.date !== row.date && (!/^\d{4}-\d{2}-\d{2}$/.test(b.date) || b.date < irelandTodayIso())) {
@@ -1279,6 +1358,8 @@ gamesRouter.put("/:id", requireResident, async (req, res) => {
   // Booking UX Phase 5 — the venue booking travels with the venue; an address clears it.
   await db.prepare(`UPDATE games SET booking_ref = ? WHERE id = ?`).run(b.centreId ? b.bookingRef ?? row.booking_ref ?? null : null, req.params.id);
   await syncGameAttributes(req.params.id, b);
+  await applyListingCategory("game", req.params.id, category, "host");
+  await setListingTags("game", req.params.id, (req.body as { tags?: unknown }).tags);
 
   const materialChange = b.date !== row.date || b.time !== row.time || (b.centreId ?? null) !== row.centre_id || (b.locationText ?? "") !== row.location_text;
   // D-10 — a moved activity can only shorten a payment-review hold, never extend it.
@@ -1433,6 +1514,11 @@ interface CreateGameInput {
    * `confirmed`, is a real state-mutating action, not just "create a game
    * tagged with a circle". */
   planId?: string;
+  /** Experience 3.0, Circle-to-Circle (owner decision D2) — an accepted
+   * collaboration between `circleId` (the proposer, which owns the activity)
+   * and a partner Circle. State-checked below; flipped to activity_created
+   * in the same transaction as the insert, like planId. */
+  collaborationId?: string;
   /** Cover image — set via a separate PUT after the initial create (needs a
    * real game id first, see media plan §31 / client's SingleImageUpload).
    * COALESCE'd in the UPDATE below, not part of createGameRow's INSERT, so
@@ -1538,6 +1624,13 @@ export async function createGameRow(input: CreateGameInput & { hostResidentId: s
     // it in the same transaction. Same idempotency idiom as the Stripe
     // webhook's confirm* functions / the Phase 0 refund-race fix in
     // vendorOperations.ts.
+    if (input.collaborationId) {
+      const linked = await tx
+        .prepare(`UPDATE circle_collaborations SET status = 'activity_created', game_id = ? WHERE id = ? AND status = 'accepted'`)
+        .run(id, input.collaborationId);
+      if (linked.changes === 0) throw new ConflictError("This shared activity has already been created, or the other Circle hasn't agreed yet");
+      await tx.prepare(`UPDATE games SET partner_circle_id = (SELECT partner_circle_id FROM circle_collaborations WHERE id = ?) WHERE id = ?`).run(input.collaborationId, id);
+    }
     if (input.planId) {
       const linkResult = await tx
         .prepare(`UPDATE circle_plans SET status = 'activity_created', activity_source_type = 'game', activity_source_id = ? WHERE id = ? AND status = 'confirmed'`)
@@ -1627,13 +1720,32 @@ async function validateNewGame(b: CreateGameInput, residentId: string): Promise<
   if (b.circleId && !(await isCircleOrganiser(b.circleId, residentId))) {
     return fail(403, { error: "Only the Circle's organiser can add a plan to it" });
   }
+  if (b.collaborationId) {
+    if (!(await featureOn("circles.collaboration"))) return fail(404, { error: "This isn't available yet" });
+    if (b.planId) return fail(400, { error: "Create a shared activity on its own, not from a plan idea" });
+    const collab = (await db
+      .prepare(
+        `SELECT cc.proposer_circle_id as proposer, cc.status, p.status as proposerStatus, q.status as partnerStatus FROM circle_collaborations cc
+         JOIN circles p ON p.id = cc.proposer_circle_id JOIN circles q ON q.id = cc.partner_circle_id WHERE cc.id = ?`
+      )
+      .get(b.collaborationId)) as { proposer: string; status: string; proposerStatus: string; partnerStatus: string } | undefined;
+    if (!collab || collab.proposer !== b.circleId) return fail(404, { error: "Shared activity not found" });
+    if (collab.status !== "accepted") return fail(409, { error: "The other Circle hasn't agreed to this yet" });
+    if (collab.proposerStatus === "closed" || collab.partnerStatus === "closed") return fail(409, { error: "One of the Circles is closed" });
+  }
 
   // Phase 2 "Circles V2" — converting a confirmed plan-idea into a real
   // activity is a state-mutating action gated to that circle's organiser.
   if (b.planId) {
-    const plan = (await db.prepare(`SELECT circle_id as circleId, status FROM circle_plans WHERE id = ?`).get(b.planId)) as { circleId: string; status: string } | undefined;
+    const plan = (await db.prepare(`SELECT circle_id as circleId, status, listing_type as listingType FROM circle_plans WHERE id = ?`).get(b.planId)) as { circleId: string; status: string; listingType: string | null } | undefined;
     if (!plan || plan.circleId !== b.circleId) return fail(404, { error: "Plan not found" });
     if (plan.status !== "confirmed") return fail(409, { error: "This plan isn't confirmed yet" });
+    // Circles 3.0 — a plan about an existing activity, experience or
+    // programme is booked on that listing; it never becomes a second one.
+    // A venue plan (where to meet) can still become the Circle's own activity.
+    if (plan.listingType && plan.listingType !== "centre" && plan.listingType !== "club") {
+      return fail(409, { error: "This plan is about an existing listing — members book it there" });
+    }
     if (!(await isCircleOrganiser(plan.circleId, residentId))) {
       return fail(403, { error: "Only the organiser can create the activity for this plan" });
     }
@@ -1667,6 +1779,18 @@ gamesRouter.post("/", requireResident, async (req, res) => {
   const checked = await validateNewGame(b, req.resident!.id);
   if (!checked.ok) return res.status(checked.status).json(checked.body);
   const visibility = checked.visibility;
+  const category = await categoryFromBody(res, "game", null, req.body);
+  if (category === false) return;
+  // Circles 3.1 — a member creating an activity "for" a Circle they're in
+  // (not the organiser's official circleId path): it's linked to the Circle
+  // after it's created, waiting for an organiser like any member link.
+  // Checked before creating, so a forged or foreign Circle creates nothing.
+  const shareTo = typeof (req.body as { shareToCircleId?: unknown }).shareToCircleId === "string" ? (req.body as { shareToCircleId: string }).shareToCircleId : null;
+  if (shareTo) {
+    const c = (await db.prepare(`SELECT status FROM circles WHERE id = ?`).get(shareTo)) as { status: string } | undefined;
+    if (!c || !(await isCircleMember(shareTo, req.resident!.id))) return res.status(403).json({ error: "You can only add activities to a Circle you're in" });
+    if (c.status === "closed") return res.status(409).json({ error: "This Circle is closed" });
+  }
 
   let row: GameRow;
   try {
@@ -1675,8 +1799,23 @@ gamesRouter.post("/", requireResident, async (req, res) => {
     if (e instanceof ConflictError) return res.status(409).json({ error: e.message });
     throw e;
   }
+  await applyListingCategory("game", row.id, category, "host");
+  await setListingTags("game", row.id, (req.body as { tags?: unknown }).tags);
 
-  res.status(201).json(await toGameJson(row));
+  // The activity exists whatever happens next; a failed link is reported
+  // (never as success) and can be retried with POST /api/circles/:id/links,
+  // which can't create a second activity or a second link.
+  let circleLink: { ok: boolean; status?: string; error?: string } | undefined;
+  if (shareTo && !b.circleId) {
+    try {
+      const r = await addListingLink(shareTo, req.resident!.id, { type: "game", id: row.id }, { relationship: "created_for" });
+      circleLink = r.ok ? { ok: true, status: r.status } : { ok: false, error: r.error };
+    } catch (e) {
+      console.error("[circle-links] link after create failed:", e instanceof Error ? e.message : e);
+      circleLink = { ok: false, error: "The activity was created, but linking it to the Circle didn't work. Try linking it again." };
+    }
+  }
+  res.status(201).json({ ...(await toGameJson(row)), ...(circleLink ? { circleLink } : {}) });
 });
 
 /** Minimum Participation Booking (Phase 4) — call after any join (free, or
@@ -2255,6 +2394,7 @@ gamesRouter.post("/series", requireResident, async (req, res) => {
   if (typeof planned === "string") return res.status(400).json({ error: planned });
   if (b.centreId) return res.status(400).json({ error: "A venue activity needs its own venue booking for each date — create each date separately" });
   if (b.planId) return res.status(400).json({ error: "A Circle plan becomes one activity, not a series" });
+  if (b.collaborationId) return res.status(400).json({ error: "A shared Circle activity is one activity, not a series" });
   if (b.bookingCloseAt || b.publishAt || b.bookingOpenAt) return res.status(400).json({ error: "Schedule publishing and closing on each date after creating the series" });
   const dates = planned;
   const checks = [];
@@ -2263,6 +2403,8 @@ gamesRouter.post("/series", requireResident, async (req, res) => {
     if (!checked.ok) return res.status(checked.status).json(checked.body);
     checks.push(checked);
   }
+  const category = await categoryFromBody(res, "game", null, req.body);
+  if (category === false) return;
   const seriesId = crypto.randomUUID();
   const weekdays = Array.from(new Set(dates.map((d) => new Date(`${d}T12:00:00Z`).getUTCDay()))).sort().join(",");
   await db
@@ -2271,6 +2413,10 @@ gamesRouter.post("/series", requireResident, async (req, res) => {
   const created: GameRow[] = [];
   for (const [i, date] of dates.entries()) {
     created.push(await createGameRow({ ...b, date, visibility: checks[i].ok ? checks[i].visibility : b.visibility, hostResidentId: req.resident!.id, seriesId, quiet: i > 0 }));
+  }
+  for (const g of created) {
+    await applyListingCategory("game", g.id, category, "host");
+    await setListingTags("game", g.id, (req.body as { tags?: unknown }).tags);
   }
   res.status(201).json({ seriesId, games: await Promise.all(created.map((g) => toGameJson(g))) });
 });

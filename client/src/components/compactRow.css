@@ -1,0 +1,153 @@
+/* D · Compact rows (card styles, owner 2026-10-27). See CompactRow.tsx. */
+.cr-rows {
+  display: flex;
+  flex-direction: column;
+}
+.cr-rows > * + * {
+  border-top: 1px solid var(--color-border);
+}
+.cr-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  padding: 14px 0;
+}
+.cr-photo {
+  position: relative;
+  aspect-ratio: 1;
+  max-width: 100%;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #1f4a30;
+}
+.cr-photo img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.5s cubic-bezier(0.45, 0, 0.25, 1);
+}
+.cr-photo::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(0deg, rgba(12, 14, 12, 0.66) 0%, rgba(12, 14, 12, 0) 62%);
+}
+.cr-icon {
+  position: absolute;
+  inset: 0 0 30% 0;
+  display: grid;
+  place-items: center;
+  color: rgba(191, 232, 207, 0.55);
+}
+.cr-date {
+  position: absolute;
+  left: 9px;
+  right: 6px;
+  bottom: 7px;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  color: #ffffff;
+  line-height: 1;
+}
+.cr-date b {
+  font-family: "Bricolage Grotesque Variable", "Bricolage Grotesque", system-ui, sans-serif;
+  font-weight: 800;
+  font-size: 17px;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cr-date small {
+  margin-top: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  opacity: 0.92;
+}
+.cr-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.cr-label {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-muted-light);
+}
+.cr-label.is-mine { color: var(--color-green-text); }
+.cr-label.is-hot { color: var(--color-orange-dark, #b8320f); }
+.cr-title {
+  font-family: "Bricolage Grotesque Variable", "Bricolage Grotesque", system-ui, sans-serif;
+  font-size: 17.5px;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--color-text);
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 3px;
+  transition: text-decoration-color 0.24s ease;
+}
+/* the whole row opens the activity */
+.cr-title::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+.cr-title:focus-visible {
+  outline: none;
+}
+.cr-row:has(.cr-title:focus-visible) {
+  outline: 2px solid var(--color-text);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+.cr-meta {
+  font-size: 13.5px;
+  color: var(--color-muted-light);
+}
+.cr-action {
+  position: relative;
+  z-index: 2;
+}
+@media (hover: hover) {
+  .cr-row:hover .cr-title {
+    text-decoration-color: currentColor;
+  }
+  .cr-row:hover .cr-photo img {
+    transform: scale(1.04);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cr-photo img,
+  .cr-title {
+    transition: none;
+  }
+  .cr-row:hover .cr-photo img {
+    transform: none;
+  }
+}
+@media (max-width: 560px) {
+  .cr-row {
+    grid-template-columns: 76px minmax(0, 1fr);
+    gap: 12px;
+  }
+  .cr-action {
+    grid-column: 2;
+    justify-self: start;
+  }
+  .cr-date b {
+    font-size: 15px;
+  }
+  .cr-title {
+    font-size: 16px;
+  }
+}

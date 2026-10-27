@@ -102,7 +102,7 @@ export function AdminInviteAccept() {
               <PasswordField id="admin-invite-confirm" label="Type it again" value={confirm} onChange={setConfirm} autoComplete="new-password" placeholder="Repeat the password" invalid={!!error} describedBy={error ? "admin-invite-error" : undefined} />
             </div>
             {error && <AuthFormError id="admin-invite-error" innerRef={errorRef} message={error} />}
-            <Button type="submit" disabled={submitting} style={{ width: "100%" }}>
+            <Button type="submit" disabled={submitting}>
               {submitting ? "Creating your account…" : "Create admin account"}
             </Button>
           </form>

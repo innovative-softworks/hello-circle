@@ -7,9 +7,8 @@
 // turns them into the scoped CSS custom properties, and bookingTheme.test.ts
 // checks every text/background pair against WCAG AA from the same values.
 //
-// The orange-red #FF4B24 is a FILL only on light grounds (3.0:1 as text on
-// cream): primary buttons put ink-coloured labels on it (5.0:1), and orange
-// text uses accentText instead.
+// The button orange #D7380F (owner, 2026-10-22: the app-wide main-action
+// orange) is a FILL with WHITE labels (4.7:1); orange text uses accentText.
 
 import { fonts } from "../../theme";
 
@@ -45,8 +44,8 @@ export const bookingPalette: { light: BookingPalette; dark: BookingPalette } = {
     line: "rgba(23, 32, 25, 0.14)",
     lineStrong: "rgba(23, 32, 25, 0.32)",
     controlBorder: "#172019",
-    accent: "#FF4B24",
-    onAccent: "#172019",
+    accent: "#D7380F",
+    onAccent: "#FFFFFF",
     accentText: "#C7350F",
     danger: "#B42318",
     dangerBg: "#FDECEA",
@@ -65,8 +64,8 @@ export const bookingPalette: { light: BookingPalette; dark: BookingPalette } = {
     line: "rgba(242, 238, 228, 0.14)",
     lineStrong: "rgba(242, 238, 228, 0.32)",
     controlBorder: "#B9B3A6",
-    accent: "#FF4B24",
-    onAccent: "#172019",
+    accent: "#D7380F",
+    onAccent: "#FFFFFF",
     accentText: "#FF7A5C",
     danger: "#FF8A7A",
     dangerBg: "#3A1E1A",
@@ -125,6 +124,9 @@ export function bookingSurfaceCss(): string {
     `:root[data-theme="dark"] ${SURFACE}:not([data-scheme="light"]),${SURFACE}[data-scheme="dark"]{${dark}}`,
     `${SURFACE} :focus-visible{outline:2px solid var(--bk-focus);outline-offset:2px;}`,
     `${SURFACE} a{color:var(--bk-accent-text);}`,
+    // Hover (owner, 2026-10-22): main action goes a deeper orange, white text
+    // kept; the outline secondary fills with ink.
+    `@media (hover:hover){${SURFACE} .bk-btn--primary:hover:not(:disabled):not([aria-busy]){background:#BF300C!important;color:#FFFFFF!important;}${SURFACE} .bk-btn--secondary:hover:not(:disabled):not([aria-busy]){background:var(--bk-ink)!important;color:var(--bk-bg)!important;}}`,
     `${SURFACE} input,${SURFACE} select,${SURFACE} textarea,${SURFACE} button{font-family:inherit;}`,
     // Phone first: content, then the summary, with the submit bar fixed on
     // the tab bar (bottom: --bottom-nav) — BottomChromeSync measures it via

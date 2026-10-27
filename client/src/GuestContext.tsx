@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
-import { ApiError, fetchGuestSession, fetchResidentMe } from "./api";
+import { addFavourite, ApiError, fetchGuestSession, fetchResidentMe } from "./api";
+import { mergeLocalFavorites } from "./favorites";
 import type { Resident } from "./types";
 
 interface GuestContextValue {
@@ -61,6 +62,14 @@ export function GuestProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  // DP-32 — once someone is signed in, copy anything they saved as a visitor
+  // into their account (once per resident id per page load).
+  const residentId = resident?.id ?? null;
+  useEffect(() => {
+    if (!residentId) return;
+    void mergeLocalFavorites((kind, id) => addFavourite(kind, id)).catch(() => {});
+  }, [residentId]);
 
   return <GuestContext.Provider value={{ email, resident, loading, loadError, refresh }}>{children}</GuestContext.Provider>;
 }

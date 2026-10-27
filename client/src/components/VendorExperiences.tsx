@@ -1,12 +1,15 @@
+import { ListFilterBar, NoMatches, useListFilters } from "./workspace/ListFilters";
 import { useEffect, useRef, useState } from "react";
 import { getMediaUrl } from "../media";
-import { Compass } from "lucide-react";
+import { Compass, QrCode } from "lucide-react";
+import { ScanPassModal, readPassCode, type ScanResult } from "./pass/ScanPassModal";
 import { useInWorkspace } from "./workspace/inWorkspace";
 import { SectionSaveContext, type SectionSave } from "./workspace/sectionSave";
 import { ReadinessRail } from "./workspace/SectionCard";
 import { AdminButton, AdminModal, Box, FormField, Loaded, errorMessage, useAdminData } from "./admin/adminUi";
 import { StatusChipText, WsListTable } from "./workspace/WsListTable";
 import { HostChatButton } from "./HostChatButton";
+import { VendorCategoryEditor } from "./VendorCategoryEditor";
 import { VendorParticipationEditor } from "./VendorParticipationEditor";
 import {
   addExperienceSession,
@@ -198,6 +201,14 @@ export function ExperienceEditor({
       if (snapshot.current) setForm(snapshot.current);
       fe.clear();
       onDirtyChange?.(false);
+    },
+    draft: {
+      key: `experience:${id}`,
+      get: currentSnapshot,
+      restore: (v) => {
+        setForm(v as ExperienceInput);
+        onDirtyChange?.(true);
+      },
     },
   };
   const inWorkspace = useInWorkspace();
@@ -425,6 +436,7 @@ export function ExperienceEditor({
       <SettingsSection title="Logistics & safety" summary={`${logisticsCount} of 4 details added`}>
         {logisticsFields}
       </SettingsSection>
+      <VendorCategoryEditor type="experience" id={id} />
       <VendorParticipationEditor type="experience" id={id} />
       <SettingsSection title="Photos" summary={`${(form.images ?? []).length} photo${(form.images ?? []).length === 1 ? "" : "s"}`}>
         {photosField}
@@ -463,6 +475,7 @@ export function ExperienceEditor({
       <SettingsSection title="Logistics & safety" summary={`${logisticsCount} of 4 details added`}>
         {logisticsFields}
       </SettingsSection>
+      <VendorCategoryEditor type="experience" id={id} />
       <VendorParticipationEditor type="experience" id={id} />
       <SettingsSection title="Photos" summary={`${(form.images ?? []).length} photo${(form.images ?? []).length === 1 ? "" : "s"}`}>
         {photosField}
@@ -800,6 +813,7 @@ export function BookingsPanel({ experienceId }: { experienceId: string }) {
   const [failed, setFailed] = useState(false);
   const [sessions, setSessions] = useState<ExperienceSessionRow[]>([]);
   const [moving, setMoving] = useState<VendorExperienceBooking | null>(null);
+  const [scanning, setScanning] = useState(false);
   const today = irelandToday();
 
   const load = () => {
@@ -814,12 +828,35 @@ export function BookingsPanel({ experienceId }: { experienceId: string }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(load, [experienceId]);
 
+  // Scan passes (owner 2026-10-27): an experience pass holds its booking reference.
+  const onScan = async (text: string): Promise<ScanResult> => {
+    const code = readPassCode(text);
+    if (!code) return { ok: false, message: "That isn't a HelloCircle pass." };
+    if (code.kind !== "experience") return { ok: false, message: "That pass isn't for an experience." };
+    const b = (bookings ?? []).find((x) => x.ref.toUpperCase() === code.ref);
+    if (!b) return { ok: false, message: "That booking isn't for this listing." };
+    if (b.status === "cancelled") return { ok: false, message: `${b.participantName}: this booking was cancelled.` };
+    if (b.date !== today) return { ok: false, message: `${b.participantName} is booked for ${b.date}, not today.` };
+    if (b.attendance === "present") return { ok: true, message: `${b.participantName} is already checked in.` };
+    await markExperienceAttendance(experienceId, b.ref, "present");
+    setBookings((prev) => (prev ?? []).map((x) => (x.ref === b.ref ? { ...x, attendance: "present" } : x)));
+    return { ok: true, message: `Checked in: ${b.participantName} (party of ${b.partySize})` };
+  };
+
   if (failed) return <div style={{ marginTop: 26 }}><LoadErrorState title="Couldn't load bookings for this listing." onRetry={load} /></div>;
   if (bookings === null) return <p role="status" aria-busy="true" style={{ marginTop: 26, fontSize: 13.5, color: colors.mutedLight }}>Loading bookings…</p>;
 
   return (
     <div style={{ marginTop: 26, paddingTop: 22, borderTop: `1px solid ${colors.border}` }}>
-      <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 14px" }}>Bookings ({bookings.length})</h2>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, margin: "0 0 14px" }}>
+        <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: 0 }}>Bookings ({bookings.length})</h2>
+        {bookings.some((b) => b.date === today && b.status !== "cancelled") && (
+          <AdminButton size="sm" onClick={() => setScanning(true)}>
+            <QrCode size={15} aria-hidden="true" /> Scan passes
+          </AdminButton>
+        )}
+      </div>
+      <ScanPassModal open={scanning} title="Scan passes · today's departures" onClose={() => setScanning(false)} onCode={onScan} />
       {bookings.length === 0 ? (
         <EmptyState icon={<UsersIcon size={20} />} title="No bookings yet" />
       ) : (
@@ -887,6 +924,13 @@ export function VendorExperiencesTab({ onOpenExperience }: { onOpenExperience: (
   };
 
   const KIND_LABEL = { adventure: "Adventure", volunteer: "Volunteer", experience: "Experience" } as Record<string, string>;
+  const filters = useListFilters<VendorExperienceSummary>({
+    search: (e) => [e.title],
+    selects: [
+      { param: "kind", label: "Type", options: [{ value: "adventure", label: "Adventures" }, { value: "experience", label: "Experiences" }, { value: "volunteer", label: "Volunteering" }], get: (e) => e.kind },
+      { param: "status", label: "Status", options: [{ value: "draft", label: "Draft" }, { value: "pending", label: "Pending review" }, { value: "approved", label: "Live" }, { value: "rejected", label: "Rejected" }], get: (e) => e.status },
+    ],
+  });
   return (
     <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       {!experiencesEnabled && <p className="adm-note" style={{ margin: 0 }}>Adventures and experiences aren't enabled for your organisation, so you can't add new ones.</p>}
@@ -906,10 +950,15 @@ export function VendorExperiencesTab({ onOpenExperience }: { onOpenExperience: (
               }
             />
           ) : (
+            <>
+            {experiences.length > 4 && <ListFilterBar state={filters} searchLabel="Search adventures and experiences" placeholder="Title" />}
+            {filters.apply(experiences).length === 0 ? (
+              <NoMatches onClear={filters.clear} noun="listings" />
+            ) : (
             <WsListTable
               caption="Your adventures and experiences"
               columns={[{ label: "Listing" }, { label: "Type" }, { label: "Status" }, { label: "Price", num: true }]}
-              rows={experiences.map((e) => ({
+              rows={filters.apply(experiences).map((e) => ({
                 key: e.id,
                 name: e.title,
                 title: e.title,
@@ -924,6 +973,8 @@ export function VendorExperiencesTab({ onOpenExperience }: { onOpenExperience: (
                 menu: [{ label: "Delete listing…", danger: true, onSelect: () => setConfirmingId(e.id) }],
               }))}
             />
+            )}
+            </>
           )}
         </Loaded>
       </Box>
@@ -932,7 +983,7 @@ export function VendorExperiencesTab({ onOpenExperience }: { onOpenExperience: (
         open={confirmingId !== null}
         title="Delete this listing?"
         message="This removes it from public view — existing bookings are kept."
-        confirmLabel="Delete"
+        confirmLabel="Delete listing"
         onConfirm={() => confirmingId && remove(confirmingId)}
         onCancel={() => setConfirmingId(null)}
       />

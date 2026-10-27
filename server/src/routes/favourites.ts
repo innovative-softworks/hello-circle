@@ -21,7 +21,8 @@ type FavouriteStatus = (typeof STATUSES)[number];
 // previously called the raw localStorage helpers directly, so a signed-in
 // resident's saved Circle never synced to their account or crossed devices,
 // the one entity type left out of this otherwise-unified save system.
-const LISTING_TYPES = ["centre", "club", "game", "program_session", "club_session", "experience", "circle"] as const;
+// "program" (detail-page audit DP-06, 2026-10-22): a whole programme, saved from its page.
+const LISTING_TYPES = ["centre", "club", "game", "program", "program_session", "club_session", "experience", "circle"] as const;
 type ListingType = (typeof LISTING_TYPES)[number];
 
 type FavouriteRow = { listingType: ListingType; listingId: string; status: FavouriteStatus };
@@ -71,6 +72,11 @@ async function attachListingDetails(rows: FavouriteRow[], viewerId: string) {
           .prepare(`SELECT id, name, CASE WHEN join_mode = 'open' THEN image_url ELSE NULL END as imageUrl, area, slug FROM circles WHERE id IN (${placeholders}) AND (join_mode = 'open' OR EXISTS (SELECT 1 FROM circle_members cm WHERE cm.circle_id = circles.id AND cm.resident_id = ?))`)
           .all(...ids, viewerId)) as { id: string; name: string; imageUrl: string | null; area: string; slug: string | null }[];
         for (const l of listingRows) details.set(key(type, l.id), { name: l.name, imageUrl: l.imageUrl || null, subtitle: l.area || null, slug: l.slug ?? undefined });
+      } else if (type === "program") {
+        const listingRows = (await db
+          .prepare(`SELECT id, title as name, image_url as imageUrl, age_range as ageRange FROM programs WHERE id IN (${placeholders}) AND status = 'published' AND ${orgActiveSql("vendor_id")}`)
+          .all(...ids)) as { id: string; name: string; imageUrl: string | null; ageRange: string | null }[];
+        for (const l of listingRows) details.set(key(type, l.id), { name: l.name, imageUrl: l.imageUrl, subtitle: l.ageRange ? `Ages ${l.ageRange}` : null });
       } else if (type === "program_session") {
         const listingRows = (await db
           .prepare(

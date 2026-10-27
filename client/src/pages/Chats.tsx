@@ -31,16 +31,17 @@ type View = "personal" | "host";
 
 export function Chats() {
   const { resident, loading: guestLoading } = useGuest();
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const isVendor = user?.role === "vendor";
-  const [view, setView] = useState<View>(resident ? "personal" : "host");
+  // PUB-06 — the view is derived from the sessions once they've loaded, not
+  // frozen at first render (when the resident session is still loading and
+  // would otherwise lock a resident into the empty "As host" view). Only a
+  // linked resident + vendor account chooses between the two with the tabs.
+  const [chosenView, setView] = useState<View>("personal");
+  const view: View = resident && isVendor ? chosenView : resident ? "personal" : "host";
   const [items, setItems] = useState<ChatInboxItem[] | null>(null);
   const [openItem, setOpenItem] = useState<ChatInboxItem | null>(null);
-
-  useEffect(() => {
-    if (!resident && isVendor) setView("host");
-  }, [resident, isVendor]);
 
   const [failed, setFailed] = useState(false);
   const load = () => {
@@ -58,7 +59,7 @@ export function Chats() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view, resident?.id, isVendor]);
 
-  if (guestLoading) return <PageSpinner />;
+  if (guestLoading || authLoading) return <PageSpinner />;
 
   if (!resident && !isVendor) {
     return (

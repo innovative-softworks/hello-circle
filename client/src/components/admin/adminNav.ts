@@ -7,6 +7,7 @@ import {
   CalendarCheck,
   Award,
   Building2,
+  FolderTree,
   ClipboardCheck,
   Images,
   KeyRound,
@@ -52,6 +53,7 @@ export type AdminTab =
   | "hostApplications"
   | "placeSuggestions"
   | "organisations"
+  | "categories"
   | "demand"
   | "marketplaceHealth"
   | "coupons"
@@ -119,6 +121,7 @@ export const ADMIN_NAV: AdminNavGroup[] = [
       { key: "claims", label: "Claims", icon: KeyRound, summary: "Partners asking to take ownership of an unclaimed listing.", permissions: ["queues.view"] },
       { key: "hostApplications", label: "Host applications", icon: Award, summary: "Residents applying for the Verified Host badge.", permissions: ["queues.view"] },
       { key: "placeSuggestions", label: "Place suggestions", icon: MapPin, summary: "Places suggested by residents, waiting to be published or declined.", permissions: ["queues.view"] },
+      { key: "categories", label: "Categories", icon: FolderTree, summary: "Categories and subcategories people browse by, and listings still waiting for one.", permissions: ["taxonomy.view"] },
       { key: "organisations", label: "Organisations", icon: Building2, summary: "Partner organisations, their feature flags, and custom organisations.", permissions: ["orgs.view"] },
       { key: "marketplaceHealth", label: "Insights", icon: Activity, summary: "Marketplace health, unmet demand and the participation funnel.", permissions: ["insights.view"] },
       { key: "demand", label: "Insights", icon: TrendingUp, summary: "Marketplace health, unmet demand and the participation funnel.", permissions: ["insights.view"], hidden: true, aliasOf: "marketplaceHealth" },

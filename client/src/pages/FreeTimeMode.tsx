@@ -9,6 +9,8 @@ import { colors, fonts } from "../theme";
 import { fallbackCopy } from "../copy";
 import type { DiscoverItem } from "../types";
 import { irelandToday } from "../irelandDate";
+import { useExperienceFeatures } from "../circleFeatures";
+import { NO_FILTERS, NoMatchHelp, SmartMatchRefine, smartParams, SurpriseMe, type SmartFilters } from "../components/experience/SmartMatch";
 
 // Free Time Mode (implementation plan Phase 9) — a new discovery entry
 // point for "I have some free time, surprise me" rather than "I already
@@ -145,19 +147,28 @@ export function FreeTimeMode() {
   const [loading, setLoading] = useState(false);
   const [options, setOptions] = useState<DiscoverItem[]>([]);
   const [error, setError] = useState<string | null>(null);
+  // Experience 3.0 — Smart Match refine + Surprise me (switch-gated).
+  const features = useExperienceFeatures();
+  const smart = features["experience.smart_match"];
+  const [mood, setMood] = useState<string>("any");
+  const [filters, setFilters] = useState<SmartFilters>(NO_FILTERS);
+  const [surprising, setSurprising] = useState(false);
+  const baseQuery = (m: string, f: SmartFilters) => ({
+    maxMinutes,
+    mood: m,
+    radiusKm,
+    lat: radiusKm !== undefined ? coords?.lat : undefined,
+    lng: radiusKm !== undefined ? coords?.lng : undefined,
+    ...(smart ? { ...smartParams(f), limit: 6 } : {}),
+  });
 
-  const runSearch = async (mood: string) => {
+  const runSearch = async (m: string, f: SmartFilters = filters) => {
+    setMood(m);
     setLoading(true);
     setError(null);
     setStep("results");
     try {
-      const rows = await fetchFreeTimeOptions({
-        maxMinutes,
-        mood,
-        radiusKm,
-        lat: radiusKm !== undefined ? coords?.lat : undefined,
-        lng: radiusKm !== undefined ? coords?.lng : undefined,
-      });
+      const rows = await fetchFreeTimeOptions(baseQuery(m, f));
       setOptions(rows);
     } catch (e) {
       setError(e instanceof Error ? e.message : fallbackCopy.notFound);
@@ -205,12 +216,18 @@ export function FreeTimeMode() {
     setCoords(null);
     setOptions([]);
     setError(null);
+    setFilters(NO_FILTERS);
   };
+  const refine = (next: SmartFilters) => {
+    setFilters(next);
+    void runSearch(mood, next);
+  };
+  const filtered = filters.when !== "" || filters.partOfDay.length > 0 || filters.maxPriceCents !== null || filters.solo;
 
   const currentMeta = step !== "results" ? STEPS.find((s) => s.key === step) : null;
 
   return (
-    <div style={{ animation: "fadeUp .35s ease backwards" }}>
+    <div className="fade-panel">
       {/* Utility strip — mirrors /for-venues' hero utility bar: a small
           persistent page label + a live step readout, before the page's
           own giant per-step question takes over. */}
@@ -289,11 +306,35 @@ export function FreeTimeMode() {
             <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(32px, 3.8vw, 52px)", letterSpacing: 0, margin: "0 0 32px", color: colors.text }}>
               Here's what fits.
             </h1>
+            {smart && (
+              <>
+                <SmartMatchRefine value={filters} onChange={refine} goSolo={features["experience.go_solo"]} />
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", margin: "-12px 0 24px" }}>
+                  <p style={{ margin: 0, fontSize: 13, color: colors.mutedLight }}>
+                    {maxMinutes ? "Only things with a stated length that fits your time." : "Real listings that fit your choices."} Places, prices and times are checked again when you join or book.
+                  </p>
+                  <Button variant="ghost" onClick={() => setSurprising(true)}>
+                    Surprise me
+                  </Button>
+                </div>
+              </>
+            )}
+            {surprising && <SurpriseMe base={baseQuery(mood, filters)} onClose={() => setSurprising(false)} />}
+            {features["experience.plan_my_day"] && (
+              <p style={{ margin: "0 0 24px", fontSize: 13.5 }}>
+                Got the whole day?{" "}
+                <a href="/plan-my-day" onClick={(e) => (e.preventDefault(), navigate("/plan-my-day"))} className="ce-link">
+                  Plan My Day
+                </a>
+              </p>
+            )}
 
             {loading ? (
               <PageSpinner />
             ) : error ? (
               <p style={{ color: colors.danger, fontSize: 14 }}>{error}</p>
+            ) : options.length === 0 && smart ? (
+              <NoMatchHelp filtered={filtered} onBroaden={() => refine(NO_FILTERS)} />
             ) : options.length === 0 ? (
               <EmptyState
                 icon={<LightbulbIcon size={22} />}

@@ -1,0 +1,31 @@
+# HelloCircle — Final QA and Release Readiness
+
+Continue from the current local implementation. Do not rebuild completed functionality.
+
+1. Preserve all existing uncommitted changes. Do not reset or clean the working tree.
+
+2. Fix the SANDBOX-SPLIT test isolation problem. First document and inspect the stale QA transfer. Use a newly provisioned disposable QA database or an isolated fixture. Do not delete payment records from shared, staging or production databases. Re-run the complete Stripe test suite and investigate any actual settlement failures.
+
+3. Add dedicated tests for:
+   - OG-01: Multi-role workspace switching.
+   - OG-13: Vendor All Orders, including filters, permissions and record navigation.
+   - OG-15: Admin Exceptions inbox, including links, permissions and error states.
+   - OG-19: Experience departure management in a real browser.
+
+4. Complete OG-24 by switching the Admin Vendors and All Listings pages to existing server-side pagination. Preserve status counts, filters, search, sorting and record navigation.
+
+5. Run uninterrupted validation and revenue suites. Investigate flaky tests rather than merely increasing timeouts.
+
+6. Verify admin MFA configuration in a disposable environment. Document key provisioning, secret protection, backup and recovery. Never print or commit the key.
+
+7. Verify that privacy requests marked complete do not misleadingly imply deletion occurred when erasure is still blocked.
+
+8. Review all remaining permissions and confirm that partner and host data cannot leak across organisations or accounts.
+
+9. Update all seven implementation and release documents with actual evidence.
+
+10. Provide a final release recommendation with explicit blockers.
+
+Do not commit, push or deploy. Do not change production, staging or live Stripe settings.
+
+Stop after verification and report any unresolved issues requiring owner approval.

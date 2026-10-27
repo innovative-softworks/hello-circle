@@ -36,6 +36,8 @@ export function experienceToBrowseItem(e: Experience): BrowseItem {
     filterTag: e.difficulty || null,
     ctaLabel: e.kind === "volunteer" ? "Volunteer" : `View ${e.kind === "adventure" ? "adventure" : "experience"}`,
     save: { kind: "experience", id: e.id },
+    durationMinutes: e.durationMinutes || null,
+    skill: e.difficulty ? e.difficulty[0].toUpperCase() + e.difficulty.slice(1) : null,
   };
 }
 
@@ -44,15 +46,22 @@ export function ExperienceKindBrowse({ kind, title, subtitle }: { kind: Experien
     () => ({
       title,
       subtitle,
+      featured: kind === "adventure" ? "experiences" : "adventures",
       nounPlural: kind === "adventure" ? "adventures" : kind === "volunteer" ? "volunteer opportunities" : "experiences",
+      kindLabel: kind === "adventure" ? "Adventure" : kind === "volunteer" ? "Volunteering" : "Experience",
       searchPlaceholder: kind === "adventure" ? "What kind of adventure? e.g. Kayaking" : "What do you feel like doing? e.g. Pottery",
       icon: <TreeIconSmall size={24} />,
-      load: () => fetchExperiences(kind).then((rows) => rows.map(experienceToBrowseItem)),
+      load: (taxonomy) => fetchExperiences(kind, undefined, taxonomy).then((rows) => rows.map(experienceToBrowseItem)),
       resetKey: `experience:${kind}`,
+      categoryFamily: kind === "volunteer" ? "volunteer" : "experience",
+      categoryExperienceKind: kind === "volunteer" ? undefined : kind,
+      categoryBasePath: `/${kind === "adventure" ? "adventures" : kind === "volunteer" ? "volunteer" : "experiences"}`,
       // Difficulty only means something for adventures.
       tagFilterLabel: kind === "adventure" ? "Difficulty" : undefined,
       mapSearchTypes: ["experience"],
       supportsFeatured: true,
+      // Featured adventures/experiences use the Adventure card (owner plan, 2026-10-23).
+      featureStyle: "adventure",
       closing: {
         label: kind === "adventure" ? "Outdoors." : kind === "volunteer" ? "Give back." : "Try it.",
         lines:

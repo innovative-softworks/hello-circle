@@ -1,3 +1,4 @@
+import { AdminButton } from "./admin/adminUi";
 import { BallIcon, BuildingIcon, CalendarIcon, PinIcon, TreeIconSmall } from "./icons";
 import { ManageCard as Card } from "./ui";
 import { formatScheduleCount, formatScheduleWhen, SOURCE_TYPE_LABELS } from "../vendorSchedule";
@@ -74,12 +75,9 @@ export function VendorNextUpHero({ item, onManage }: { item: VendorScheduleItem;
         )}
       </div>
       {count && <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 14 }}>{count}</div>}
-      <button
-        onClick={onManage}
-        style={{ background: colors.green, color: "#fff", border: "none", borderRadius: radius.pill, padding: "9px 18px", fontSize: 13.5, fontWeight: 700, cursor: "pointer" }}
-      >
+      <AdminButton variant="primary" size="sm" onClick={onManage}>
         Manage →
-      </button>
+      </AdminButton>
     </Card>
   );
 }

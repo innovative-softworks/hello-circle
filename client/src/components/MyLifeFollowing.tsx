@@ -31,7 +31,7 @@ export function MyLifeFollowing({ follows }: { follows: FollowedEntity[] }) {
             <div style={{ fontSize: 13.5, fontWeight: 700, color: colors.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
               {f.name ?? "Removed account"}
             </div>
-            <div style={{ fontSize: 11.5, color: colors.mutedLight }}>{f.followedType === "vendor" ? "Provider" : "Host"}</div>
+            <div style={{ fontSize: 11.5, color: colors.mutedLight }}>{f.followedType === "vendor" ? "Provider" : f.followedType === "centre" ? "Venue" : "Host"}</div>
           </div>
         </button>
       ))}

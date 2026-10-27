@@ -13,7 +13,7 @@ export function BackLink({ onClick, children, marginBottom = 20 }: { onClick: ()
   return (
     <button
       onClick={onClick}
-      style={{ display: "inline-flex", alignItems: "center", background: "none", border: "none", color: colors.muted, fontWeight: 600, fontSize: 14, cursor: "pointer", padding: 0, marginBottom }}
+      style={{ display: "inline-flex", alignItems: "center", minHeight: 32, background: "none", border: "none", color: colors.muted, fontWeight: 600, fontSize: 14, cursor: "pointer", padding: 0, marginBottom }}
     >
       <ChevronLeftIcon size={14} style={{ marginRight: 4 }} /> {children}
     </button>

@@ -9,6 +9,7 @@ import { HostCheckInScreen } from "./HostCheckInScreen";
 import { ShareButton } from "./ShareButton";
 import { Avatar, Button, Card, ConfirmDialog, EmptyState, LoadErrorState, PageSpinner, ProgressBar } from "./ui";
 import { RecordState, RecordView } from "./workspace/RecordView";
+import { DetailStats } from "./workspace/DetailParts";
 import { ActionMenu } from "./ActionMenu";
 import { useToast } from "./Toast";
 import { Facts, SectionLabel } from "./admin/adminUi";
@@ -214,21 +215,23 @@ function ActivityRecord({ game, onBack, onCheckIn, onChanged }: { game: Game; on
   return (
     <RecordView
       title={game.activityLabel}
-      reference={
-        <>
-          {dateLabel(game.date)} · {game.time} · {game.centreName ?? game.locationText}
-        </>
-      }
+      reference={game.centreName ?? game.locationText}
       backLabel="Activities"
       onBack={onBack}
       statuses={
         <>
           <span style={{ fontSize: 12.5, color: colors.mutedLight }}>Activity:</span> {statusBadge(game)}
-          <span style={{ fontSize: 12.5, color: colors.mutedLight }}>Places:</span>
-          <span style={{ fontSize: 12.5, fontWeight: 700 }}>{participants ? `${joined} of ${game.capacity} taken` : `${game.capacity} places`}</span>
-          <span style={{ fontSize: 12.5, color: colors.mutedLight }}>Price:</span>
-          <span style={{ fontSize: 12.5, fontWeight: 700 }}>{paid ? euro((game.priceCents ?? 0) / 100) : "Free"}</span>
         </>
+      }
+      stats={
+        <DetailStats
+          items={[
+            { label: "Going", value: participants ? `${joined} / ${game.capacity}` : "…", sub: participants ? `${Math.max(0, game.capacity - joined)} places left` : undefined },
+            { label: "Price", value: paid ? euro((game.priceCents ?? 0) / 100) : "Free", sub: paid ? "per place" : undefined },
+            { label: "Waitlist", value: waitlist ? String(waitlist.length) : "…", sub: waitlist?.some((w) => w.status === "offered") ? "Place offered" : "Waiting for a place" },
+            { label: "When", value: dateLabel(game.date), sub: game.time },
+          ]}
+        />
       }
       actions={
         <>
@@ -246,61 +249,8 @@ function ActivityRecord({ game, onBack, onCheckIn, onChanged }: { game: Game; on
           )}
         </>
       }
-    >
-      <div className="adm-record-grid">
-        <div>
-          <SectionLabel>Participants</SectionLabel>
-          {participantsFailed ? (
-            <LoadErrorState title="Couldn't load participants." onRetry={loadParticipants} />
-          ) : participants === null ? (
-            <p role="status" aria-busy="true" style={{ fontSize: 13.5, color: colors.mutedLight }}>Loading participants…</p>
-          ) : participants.length === 0 ? (
-            <EmptyState icon={<CalendarIcon size={26} />} title="No one's joined yet" />
-          ) : (
-            <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 8 }}>
-              {participants.map((p) => {
-                const isHost = p.residentId === game.hostResidentId;
-                return (
-                  <li key={p.residentId} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.control, padding: "10px 14px" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-                      <Avatar name={p.name} size={30} />
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontWeight: 700, fontSize: 13.5 }}>{p.name}{isHost ? " (host)" : ""}</div>
-                        <div style={{ fontSize: 12, color: colors.mutedLight }}>
-                          Place: {joinLabel(p)} · Payment: {paymentLabel(p, paid)} · Check-in: {p.checkedInAt ? "Checked in" : "Not yet"}
-                        </div>
-                      </div>
-                    </div>
-                    {!isHost && (
-                      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                        {p.paymentStatus === "paid" && paid && (
-                          <Button variant="ghost" onClick={() => setRefundTarget(p)} aria-label={`Refund ${p.name}`}>
-                            Refund
-                          </Button>
-                        )}
-                        {p.status !== "cancelled" && (
-                          <Button variant="ghost" onClick={() => setRemoveTarget(p)} aria-label={`Remove ${p.name}`} style={{ color: colors.danger }}>
-                            Remove
-                          </Button>
-                        )}
-                      </div>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </div>
-        <div>
-          <SectionLabel>Details</SectionLabel>
-          <Facts
-            rows={[
-              ["When", `${dateLabel(game.date)} · ${game.time}`],
-              ["Where", game.centreName ?? game.locationText],
-              ["Capacity", `${game.capacity} places`],
-              ["Price", paid ? `${euro((game.priceCents ?? 0) / 100)} per place` : "Free"],
-            ]}
-          />
+      aside={
+        <>
           <SectionLabel>Waitlist</SectionLabel>
           {waitlistFailed ? (
             <LoadErrorState title="Couldn't load the waitlist." onRetry={loadWaitlist} />
@@ -325,8 +275,50 @@ function ActivityRecord({ game, onBack, onCheckIn, onChanged }: { game: Game; on
             </ul>
           )}
           {inviteError && <p role="alert" style={{ color: colors.danger, fontSize: 13 }}>{inviteError}</p>}
-        </div>
-      </div>
+        </>
+      }
+    >
+      <SectionLabel>Participants</SectionLabel>
+      {participantsFailed ? (
+        <LoadErrorState title="Couldn't load participants." onRetry={loadParticipants} />
+      ) : participants === null ? (
+        <p role="status" aria-busy="true" style={{ fontSize: 13.5, color: colors.mutedLight }}>Loading participants…</p>
+      ) : participants.length === 0 ? (
+        <EmptyState icon={<CalendarIcon size={26} />} title="No one's joined yet" />
+      ) : (
+        <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 8 }}>
+          {participants.map((p) => {
+            const isHost = p.residentId === game.hostResidentId;
+            return (
+              <li key={p.residentId} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.control, padding: "10px 14px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+                  <Avatar name={p.name} size={30} />
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, fontSize: 13.5 }}>{p.name}{isHost ? " (host)" : ""}</div>
+                    <div style={{ fontSize: 12, color: colors.mutedLight }}>
+                      Place: {joinLabel(p)} · Payment: {paymentLabel(p, paid)} · Check-in: {p.checkedInAt ? "Checked in" : "Not yet"}
+                    </div>
+                  </div>
+                </div>
+                {!isHost && (
+                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    {p.paymentStatus === "paid" && paid && (
+                      <Button variant="ghost" onClick={() => setRefundTarget(p)} aria-label={`Refund ${p.name}`}>
+                        Refund
+                      </Button>
+                    )}
+                    {p.status !== "cancelled" && (
+                      <Button variant="ghost" onClick={() => setRemoveTarget(p)} aria-label={`Remove ${p.name}`} style={{ color: colors.danger }}>
+                        Remove
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
       <ConfirmDialog
         open={!!removeTarget}
         title={`Remove ${removeTarget?.name ?? "this participant"}?`}

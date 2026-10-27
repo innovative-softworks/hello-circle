@@ -65,7 +65,7 @@ export function SuggestPlacePage() {
   };
 
   return (
-    <div style={{ animation: "fadeUp .35s ease backwards" }}>
+    <div className="fade-panel">
       <section className="section-pad" style={{ maxWidth: 640, margin: "0 auto", padding: "26px 24px 80px" }}>
         <BackLink onClick={() => navigate(-1)} marginBottom={16}>Back</BackLink>
 
@@ -93,20 +93,20 @@ export function SuggestPlacePage() {
           <Card>
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
               <div>
-                <label style={labelStyle}>Place name</label>
-                <input value={suggestedName} onChange={(e) => setSuggestedName(e.target.value)} placeholder="e.g. Clontarf Community Hall" style={inputStyle} />
+                <label htmlFor="suggest-name" style={labelStyle}>Place name</label>
+                <input id="suggest-name" value={suggestedName} onChange={(e) => setSuggestedName(e.target.value)} placeholder="e.g. Clontarf Community Hall" style={inputStyle} />
               </div>
               <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
                 <div>
-                  <label style={labelStyle}>Type</label>
-                  <select value={category} onChange={(e) => setCategory(e.target.value as "centre" | "club")} style={inputStyle}>
+                  <label htmlFor="suggest-type" style={labelStyle}>Type</label>
+                  <select id="suggest-type" value={category} onChange={(e) => setCategory(e.target.value as "centre" | "club")} style={inputStyle}>
                     <option value="centre">Community centre / hall</option>
                     <option value="club">Club</option>
                   </select>
                 </div>
                 <div>
-                  <label style={labelStyle}>County</label>
-                  <select value={county} onChange={(e) => setCounty(e.target.value)} style={inputStyle}>
+                  <label htmlFor="suggest-county" style={labelStyle}>County</label>
+                  <select id="suggest-county" value={county} onChange={(e) => setCounty(e.target.value)} style={inputStyle}>
                     <option value="">Not sure</option>
                     {COUNTIES.map((c) => (
                       <option key={c} value={c}>{c}</option>
@@ -115,12 +115,13 @@ export function SuggestPlacePage() {
                 </div>
               </div>
               <div>
-                <label style={labelStyle}>Area / town (optional)</label>
-                <input value={area} onChange={(e) => setArea(e.target.value)} placeholder="e.g. Clontarf" style={inputStyle} />
+                <label htmlFor="suggest-area" style={labelStyle}>Area / town (optional)</label>
+                <input id="suggest-area" value={area} onChange={(e) => setArea(e.target.value)} placeholder="e.g. Clontarf" style={inputStyle} />
               </div>
               <div>
-                <label style={labelStyle}>What's it like? (optional)</label>
+                <label htmlFor="suggest-description" style={labelStyle}>What's it like? (optional)</label>
                 <textarea
+                  id="suggest-description"
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder="What do they offer, who runs it, anything that'd help us find it"
@@ -129,8 +130,8 @@ export function SuggestPlacePage() {
                 />
               </div>
               <div>
-                <label style={labelStyle}>Contact info (optional)</label>
-                <input value={contactInfo} onChange={(e) => setContactInfo(e.target.value)} placeholder="Phone, email, or website if you know it" style={inputStyle} />
+                <label htmlFor="suggest-contact" style={labelStyle}>Contact info (optional)</label>
+                <input id="suggest-contact" value={contactInfo} onChange={(e) => setContactInfo(e.target.value)} placeholder="Phone, email, or website if you know it" style={inputStyle} />
               </div>
               {error && <p style={{ color: colors.danger, fontSize: 13.5, margin: 0 }}>{error}</p>}
               <Button onClick={handleSubmit} disabled={submitting || !suggestedName.trim()}>

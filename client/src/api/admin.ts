@@ -244,6 +244,10 @@ export interface AdminListingDetail {
   type: "centre" | "club" | "experience";
   images: string[];
   description: string;
+  /** Map position, when the listing has one. */
+  location?: { lat: number; lng: number; source: string } | null;
+  /** Header key numbers: visible reviews, upcoming bookings (club: active registrations), page views. */
+  stats?: { reviews: number; rating: number | null; upcoming: number; views: number | null };
   centre?: {
     rooms: { name: string; capacity: number; rate: number; description: string; paymentMethod: string; active: number }[];
     hours: { day: number; opensAt: string; closesAt: string; closed: number }[];
@@ -1201,6 +1205,37 @@ export interface CircleRow {
 }
 export function fetchAdminCirclesPage(f: { q?: string; status?: string; cursor?: string | null }): Promise<ServerPage<CircleRow>> {
   return request(`/admin/operations/circles${qs({ ...f, cursor: f.cursor ?? undefined, limit: "25" })}`);
+}
+
+// Circle planning moderation (2026-10-24) — wishes are totals only.
+export interface AdminCirclePlanning {
+  /** closedBy (Circles 3.0): who closed a closed Circle — HelloCircle can only reopen its own closures. */
+  circle: { id: string; name: string; slug: string | null; status: string; activityLabel: string; closedBy?: "organiser" | "helloCircle" | null };
+  wishes: { interestKey: string; interest: string; weekStart: string; count: number }[];
+  plans: { id: string; title: string; status: string; proposedDate: string | null; createdAt: string; createdByName: string | null; listingType?: string | null }[];
+  polls: { id: string; question: string; status: string; createdAt: string; voters: number }[];
+  /** Circles 3.1 — listings linked to the Circle, every status. */
+  links?: { id: string; listingType: string; listingId: string; status: string; relationship: string; createdAt: string; linkedByName: string | null; title: string }[];
+}
+export function fetchAdminCirclePlanning(id: string): Promise<AdminCirclePlanning> {
+  return request(`/admin/operations/circles/${encodeURIComponent(id)}/planning`);
+}
+export function adminRemoveCircleWish(id: string, wish: { weekStart: string; interestKey: string }, reason: string): Promise<{ ok: boolean }> {
+  return request(`/admin/operations/circles/${encodeURIComponent(id)}/wishes/remove`, { method: "POST", body: JSON.stringify({ ...wish, reason }) });
+}
+export function adminRemoveCirclePlan(id: string, planId: string, reason: string): Promise<{ ok: boolean }> {
+  return request(`/admin/operations/circles/${encodeURIComponent(id)}/plans/${encodeURIComponent(planId)}/remove`, { method: "POST", body: JSON.stringify({ reason }) });
+}
+/** Circles 3.1 — take down a linked listing (the listing itself is untouched). */
+export function adminRemoveCircleLink(id: string, linkId: string, reason: string): Promise<{ ok: boolean }> {
+  return request(`/admin/operations/circles/${encodeURIComponent(id)}/links/${encodeURIComponent(linkId)}/remove`, { method: "POST", body: JSON.stringify({ reason }) });
+}
+/** Circles 3.0 — HelloCircle closes a Circle (or reopens one it closed). Reason required; organisers are told. */
+export function adminSetCircleOpen(id: string, action: "close" | "reopen", reason: string): Promise<{ ok: boolean }> {
+  return request(`/admin/operations/circles/${encodeURIComponent(id)}/${action}`, { method: "POST", body: JSON.stringify({ reason }) });
+}
+export function adminDeleteCirclePoll(id: string, pollId: string, reason: string): Promise<{ ok: boolean }> {
+  return request(`/admin/operations/circles/${encodeURIComponent(id)}/polls/${encodeURIComponent(pollId)}/delete`, { method: "POST", body: JSON.stringify({ reason }) });
 }
 
 export interface HostRow {

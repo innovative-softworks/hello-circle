@@ -1,3 +1,7 @@
+import { Sparkles as SparklesLucide } from "lucide-react";
+import { CategoryChips, CategoryEmptyHint, categoryWord, useCategoryFilter } from "../components/categories/CategoryChips";
+import { CardArrow, CardGrid, ListingCard } from "../components/ListingCard";
+import { CardDate } from "../components/CardDate";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { createSearchAlert, fetchCentres, fetchCircles, fetchClubs, fetchDiscover, fetchExperiences, fetchFollowFeed, fetchFreeTimeOptions, fetchResidentFull, search } from "../api";
@@ -10,19 +14,21 @@ import { ExperienceSearchCard } from "../components/ExperienceSearchCard";
 import { DropdownOption, FilterDropdown } from "../components/FilterDropdown";
 import { QuickIntentChip } from "../components/Chip";
 import { IntentCaptureForm } from "../components/IntentCaptureForm";
-import { ArrowRightIcon, BallIcon, BellIcon, BuildingIcon, CalendarIcon, CheckIcon, CloseIcon, GridIcon, HeartIcon, PinIcon, RepeatIcon, SearchIcon, TreeIconSmall } from "../components/icons";
+import { ArrowRightIcon, BallIcon, BellIcon, BuildingIcon, CalendarIcon, CheckIcon, CloseIcon, GridIcon, HeartIcon, PinIcon, RepeatIcon, SearchIcon, TreeIconSmall, UsersIcon } from "../components/icons";
 import { VENUE_PAGES_PUBLIC } from "../venueLaunch";
 import { PageTitle } from "../components/PageTitle";
-import { Photo } from "../components/Photo";
 import { EntityTypeLabel } from "../components/symbols";
 import type { EntityKind } from "../components/symbols";
-import { CardSkeleton, Drawer, EmptyState } from "../components/ui";
+import { Button, CardSkeleton, Drawer, EmptyState } from "../components/ui";
+import { dateLabel, euro } from "../euro";
 import { useGuest } from "../GuestContext";
 import { colors, fonts, maxWidth, placeholderStripes, radius } from "../theme";
 import type { Centre, Circle, Club, DiscoverFeed, DiscoverItem, Experience, SearchResult } from "../types";
 import { irelandToday } from "../irelandDate";
 import { POPULAR_SEARCHES, loadRecent, pushRecent } from "../recentSearches";
 import { CtaBand } from "../components/CtaBand";
+import { FeaturedPicks } from "../components/FeaturedPicks";
+import { ExploreCollections } from "../components/experience/ExploreCollections";
 
 const FOLLOW_FEED_KIND_TO_ENTITY: Record<string, EntityKind> = {
   experience: "experience",
@@ -33,26 +39,25 @@ const FOLLOW_FEED_KIND_TO_ENTITY: Record<string, EntityKind> = {
 
 function FollowFeedRow({ items }: { items: FollowFeedItem[] }) {
   const navigate = useNavigate();
+  // The shared photo card (owner 2026-10-27), same as every other Explore row.
   return (
-    <div style={{ marginBottom: 36 }}>
-      <h3 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 17, margin: "0 0 12px" }}>From people you follow</h3>
-      <div style={{ display: "flex", gap: 14, overflowX: "auto", paddingBottom: 4 }}>
+    <div>
+      <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: "0 0 14px" }}>From people you follow</h2>
+      <CardGrid rail style={{ display: "flex", gap: 16, overflowX: "auto", paddingBottom: 4 }}>
         {items.map((item) => (
-          <div
-            key={`${item.kind}-${item.id}`}
-            onClick={() => navigate(item.href)}
-            className="card-hover card-surface"
-            style={{ cursor: "pointer", flex: "0 0 220px", background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, overflow: "hidden" }}
-          >
-            <Photo src={item.imageUrl ?? undefined} alt={item.title} ph={placeholderStripes.green} style={{ aspectRatio: "16/10" }} />
-            <div style={{ padding: "12px 14px 14px" }}>
-              <EntityTypeLabel type={FOLLOW_FEED_KIND_TO_ENTITY[item.kind] ?? "place"} size={11} color={colors.mutedLight} />
-              <div style={{ fontWeight: 700, fontSize: 14, margin: "4px 0 2px" }}>{item.title}</div>
-              <div style={{ fontSize: 12, color: colors.mutedLight }}>{item.date} · {item.time}</div>
-            </div>
+          <div key={`${item.kind}-${item.id}`} style={{ flex: "none", width: 280, display: "flex" }}>
+            <ListingCard
+              href={item.href}
+              title={item.title}
+              image={item.imageUrl}
+              ph={placeholderStripes.green}
+              tag={<EntityTypeLabel type={FOLLOW_FEED_KIND_TO_ENTITY[item.kind] ?? "place"} size={11} color="currentColor" />}
+              dateOn={<CardDate date={item.date} time={item.time} />}
+              action={<CardArrow label={`Open: ${item.title}`} onClick={() => navigate(item.href)} />}
+            />
           </div>
         ))}
-      </div>
+      </CardGrid>
     </div>
   );
 }
@@ -118,12 +123,14 @@ const SORT_LABELS: Record<SortKey, string> = {
 // Recent/popular searches live in ../recentSearches (shared with Home's hero search).
 const POPULAR = POPULAR_SEARCHES;
 
-/** A game close to happening ("1 player needed" / "2 spots left") — the
- * same <=3 threshold Home.tsx's needPeopleGames uses. DiscoverItem has no
- * `status`/`minParticipants` (unlike the fuller Game type Home.tsx reads),
- * so this is a best-effort read of the one signal it does carry. */
+/** A game close to happening: waiting for enough people to go ahead (the
+ * feed's `card` facts, owner 2026-10-27), or nearly full ("2 spots left",
+ * the same <=3 threshold Home.tsx's needPeopleGames uses). */
 function needsPeopleGame(item: DiscoverItem): boolean {
-  return item.kind === "game" && item.spotsLeft !== null && item.spotsLeft > 0 && item.spotsLeft <= 3;
+  if (item.kind !== "game") return false;
+  const c = item.card;
+  if (c?.pending && c.minParticipants && (item.joined ?? 0) < c.minParticipants) return true;
+  return item.spotsLeft !== null && item.spotsLeft > 0 && item.spotsLeft <= 3;
 }
 
 function isWeekendDate(dateIso: string): boolean {
@@ -182,8 +189,14 @@ export function Explore() {
   const sort = (searchParams.get("sort") as SortKey) || "recommended";
   const shouldFocus = searchParams.get("focus") === "1";
   const categoryType = (searchParams.get("cat") as CategoryKey | null) ?? null;
+  // Category system — ?category=<slug>&sub=<slug> across every listing type
+  // (unified search). Separate from ?cat=, which is the listing-type preview.
+  const taxonomy = useCategoryFilter("all");
+  const taxonomyKey = JSON.stringify(taxonomy.serverParams);
+  const byCategory = !!taxonomy.serverParams.categorySlug;
+  const searching = !!qParam.trim() || byCategory;
 
-  const isResultsMode = !!qParam.trim() || when !== "" || needsPeopleOnly || !!mood;
+  const isResultsMode = searching || when !== "" || needsPeopleOnly || !!mood;
 
   const [inputValue, setInputValue] = useState(qParam);
   const [suggestOpen, setSuggestOpen] = useState(false);
@@ -360,16 +373,16 @@ export function Explore() {
 
   const runSearch = (q: string) => {
     setAlertState("idle");
-    if (!q.trim()) {
+    if (!q.trim() && !byCategory) {
       setResult(null);
       return;
     }
     setLoading(true);
-    const withCounty = county && !q.toLowerCase().includes(county.toLowerCase()) ? `${q} ${county}` : q;
-    search(withCounty)
+    const withCounty = county && !q.toLowerCase().includes(county.toLowerCase()) ? `${q} ${county}`.trim() : q;
+    search(withCounty, taxonomy.serverParams)
       .then((r) => {
         setResult(r);
-        pushRecent(q.trim());
+        if (q.trim()) pushRecent(q.trim());
         setRecent(loadRecent());
       })
       .finally(() => setLoading(false));
@@ -382,7 +395,7 @@ export function Explore() {
     if (mood) return; // mood has its own fetch above
     runSearch(qParam);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [qParam, county, mood]);
+  }, [qParam, county, mood, taxonomyKey]);
 
   const commitQuery = (v: string) => {
     patchParams((p) => {
@@ -445,58 +458,80 @@ export function Explore() {
     if (county) chips.push({ key: "county", label: county, onRemove: () => patchParams((p) => p.delete("county")) });
     if (radiusKm > 0) chips.push({ key: "radius", label: `Within ${radiusKm}km`, onRemove: () => patchParams((p) => p.delete("radiusKm")) });
     if (mood) chips.push({ key: "mood", label: mood === "surprise" ? "Surprise me" : MOOD_LABELS[mood] ?? mood, onRemove: () => patchParams((p) => { p.delete("mood"); p.delete("moodCounty"); }) });
+    if (taxonomy.label) chips.push({ key: "category", label: taxonomy.label, onRemove: () => taxonomy.setCategory(null) });
     return chips;
-  }, [when, needsPeopleOnly, county, radiusKm, mood]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [when, needsPeopleOnly, county, radiusKm, mood, taxonomy.label]);
 
   // The activities pool actually in play for Results Mode — from the search
   // API when there's a text query, otherwise from the same feed Discovery
   // Mode already fetched (so "Tonight"/"This weekend" work with zero text).
   const baseActivities: DiscoverItem[] = useMemo(() => {
     if (mood) return moodResults ?? [];
-    if (qParam.trim()) return result?.activities ?? [];
+    if (searching) return result?.activities ?? [];
     if (!feed) return [];
     if (when === "today" || when === "tonight") return feed.today;
     if (when === "weekend") return feed.weekend;
     return dedupeItems([...feed.today, ...feed.weekend]);
-  }, [mood, moodResults, qParam, result, feed, when]);
+  }, [mood, moodResults, searching, result, feed, when]);
 
   const filteredActivities = useMemo(() => {
     let items = baseActivities;
-    if (qParam.trim() && (when === "today" || when === "tonight")) items = items.filter((i) => i.date === irelandToday());
-    if (qParam.trim() && when === "weekend") items = items.filter((i) => isWeekendDate(i.date));
+    if (searching && (when === "today" || when === "tonight")) items = items.filter((i) => i.date === irelandToday());
+    if (searching && when === "weekend") items = items.filter((i) => isWeekendDate(i.date));
     if (needsPeopleOnly) items = items.filter(needsPeopleGame);
-    return sortActivities(items, sort);
-  }, [baseActivities, qParam, when, needsPeopleOnly, sort]);
+    // Batch 2 — a programme is one result (its next session), not one card per
+    // session: you enrol in the whole programme. Sessions share the
+    // programme's href, so keep the first after sorting.
+    const seenProgrammes = new Set<string>();
+    return sortActivities(items, sort).filter((i) => {
+      if (i.kind !== "program_session") return true;
+      if (seenProgrammes.has(i.href)) return false;
+      seenProgrammes.add(i.href);
+      return true;
+    });
+  }, [baseActivities, searching, when, needsPeopleOnly, sort]);
 
   const showOtherGroups = !needsPeopleOnly && !mood;
-  const allExperiences = qParam.trim() && showOtherGroups ? result?.experiences ?? [] : [];
+  const allExperiences = searching && showOtherGroups ? result?.experiences ?? [] : [];
+  // Unified search — programmes not already shown as one of their sessions
+  // above (no duplicate cards), and Circles (open/approval only, server-side).
+  const shownProgrammeHrefs = new Set(filteredActivities.filter((a) => a.kind === "program_session").map((a) => a.href));
+  const allProgrammes = searching && showOtherGroups && !when ? (result?.programmes ?? []).filter((p) => !shownProgrammeHrefs.has(`/programs/${p.id}`)) : [];
+  const allCircles = searching && showOtherGroups && !when ? result?.circles ?? [] : [];
   // Header audit P0-1 — while venue pages aren't public every centre/club
   // link lands on /coming-soon, so venue results stay out (same rule as
   // CATEGORIES above).
-  const allCentres = VENUE_PAGES_PUBLIC && qParam.trim() && showOtherGroups ? result?.centres ?? [] : [];
-  const allClubs = VENUE_PAGES_PUBLIC && qParam.trim() && showOtherGroups ? result?.clubs ?? [] : [];
+  const allCentres = VENUE_PAGES_PUBLIC && searching && showOtherGroups ? result?.centres ?? [] : [];
+  const allClubs = VENUE_PAGES_PUBLIC && searching && showOtherGroups ? result?.clubs ?? [] : [];
 
   // Narrows which result group(s) are visible — a filter on top of the
   // results Search already returned, not a re-query.
   const resultType = searchParams.get("rtype") ?? "";
-  const groupCounts = { activities: filteredActivities.length, experiences: allExperiences.length, places: allCentres.length + allClubs.length };
+  const groupCounts = { activities: filteredActivities.length, experiences: allExperiences.length, programmes: allProgrammes.length, circles: allCircles.length, places: allCentres.length + allClubs.length };
   const RESULT_TYPE_OPTIONS: { v: string; l: string; count: number }[] = [
-    { v: "", l: "All", count: groupCounts.activities + groupCounts.experiences + groupCounts.places },
+    { v: "", l: "All", count: groupCounts.activities + groupCounts.experiences + groupCounts.programmes + groupCounts.circles + groupCounts.places },
     { v: "activities", l: "Things to do", count: groupCounts.activities },
     { v: "experiences", l: "Adventures & Experiences", count: groupCounts.experiences },
+    { v: "programmes", l: "Programmes", count: groupCounts.programmes },
+    { v: "circles", l: "Circles", count: groupCounts.circles },
     { v: "places", l: "Places & Clubs", count: groupCounts.places },
   ];
   const showActivities = resultType === "" || resultType === "activities";
   const showExperiences = resultType === "" || resultType === "experiences";
   const showPlaces = resultType === "" || resultType === "places";
   const experiences = showExperiences ? allExperiences : [];
+  const programmes = resultType === "" || resultType === "programmes" ? allProgrammes : [];
+  const circleResults = resultType === "" || resultType === "circles" ? allCircles : [];
   const centres = showPlaces ? allCentres : [];
   const clubs = showPlaces ? allClubs : [];
   const visibleActivities = showActivities ? filteredActivities : [];
+  const boldWord = byCategory ? categoryWord(taxonomy) : null;
+  const boldTop = boldWord ? visibleActivities.slice(0, 4) : [];
 
-  const isSearchLoading = mood ? moodLoading : qParam.trim() ? loading : false;
-  const totalMatches = groupCounts.activities + groupCounts.experiences + groupCounts.places;
-  const visibleMatches = visibleActivities.length + experiences.length + centres.length + clubs.length;
+  const isSearchLoading = mood ? moodLoading : searching ? loading : false;
+  const totalMatches = groupCounts.activities + groupCounts.experiences + groupCounts.programmes + groupCounts.circles + groupCounts.places;
+  const visibleMatches = visibleActivities.length + experiences.length + programmes.length + circleResults.length + centres.length + clubs.length;
   const hasNoData = !isSearchLoading && totalMatches === 0;
   // Narrowed the "Things to do / Adventures / Places" filter down to a
   // group with nothing in it — different from a genuine zero-result search,
@@ -507,7 +542,9 @@ export function Explore() {
   const contextTitle = mood
     ? mood === "surprise" ? "A surprise for you" : `Feeling like: ${MOOD_LABELS[mood] ?? mood}`
     : qParam.trim()
-      ? `"${qParam.trim()}"${county ? ` near ${county}` : ""}`
+      ? `"${qParam.trim()}"${taxonomy.label ? ` in ${taxonomy.label}` : ""}${county ? ` near ${county}` : ""}`
+      : taxonomy.label
+      ? `${taxonomy.label}${county ? ` near ${county}` : ""}`
       : needsPeopleOnly
         ? "Plans that need a few more people"
         : when === "today"
@@ -536,9 +573,13 @@ export function Explore() {
       <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "36px 24px 90px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, marginBottom: 8 }}>
           <PageTitle style={{ margin: 0 }}>Explore</PageTitle>
-          <button onClick={() => navigate("/browse/centres")} style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: radius.pill, padding: "8px 16px", fontSize: 13, fontWeight: 700, color: colors.muted, cursor: "pointer", flex: "none" }}>
-            Compare places
-          </button>
+          {/* PUB-09 — Compare is a centres tool; while venue pages are gated it
+              would only lead to the coming-soon page, so it isn't offered. */}
+          {VENUE_PAGES_PUBLIC && (
+            <button onClick={() => navigate("/browse/centres")} style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: "var(--radius-button)", padding: "8px 16px", fontSize: 13, fontWeight: 700, color: colors.muted, cursor: "pointer", flex: "none" }}>
+              Compare places
+            </button>
+          )}
         </div>
         <p style={{ color: colors.mutedLight, fontSize: 15, margin: "0 0 20px" }}>What do you feel like doing?</p>
 
@@ -547,8 +588,10 @@ export function Explore() {
             brief's "[ Search... ] [ Dublin ▼ ] [ Anytime ▼ ]" layout,
             rather than a text box with filter rows scattered below it. */}
         <div ref={searchBarRef} style={{ position: "relative", marginBottom: 16 }}>
-          <div className="stack-mobile" style={{ display: "flex", alignItems: "stretch", gap: 8, background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: 8, boxShadow: "0 8px 30px rgba(30,40,32,.06)" }}>
-            <div style={{ position: "relative", flex: 1, minWidth: 0 }}>
+          {/* Batch 2 — on phones the two pickers sit side by side under the
+              input (wrap) instead of stacking into three rows. */}
+          <div style={{ display: "flex", flexWrap: "wrap", alignItems: "stretch", gap: 8, background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: 8, boxShadow: "0 8px 30px rgba(30,40,32,.06)" }}>
+            <div style={{ position: "relative", flex: "1 1 260px", minWidth: 0 }}>
               <SearchIcon size={18} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: colors.faint }} />
               <input
                 ref={inputRef}
@@ -575,7 +618,7 @@ export function Explore() {
             </div>
 
             {/* Location — county + distance, one dropdown. */}
-            <FilterDropdown label={<span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><PinIcon size={13} />{county || "Anywhere"}{radiusKm > 0 ? ` · ${radiusKm}km` : ""}</span>} active={!!county || radiusKm > 0}>
+            <FilterDropdown label={<span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><PinIcon size={13} />{county || (radiusKm > 0 && resident?.homeCounty ? resident.homeCounty : "Anywhere")}{radiusKm > 0 ? ` · ${radiusKm}km` : ""}</span>} active={!!county || radiusKm > 0}>
               <DropdownOption label="Anywhere" active={!county} onClick={() => patchParams((p) => p.delete("county"))} />
               {countyOptions.map((c) => (
                 <DropdownOption key={c} label={c} active={county === c} onClick={() => patchParams((p) => p.set("county", c))} />
@@ -644,7 +687,7 @@ export function Explore() {
         {/* Quick intentions — one-tap shortcuts for what isn't already a
             dropdown above (Tonight/Weekend live in When; distance lives in
             Location, shown in its label once set). */}
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 24 }}>
+        <div className="chips-scroll-mobile" style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 24 }}>
           {QUICK_INTENTS.map((qi) => (
             <QuickIntentChip
               key={qi.key}
@@ -658,77 +701,18 @@ export function Explore() {
           ))}
         </div>
 
+        {/* Category system — the most-listed categories only (one scrolling
+            row), then the chosen category's subcategories. */}
+        <CategoryChips state={taxonomy} limit={10} />
+
         {isResultsMode ? (
           <>
-            {/* Results toolbar */}
+            {/* Results toolbar (Batch 2): type chips with counts first, then one
+                row with the count on the left and Filters + Sort on the right,
+                then any active filters. Same controls as before, less height. */}
             <div style={{ marginBottom: 18 }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, marginBottom: 10 }}>
-                <div>
-                  <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 21, margin: 0 }}>{contextTitle}</h2>
-                  {!isSearchLoading && (
-                    <div style={{ fontSize: 13.5, color: colors.mutedLight, marginTop: 2 }}>
-                      {visibleMatches} match{visibleMatches === 1 ? "" : "es"}
-                      {resultType && visibleMatches !== totalMatches ? ` of ${totalMatches}` : ""}
-                    </div>
-                  )}
-                </div>
-                {resident && result?.parsed && (result.parsed.county || result.parsed.keywords.length > 0) && (
-                  <button
-                    onClick={saveAlert}
-                    disabled={alertState !== "idle"}
-                    style={{
-                      display: "inline-flex", alignItems: "center", gap: 6,
-                      background: alertState === "saved" ? colors.greenBg : "none",
-                      color: alertState === "saved" ? colors.greenText : colors.muted,
-                      border: `1px solid ${alertState === "saved" ? colors.green : colors.border}`,
-                      borderRadius: radius.pill, padding: "6px 12px", fontSize: 12.5, fontWeight: 600,
-                      cursor: alertState === "idle" ? "pointer" : "default",
-                    }}
-                  >
-                    <BellIcon size={13} />
-                    {alertState === "saved" ? "We'll notify you" : alertState === "saving" ? "Saving…" : "Notify me about new sessions like this"}
-                  </button>
-                )}
-              </div>
-
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
-                  {activeFilterChips.map((c) => (
-                    <span key={c.key} style={{ display: "inline-flex", alignItems: "center", gap: 5, background: colors.panel, borderRadius: radius.pill, padding: "5px 6px 5px 12px", fontSize: 12.5, fontWeight: 700, color: colors.text }}>
-                      {c.label}
-                      <button onClick={c.onRemove} aria-label={`Remove ${c.label} filter`} style={{ background: "none", border: "none", cursor: "pointer", color: colors.muted, display: "flex", padding: 4 }}>
-                        <CloseIcon size={12} />
-                      </button>
-                    </span>
-                  ))}
-                  {activeFilterChips.length > 1 && (
-                    <button onClick={clearAll} style={{ background: "none", border: "none", color: colors.muted, fontWeight: 700, fontSize: 12.5, cursor: "pointer" }}>
-                      Clear all
-                    </button>
-                  )}
-                  <button onClick={() => setFiltersOpen(true)} className="btn" style={{ border: `1px solid ${colors.borderStrong}`, background: colors.surface, borderRadius: radius.pill, padding: "6px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>
-                    Filters
-                  </button>
-                </div>
-                <select
-                  aria-label="Sort results"
-                  value={sort}
-                  onChange={(e) => patchParams((p) => p.set("sort", e.target.value))}
-                  style={{ padding: "8px 12px", border: `1px solid ${colors.inputBorder}`, borderRadius: radius.control, fontSize: 13.5, background: colors.bg, color: colors.text, outline: "none", fontWeight: 600 }}
-                >
-                  {(Object.keys(SORT_LABELS) as SortKey[]).map((k) => (
-                    <option key={k} value={k}>
-                      Sort: {SORT_LABELS[k]}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Narrows which of the (already-fetched) result groups are
-                  shown — only worth surfacing when more than one kind of
-                  result actually came back. */}
-              {!isSearchLoading && [groupCounts.activities, groupCounts.experiences, groupCounts.places].filter((n) => n > 0).length > 1 && (
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
+              {!isSearchLoading && [groupCounts.activities, groupCounts.experiences, groupCounts.programmes, groupCounts.circles, groupCounts.places].filter((n) => n > 0).length > 1 && (
+                <div className="chips-scroll-mobile" style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
                   {RESULT_TYPE_OPTIONS.filter((o) => o.v === "" || o.count > 0).map((o) => (
                     <button
                       key={o.v}
@@ -743,10 +727,72 @@ export function Explore() {
                   ))}
                 </div>
               )}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
+                <div style={{ minWidth: 0 }}>
+                  <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 19, margin: 0, display: "inline" }}>{contextTitle}</h2>
+                  {!isSearchLoading && (
+                    <span style={{ fontSize: 13.5, color: colors.mutedLight, marginLeft: 8 }}>
+                      {visibleMatches} result{visibleMatches === 1 ? "" : "s"}
+                      {resultType && visibleMatches !== totalMatches ? ` of ${totalMatches}` : ""}
+                    </span>
+                  )}
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <button onClick={() => setFiltersOpen(true)} className="btn" style={{ border: `1px solid ${colors.borderStrong}`, background: colors.surface, borderRadius: "var(--radius-button)", padding: "8px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+                    Filters{activeFilterChips.length > 0 ? ` · ${activeFilterChips.length}` : ""}
+                  </button>
+                  <select
+                    aria-label="Sort results"
+                    value={sort}
+                    onChange={(e) => patchParams((p) => p.set("sort", e.target.value))}
+                    style={{ padding: "8px 12px", border: `1px solid ${colors.inputBorder}`, borderRadius: radius.control, fontSize: 13.5, background: colors.bg, color: colors.text, outline: "none", fontWeight: 600 }}
+                  >
+                    {(Object.keys(SORT_LABELS) as SortKey[]).map((k) => (
+                      <option key={k} value={k}>
+                        Sort: {SORT_LABELS[k]}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              {(activeFilterChips.length > 0 || (resident && result?.parsed && (result.parsed.county || result.parsed.keywords.length > 0))) && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", marginTop: 10 }}>
+                  {activeFilterChips.map((c) => (
+                    <span key={c.key} style={{ display: "inline-flex", alignItems: "center", gap: 5, background: colors.panel, borderRadius: radius.pill, padding: "5px 6px 5px 12px", fontSize: 12.5, fontWeight: 700, color: colors.text }}>
+                      {c.label}
+                      <button onClick={c.onRemove} aria-label={`Remove ${c.label} filter`} style={{ background: "none", border: "none", cursor: "pointer", color: colors.muted, display: "flex", padding: 4 }}>
+                        <CloseIcon size={12} />
+                      </button>
+                    </span>
+                  ))}
+                  {activeFilterChips.length > 1 && (
+                    <button onClick={clearAll} style={{ background: "none", border: "none", color: colors.muted, fontWeight: 700, fontSize: 12.5, cursor: "pointer" }}>
+                      Clear all
+                    </button>
+                  )}
+                {resident && result?.parsed && (result.parsed.county || result.parsed.keywords.length > 0) && (
+                  <button
+                    onClick={saveAlert}
+                    disabled={alertState !== "idle"}
+                    style={{
+                      display: "inline-flex", alignItems: "center", gap: 6,
+                      background: alertState === "saved" ? colors.greenBg : "none",
+                      color: alertState === "saved" ? colors.greenText : colors.muted,
+                      border: `1px solid ${alertState === "saved" ? colors.green : colors.border}`,
+                      borderRadius: "var(--radius-button)", padding: "6px 12px", fontSize: 12.5, fontWeight: 600,
+                      cursor: alertState === "idle" ? "pointer" : "default",
+                    }}
+                  >
+                    <BellIcon size={13} />
+                    {alertState === "saved" ? "We'll notify you" : alertState === "saving" ? "Saving…" : "Notify me about new sessions like this"}
+                  </button>
+                )}
+                </div>
+              )}
             </div>
 
             {isSearchLoading ? (
-              <div className="grid-responsive-3" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 20 }}>
+              <div className="listing-grid">
                 {Array.from({ length: 6 }, (_, i) => <CardSkeleton key={i} />)}
               </div>
             ) : hasNoData ? (
@@ -763,46 +809,42 @@ export function Explore() {
                 </p>
                 <button
                   onClick={() => patchParams((p) => p.delete("rtype"))}
-                  style={{ background: colors.green, color: "#fff", border: "none", borderRadius: radius.pill, padding: "9px 18px", fontSize: 13.5, fontWeight: 700, cursor: "pointer" }}
+                  className="btn-cta" style={{ background: "var(--color-cta)", color: "var(--color-on-cta)", border: "none", borderRadius: "var(--radius-button)", minWidth: "var(--button-min-width)", padding: "9px 18px", fontSize: 13.5, fontWeight: 700, cursor: "pointer" }}
                 >
                   Show all results
                 </button>
               </div>
             ) : (
               <>
-                {visibleActivities.length > 0 && (
-                  <div style={{ marginBottom: 28 }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: colors.muted, marginBottom: 12 }}>THINGS TO DO</div>
-                    <div className="grid-responsive-3" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 20 }}>
-                      {visibleActivities.map((a) => (
-                        <DiscoverCard key={`${a.kind}-${a.id}`} item={a} isToday={a.date === irelandToday()} fill />
-                      ))}
-                    </div>
+                {/* Batch 2 — one grid for every result type (the type chips
+                    above already narrow it), instead of a headed section per
+                    type that left half-empty rows. */}
+                {/* Category page (owner plan, 2026-10-23): the first row in
+                    the Bold typography style, named after the chosen
+                    category; the rest stay compact for comparing. */}
+                {boldTop.length > 0 && (
+                  <div className="listing-grid" style={{ marginBottom: 20 }}>
+                    {boldTop.map((a) => (
+                      <DiscoverCard key={`${a.kind}-${a.id}`} item={a} isToday={a.date === irelandToday()} fill look="bold" category={boldWord} />
+                    ))}
                   </div>
                 )}
-                {experiences.length > 0 && (
-                  <div style={{ marginBottom: 28 }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: colors.muted, marginBottom: 12 }}>ADVENTURES &amp; EXPERIENCES</div>
-                    <div className="grid-responsive-3" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 20 }}>
-                      {experiences.map((e) => <ExperienceSearchCard key={e.id} e={e} />)}
-                    </div>
-                  </div>
-                )}
-                {(centres.length > 0 || clubs.length > 0) && (
-                  <div style={{ marginBottom: 8 }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: colors.muted, marginBottom: 12 }}>PLACES &amp; CLUBS</div>
-                    <div className="grid-responsive-3" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 20 }}>
-                      {centres.map((c) => <CentreCard key={c.id} centre={c} />)}
-                      {clubs.map((c) => <ClubCard key={c.id} club={c} />)}
-                    </div>
-                  </div>
-                )}
+                <CardGrid>
+                  {visibleActivities.slice(boldTop.length).map((a) => (
+                    <DiscoverCard key={`${a.kind}-${a.id}`} item={a} isToday={a.date === irelandToday()} fill />
+                  ))}
+                  {experiences.map((e) => <ExperienceSearchCard key={e.id} e={e} />)}
+                  {programmes.map((p) => <ProgrammeResultCard key={`programme-${p.id}`} p={p} />)}
+                  {circleResults.map((c) => <CircleResultCard key={`circle-${c.id}`} c={c} />)}
+                  {centres.map((c) => <CentreCard key={c.id} centre={c} />)}
+                  {clubs.map((c) => <ClubCard key={c.id} club={c} />)}
+                </CardGrid>
               </>
             )}
           </>
         ) : (
           <>
-            <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 14, marginBottom: 36 }}>
+            <div className="explore-categories" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 14, marginBottom: 36 }}>
               {CATEGORIES.map((c) => {
                 const active = categoryType === c.key;
                 return (
@@ -875,7 +917,7 @@ export function Explore() {
                   (() => {
                     const shown = (previewNeedsPeople ? (gamesPreview ?? []).filter(needsPeopleGame) : (gamesPreview ?? [])).slice(0, 10);
                     return previewLoading ? (
-                      <div className="grid-responsive-3" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 20 }}>
+                      <div className="listing-grid">
                         {Array.from({ length: 10 }).map((_, i) => (
                           <CardSkeleton key={i} />
                         ))}
@@ -885,11 +927,11 @@ export function Explore() {
                         {(gamesPreview?.length ?? 0) > 0 ? "Nothing matches that filter yet." : "Nothing here yet."}
                       </div>
                     ) : (
-                      <div className="grid-responsive-3" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 20 }}>
+                      <CardGrid>
                         {shown.map((a) => (
                           <DiscoverCard key={`${a.kind}-${a.id}`} item={a} isToday={a.date === irelandToday()} fill />
                         ))}
-                      </div>
+                      </CardGrid>
                     );
                   })()
                 ) : (
@@ -901,7 +943,7 @@ export function Explore() {
                     const ready = previewItemsFor === categoryType;
                     const shown = ready ? previewItems.slice(0, 10) : [];
                     return previewLoading || !ready ? (
-                      <div className="grid-responsive-3" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 20 }}>
+                      <div className="listing-grid">
                         {Array.from({ length: 10 }).map((_, i) => (
                           <CardSkeleton key={i} />
                         ))}
@@ -911,7 +953,7 @@ export function Explore() {
                         Nothing here yet.
                       </div>
                     ) : (
-                      <div className="grid-responsive-3" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 20 }}>
+                      <CardGrid>
                         {categoryType === "centres" && (shown as Centre[]).map((c) => <CentreCard key={c.id} centre={c} />)}
                         {categoryType === "clubs" && (shown as Club[]).map((c) => <ClubCard key={c.id} club={c} />)}
                         {(categoryType === "adventures" || categoryType === "experiences") && (shown as Experience[]).map((e) => <ExperienceSearchCard key={e.id} e={e} />)}
@@ -926,7 +968,7 @@ export function Explore() {
                               onLeave={() => navigate(`/circles/${c.slug ?? c.id}`)}
                             />
                           ))}
-                      </div>
+                      </CardGrid>
                     );
                   })()
                 )}
@@ -942,7 +984,7 @@ export function Explore() {
                 <p style={{ fontSize: 14.5, color: colors.muted, margin: "0 0 12px" }}>Nothing within {radiusKm}km right now.</p>
                 <button
                   onClick={() => patchParams((p) => p.set("radiusKm", String(RADIUS_OPTIONS[Math.min(RADIUS_OPTIONS.indexOf(radiusKm) + 1, RADIUS_OPTIONS.length - 1)])))}
-                  style={{ background: colors.green, color: "#fff", border: "none", borderRadius: radius.pill, padding: "9px 18px", fontSize: 13.5, fontWeight: 700, cursor: "pointer" }}
+                  className="btn-cta" style={{ background: "var(--color-cta)", color: "var(--color-on-cta)", border: "none", borderRadius: "var(--radius-button)", minWidth: "var(--button-min-width)", padding: "9px 18px", fontSize: 13.5, fontWeight: 700, cursor: "pointer" }}
                 >
                   Widen to {RADIUS_OPTIONS[Math.min(RADIUS_OPTIONS.indexOf(radiusKm) + 1, RADIUS_OPTIONS.length - 1)] || "any distance"}
                   {RADIUS_OPTIONS[Math.min(RADIUS_OPTIONS.indexOf(radiusKm) + 1, RADIUS_OPTIONS.length - 1)] ? "km" : ""}
@@ -950,26 +992,53 @@ export function Explore() {
               </div>
             ) : (
               <>
-                {followFeed.length > 0 && <FollowFeedRow items={followFeed} />}
+                {/* The radius found nothing with a confirmed location, so the
+                    server sent the county it was measured from (owner 2026-10-27). */}
+                {feed.radiusFallback && (
+                  <p role="status" style={{ margin: "0 0 20px", padding: "12px 16px", borderRadius: radius.card, background: colors.panel, fontSize: 14.5, color: colors.muted }}>
+                    No exact distances for places near you yet, so here's everything in <strong style={{ color: colors.text }}>{feed.radiusFallback.county}</strong>.{" "}
+                    <button type="button" className="link-button" onClick={() => patchParams((p) => p.delete("radiusKm"))} style={{ background: "none", border: "none", padding: 0, font: "inherit", fontWeight: 700, color: colors.text, textDecoration: "underline", cursor: "pointer" }}>
+                      Show all of Ireland
+                    </button>
+                  </p>
+                )}
+                {/* Every row the same photo card, a line between rows
+                    (Explore cleanup, owner 2026-10-27). */}
+                {followFeed.length > 0 && (
+                  <section className="ex-row" aria-label="From people you follow">
+                    <FollowFeedRow items={followFeed} />
+                  </section>
+                )}
                 {needPeopleFeed.length > 0 && (
-                  <div style={{ marginBottom: 36 }}>
-                    <DiscoverRow title="Needs a few more people" items={needPeopleFeed} isToday limit={12} moreHref="/explore?needsPeople=1" />
-                  </div>
+                  <section className="ex-row" aria-label="Needs a few more people">
+                    <DiscoverRow title="Needs a few more people" subtitle="Join now and it goes ahead." items={needPeopleFeed} isToday limit={12} moreHref="/explore?needsPeople=1" />
+                  </section>
                 )}
                 {feed.today.length > 0 && (
-                  <div style={{ marginBottom: 36 }}>
-                    <DiscoverRow title="Happening today" items={feed.today} isToday limit={12} moreHref="/explore?when=today" />
-                  </div>
+                  <section className="ex-row" aria-label="Happening today">
+                    <DiscoverRow title="Happening today" items={feed.today} isToday limit={8} moreHref="/explore?when=today" layout="grid" />
+                  </section>
                 )}
-                {feed.weekend.length > 0 && <DiscoverRow title="This weekend" items={feed.weekend} limit={12} moreHref="/explore?when=weekend" />}
+                {feed.weekend.length > 0 && (
+                  <section className="ex-row" aria-label="This weekend">
+                    <DiscoverRow title="This weekend" items={feed.weekend} limit={8} moreHref="/explore?when=weekend" layout="grid" />
+                  </section>
+                )}
+                <ExploreCollections county={county} />
               </>
             )}
           </>
         )}
       </section>
 
+      {/* A featured section (owner 2026-10-27). */}
+      <div className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "0 24px" }}>
+        <FeaturedPicks kind="circles" />
+      </div>
+
       <CtaBand
         id="explore-cta-title"
+        panel={{ title: "Tell us what you'd like", text: "We'll help you get people together for it.", icon: <SparklesLucide size={20} strokeWidth={2} /> }}
         lines={["Can't find", "your", "thing?"]}
         text="Tell us what you'd like to do and where — we'll help you get people together."
         action={{ label: "Make it happen", to: "/make-it-happen" }}
@@ -994,7 +1063,7 @@ export function Explore() {
             </button>
             <button
               onClick={() => setFiltersOpen(false)}
-              style={{ background: colors.green, color: "#fff", border: "none", borderRadius: radius.pill, padding: "9px 20px", fontSize: 13.5, fontWeight: 700, cursor: "pointer" }}
+              className="btn-cta" style={{ background: "var(--color-cta)", color: "var(--color-on-cta)", border: "none", borderRadius: "var(--radius-button)", minWidth: "var(--button-min-width)", padding: "9px 20px", fontSize: 13.5, fontWeight: 700, cursor: "pointer" }}
             >
               Show {totalMatches} match{totalMatches === 1 ? "" : "es"}
             </button>
@@ -1002,5 +1071,52 @@ export function Explore() {
         </div>
       </Drawer>
     </div>
+  );
+}
+
+type SearchProgramme = NonNullable<SearchResult["programmes"]>[number];
+type SearchCircle = NonNullable<SearchResult["circles"]>[number];
+
+/** Unified-search programme result (the programme, not one of its sessions). */
+function ProgrammeResultCard({ p }: { p: SearchProgramme }) {
+  const navigate = useNavigate();
+  const href = `/programs/${p.id}`;
+  return (
+    <ListingCard
+      href={href}
+      title={p.title}
+      image={p.imageUrl}
+      ph={placeholderStripes.green}
+      icon={<GridIcon size={20} />}
+      iconColor={colors.green}
+      tag="Programme"
+      details={[{ icon: <PinIcon size={13} />, text: [p.parentName, p.area || p.county].filter(Boolean).join(" · ") }]}
+      facts={<span>{p.nextSessionDate ? `Next: ${dateLabel(p.nextSessionDate)}` : "Ongoing"}{p.priceCents ? ` · ${euro(p.priceCents / 100)}` : " · Free"}</span>}
+      action={
+        <CardArrow label={`View programme: ${p.title}`} onClick={() => navigate(href)} />
+      }
+    />
+  );
+}
+
+/** Unified-search Circle result — teaser fields only (approval Circles never show more). */
+function CircleResultCard({ c }: { c: SearchCircle }) {
+  const navigate = useNavigate();
+  const href = `/circles/${c.slug ?? c.id}`;
+  return (
+    <ListingCard
+      href={href}
+      title={c.name}
+      image={null}
+      ph={placeholderStripes.orange}
+      icon={<UsersIcon size={20} />}
+      iconColor={colors.orange}
+      tag="Circle"
+      details={[{ icon: <PinIcon size={13} />, text: [c.activityLabel, c.area || c.county].filter(Boolean).join(" · ") }]}
+      facts={<span>{c.members} {c.members === 1 ? "member" : "members"}</span>}
+      action={
+        <CardArrow label={`View Circle: ${c.name}`} onClick={() => navigate(href)} />
+      }
+    />
   );
 }

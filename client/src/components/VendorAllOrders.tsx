@@ -2,7 +2,7 @@ import { useNavigate } from "react-router-dom";
 import { fetchVendorOrders, type VendorOrder } from "../api";
 import { dateLabel } from "../euro";
 import { useUrlParam } from "../useUrlTab";
-import { AdminButton, Box, EmptyMessage, Loaded, SearchField, SelectField, StatusTag, Toolbar, useAdminData } from "./admin/adminUi";
+import { AdminButton, Box, EmptyMessage, Loaded, SearchField, SelectField, StatusTag, Toolbar, useAdminData, RowMenu } from "./admin/adminUi";
 
 // OG-13 / DEC-04 — every order across the organisation's listings in one
 // read-only list: hall bookings, club registrations, programme enrolments and
@@ -122,9 +122,12 @@ export function VendorAllOrders({ onOpenBooking, onOpenRegistration }: { onOpenB
                             )}
                           </td>
                           <td data-label="">
-                            <AdminButton size="sm" onClick={() => open(o)} aria-label={`Open ${o.customerName}'s ${TYPE_LABEL[o.type].toLowerCase()}`}>
-                              Open
-                            </AdminButton>
+                            <div className="adm-cell-actions">
+                              <AdminButton size="sm" onClick={() => open(o)} aria-label={`Open ${o.customerName}'s ${TYPE_LABEL[o.type].toLowerCase()}`}>
+                                Open
+                              </AdminButton>
+                              <RowMenu name={`${o.customerName}'s ${TYPE_LABEL[o.type].toLowerCase()}`} items={[{ label: "Open", onSelect: () => open(o) }]} copy={{ value: o.ref }} />
+                            </div>
                           </td>
                         </tr>
                       ))}

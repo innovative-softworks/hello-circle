@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Components &amp; states — proposed</title>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=Figtree:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="proto.css">
+<style>
+  .sheet h2.sh { font-size: 26px; margin: var(--s7) 0 6px; } .sheet p.sd { color: var(--muted); margin-bottom: var(--s4); max-width: 80ch; }
+  .g3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s4); }
+  .g4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--s4); }
+  .st { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-card); padding: 18px; display: flex; flex-direction: column; gap: 8px; }
+  .st .big { font: 800 20px/1.1 var(--display); display: flex; gap: 8px; align-items: center; }
+  .st .dot { width: 11px; height: 11px; border-radius: 50%; }
+  .st code { font-size: 11.5px; color: var(--faint); }
+  .join { display: flex; flex-direction: column; gap: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 16px; }
+  @media (max-width: 980px) { .g3, .g4 { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 560px) { .g3, .g4 { grid-template-columns: 1fr; } }
+</style></head>
+<body data-page="explore">
+<main class="wrap sheet">
+  <h1 style="margin-top:var(--s6)">Components &amp; states</h1>
+  <p class="support" style="margin-top:8px">Proposed shared parts. Every listing type uses the same card anatomy and shows only the fields it has.</p>
+
+  <h2 class="sh">Listing card — photo and no-photo</h2>
+  <p class="sd">No-photo cards use the listing's own category, name and date on a category colour — never an unrelated stock photo. Colours by category family; white text passes AA on every tone.</p>
+  <div class="grid" id="cards"></div>
+
+  <h2 class="sh">No-photo tones</h2>
+  <div class="g3" id="tones"></div>
+
+  <h2 class="sh">Search states</h2>
+  <div class="g3">
+    <div><h4 style="margin-bottom:10px">Loading (skeleton, same card size — no layout shift)</h4><div class="skel" style="aspect-ratio:4/3"></div><div class="skel" style="height:14px;width:40%;margin-top:12px"></div><div class="skel" style="height:18px;width:80%;margin-top:8px"></div><div class="skel" style="height:14px;width:60%;margin-top:8px"></div></div>
+    <div><h4 style="margin-bottom:10px">No results</h4><div class="state"><h3>No matches for “kayak” near Sligo</h3><p class="support">Try a wider area or any date — or tell us you're interested and we'll let you know.</p><div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center"><span class="chip">Anywhere in Ireland</span><span class="chip">Any time</span><span class="chip">Clear filters</span></div><span class="btn secondary sm">I'm interested in kayaking</span></div></div>
+    <div><h4 style="margin-bottom:10px">Couldn't load (never shown as “0 results”)</h4><div class="alert err" role="alert"><span data-ic="x"></span><div><b>We couldn't load results.</b><br>Check your connection and try again.<div style="margin-top:10px"><span class="btn sm secondary">Try again</span></div></div></div></div>
+  </div>
+
+  <h2 class="sh">Booking status — user-facing language</h2>
+  <p class="sd">Mapped from existing backend states only; no new lifecycle. The status card always offers the one action that state supports.</p>
+  <div class="g4">
+    <div class="st"><span class="big"><i class="dot" style="background:var(--green)"></i>Confirmed</span><span class="support">You're booked.</span><span class="btn sm primary">Add to calendar</span><code>payment_status=paid · status=confirmed</code></div>
+    <div class="st"><span class="big"><i class="dot" style="background:#c98a12"></i>Confirming payment</span><span class="support">Usually a few seconds. Please don't pay again.</span><span class="btn sm secondary">Refresh</span><code>payment_status=pending</code></div>
+    <div class="st"><span class="big"><i class="dot" style="background:#c98a12"></i>Payment being checked</span><span class="support">We received your payment and are checking it. Not confirmed yet.</span><span class="btn sm secondary">Contact us</span><code>paymentReview / payment_reviews</code></div>
+    <div class="st"><span class="big"><i class="dot" style="background:var(--danger)"></i>Payment didn't go through</span><span class="support">No charge was made. Your place was released.</span><span class="btn sm secondary">Try again</span><code>payment_status=failed</code></div>
+    <div class="st"><span class="big"><i class="dot" style="background:var(--faint)"></i>Cancelled</span><span class="support">Cancelled on 19 Oct.</span><span class="btn sm secondary">Find something similar</span><code>status=cancelled</code></div>
+    <div class="st"><span class="big"><i class="dot" style="background:var(--blue)"></i>Refund on its way</span><span class="support">€73.50 is being refunded; allow a few business days.</span><span class="btn sm secondary">View receipt</span><code>refund pending</code></div>
+    <div class="st"><span class="big"><i class="dot" style="background:var(--blue)"></i>Refunded</span><span class="support">€73.50 refunded on 20 Oct.</span><span class="btn sm secondary">View receipt</span><code>refunded</code></div>
+    <div class="st"><span class="big"><i class="dot" style="background:var(--ink)"></i>Completed</span><span class="support">Hope it went well.</span><span class="btn sm secondary">Leave a review</span><code>date in past · confirmed</code></div>
+  </div>
+
+  <h2 class="sh">Circle join states</h2>
+  <div class="g3">
+    <div class="join"><b>Open Circle · signed out</b><span class="btn primary">Sign in to join</span></div>
+    <div class="join"><b>Open Circle · signed in</b><span class="btn primary">Join Circle</span><span class="caption">You're in straight away.</span></div>
+    <div class="join"><b>Approval Circle</b><span class="btn primary">Request to join</span><span class="caption">The organiser reviews requests.</span></div>
+    <div class="join"><b>Request sent</b><span class="pill amber" style="align-self:flex-start">Request pending</span><span class="btn quiet" style="align-self:flex-start">Withdraw request</span></div>
+    <div class="join"><b>Invite only</b><span class="support">Join with an invitation from a member.</span></div>
+    <div class="join"><b>Organiser</b><span class="pill green" style="align-self:flex-start">You organise this Circle</span><span class="btn secondary">Manage Circle</span></div>
+  </div>
+
+  <h2 class="sh">My Life — nothing coming up · signed out</h2>
+  <div class="g3">
+    <div class="state" style="align-items:flex-start;text-align:left"><span class="eyebrow ink">Coming up</span><h3>Nothing booked yet</h3><p class="support">Activities, bookings, programme sessions and Circle plans you've joined will show here.</p><span class="btn primary sm">Find something to do</span></div>
+    <div class="panel" style="display:flex;flex-direction:column;gap:10px"><h3>Sign in to see your life</h3><p class="support">Your plans, Circles and history, all in one place.</p><div style="display:flex;gap:8px;flex-wrap:wrap"><span class="btn primary sm">Sign in</span><span class="btn secondary sm">Find a booking</span></div></div>
+    <div class="alert err" role="alert"><span data-ic="x"></span><div><b>Some of your plans couldn't load.</b> What's shown may be incomplete — nothing has been changed.<div style="margin-top:10px"><span class="btn sm secondary">Try again</span></div></div></div>
+  </div>
+
+  <h2 class="sh">Removed listing</h2>
+  <div class="state" style="max-width:560px"><h3>This activity is no longer available</h3><p class="support">It may have been cancelled or removed by its host. Here are similar things this week.</p><span class="btn primary sm">Find something similar</span></div>
+  <div style="height:var(--s7)"></div>
+</main>
+<script src="proto.js"></script><script src="cards.js"></script>
+<script>
+  document.getElementById("cards").innerHTML = RESULTS.slice(0, 4).map((d) => card(d)).join("");
+  const tones = [["sport", "Activity · Football", "Five-a-side Football", "Wed 21 Oct · 10:00"], ["social", "Activity · Social", "Coffee & Chat Meetup", "Fri 23 Oct · 12:00"], ["learn", "Programme · 6 weeks", "Beginners Yoga", "Starts Tue 27 Oct"], ["outdoor", "Activity · Walking", "Hiking Group Walk", "Sat 24 Oct · 13:00"], ["place", "Community centre", "Ballincollig Community Centre", "From €18/hour"], ["circle", "Circle", "Cork Saturday Parkrun", "Every Saturday"]];
+  document.getElementById("tones").innerHTML = tones.map(([t, k, n, d]) => `<div style="position:relative;aspect-ratio:4/3;border-radius:14px;overflow:hidden"><div class="nophoto ${t}"><span class="np-kind">${k}</span><span class="np-title">${n}</span><span class="np-date">${d}</span></div></div>`).join("");
+</script>
+</body></html>

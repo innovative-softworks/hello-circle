@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { ArrowLeftRight, Bell, Building2, ClipboardCheck, Heart, LayoutDashboard, LogOut, MessageCircle, Moon, Settings, Sun, Ticket, UserRound, UsersRound, type LucideIcon } from "lucide-react";
+import { ArrowLeftRight, Bell, Building2, ClipboardCheck, CreditCard, Heart, LayoutDashboard, LifeBuoy, LogOut, Megaphone, MessageCircle, Moon, Settings, Sun, Ticket, UserRound, UsersRound, type LucideIcon } from "lucide-react";
 import type { ManageWorkspaces } from "../../api/manage";
 import { accountItemKeys, type AccountItemKey } from "../../navigation/navConfig";
 import { colors } from "../../theme";
@@ -32,6 +32,8 @@ export interface AccountMenuProps {
   onNavigate: () => void;
   /** Extra rows before the theme/sign-out rows (the mobile sheet adds Suggest a place, Help…). */
   extra?: ReactNode;
+  /** Which surface renders the menu ("dropdown" on desktop, "sheet" on phones). Both show the same rows. */
+  surface?: "dropdown" | "sheet";
 }
 
 const Icon = ({ icon: I }: { icon: LucideIcon }) => (
@@ -66,8 +68,12 @@ export function AccountMenuContent(p: AccountMenuProps) {
   const email = resident?.email || user?.email || p.guestEmail || "";
   const signedIn = !!user || !!p.guestEmail;
   const nav = p.onNavigate;
-  const personal = has("my-life") || has("saved") || has("messages");
-  const work = has("manage-hosting") || has("switch-to-vendor") || has("vendor-pending") || has("vendor-dashboard") || has("admin-dashboard") || has("switch-to-personal");
+  const showSaved = has("saved");
+  const showMessages = has("messages");
+  const personal = has("my-life") || showSaved || showMessages;
+  const work =
+    has("manage-hosting") || has("become-host") || has("switch-to-vendor") || has("vendor-pending") || has("vendor-dashboard") || has("admin-dashboard") || has("switch-to-personal");
+  const settings = has("settings");
 
   return (
     <div>
@@ -88,17 +94,16 @@ export function AccountMenuContent(p: AccountMenuProps) {
 
       {personal && <div style={dividerStyle} />}
       {has("my-life") && <Row to="/bookings" icon={UserRound} count={p.myLifeCount} onNavigate={nav}>My Life</Row>}
-      {has("my-bookings") && <Row to="/bookings#my-bookings" icon={Ticket} onNavigate={nav}>My bookings</Row>}
-      {has("my-circles") && <Row to="/bookings#my-circles" icon={UsersRound} onNavigate={nav}>My Circles</Row>}
-      {has("saved") && <Row to="/profile?tab=favourites" icon={Heart} onNavigate={nav}>Saved</Row>}
+      {has("my-bookings") && <Row to="/bookings?tab=plans" icon={Ticket} onNavigate={nav}>My Plans</Row>}
+      {has("my-circles") && <Row to="/bookings?tab=circles" icon={UsersRound} onNavigate={nav}>My Circles</Row>}
+      {showSaved && <Row to="/bookings?tab=saved" icon={Heart} onNavigate={nav}>Saved</Row>}
       {has("notifications") && <Row to={NOTIFICATIONS_INBOX} icon={Bell} count={p.unreadNotifs} onNavigate={nav}>Notifications</Row>}
-      {has("messages") && <Row to="/chats" icon={MessageCircle} count={p.chatUnread} onNavigate={nav}>Messages</Row>}
-      {has("settings") && <Row to="/profile?tab=preferences" icon={Settings} onNavigate={nav}>Settings</Row>}
+      {showMessages && <Row to="/chats" icon={MessageCircle} count={p.chatUnread} onNavigate={nav}>Messages</Row>}
 
       {work && (
         <>
           <div style={dividerStyle} />
-          <div style={menuLabelStyle}>Manage</div>
+          <div style={menuLabelStyle}>{has("admin-dashboard") || has("vendor-dashboard") ? "Manage" : "Hosting"}</div>
         </>
       )}
       {has("manage-hosting") && <Row to="/manage" icon={LayoutDashboard} onNavigate={nav}>Manage hosting</Row>}
@@ -108,6 +113,7 @@ export function AccountMenuContent(p: AccountMenuProps) {
             Manage {c.name}
           </Row>
         ))}
+      {has("become-host") && <Row to="/profile?tab=hosting" icon={Megaphone} onNavigate={nav}>Become a host</Row>}
       {has("switch-to-vendor") && (
         <button type="button" className="hc-menu-row" onClick={p.onSwitchVendor}>
           <Icon icon={ArrowLeftRight} />
@@ -144,6 +150,16 @@ export function AccountMenuContent(p: AccountMenuProps) {
         <Row to="/admin?tab=pending" icon={ClipboardCheck} count={p.businessCount} onNavigate={nav}>
           Pending approvals
         </Row>
+      )}
+
+      {settings && (
+        <>
+          <div style={dividerStyle} />
+          {/* Same destinations, names and order as the account sidebar. */}
+          <Row to="/profile" icon={Settings} onNavigate={nav}>Settings</Row>
+          {has("payments") && <Row to="/profile?tab=payment" icon={CreditCard} onNavigate={nav}>Payments & receipts</Row>}
+          {has("help") && <Row to="/profile?tab=help" icon={LifeBuoy} onNavigate={nav}>Help & support</Row>}
+        </>
       )}
 
       {p.extra}

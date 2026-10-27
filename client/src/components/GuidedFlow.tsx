@@ -83,7 +83,7 @@ export function GuidedFlow({
   if (inWorkspace) {
     const pct = Math.round(((currentStep - 1) / stepLabels.length) * 100);
     return (
-      <div className="ws-editor">
+      <div className="ws-editor ws-editor--wizard">
         <section className="ws-sec" aria-labelledby={`${idBase}-h`}>
           <div className="ws-sec-head">
             <span className="adm-itile" aria-hidden="true" style={{ fontWeight: 700 }}>
@@ -173,6 +173,7 @@ export function GuidedFlow({
           onClick={continueType === "submit" ? undefined : onContinue}
           disabled={continueDisabled || continueBusy}
           variant={accent === "orange" ? "orange" : "primary"}
+          size="lg"
         >
           {continueBusy ? "Saving…" : continueLabel}
         </Button>

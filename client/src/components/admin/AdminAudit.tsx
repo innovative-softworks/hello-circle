@@ -179,7 +179,7 @@ const AUDIT_AREAS = ["booking", "registration", "program_enrollment", "experienc
  * object is this record, asked of the server by object id (OG-24 — not
  * limited to the latest entries). `note` states what the server doesn't log,
  * so an empty list isn't misread. */
-export function ObjectActivity({ objectIds, note }: { objectIds: string[]; note?: string }) {
+export function ObjectActivity({ objectIds, note, limit = 10 }: { objectIds: string[]; note?: string; limit?: number }) {
   const key = objectIds.join("|");
   const state = useAdminData(async () => {
     const pages = await Promise.all(objectIds.map((objectId) => fetchAuditPage({ objectId })));
@@ -187,7 +187,7 @@ export function ObjectActivity({ objectIds, note }: { objectIds: string[]; note?
   }, [key]);
   if (state.error) return <ErrorMessage error={state.error} onRetry={state.reload} title="Couldn't load activity" />;
   if (state.data === null) return <p className="adm-note" role="status">Loading activity…</p>;
-  const rows = state.data.slice(0, 10);
+  const rows = state.data.slice(0, limit);
   return (
     <>
       {rows.length === 0 ? (

@@ -21,7 +21,8 @@ test("LC-UI-DESKTOP-HOST: create Circle, create official plan, draft activity, p
       await page.goto("/circles/start");
       await page.getByPlaceholder("e.g. Clontarf Badminton Circle").fill(circleName);
       await page.getByPlaceholder("e.g. Badminton").fill(activityName);
-      await page.locator("select").filter({ hasText: "Invite only" }).selectOption("invite");
+      // Circle Experience 2.0 — membership is a radio group now, not a <select>.
+      await page.getByRole("radio", { name: /Invite only/ }).check();
       await page.getByRole("button", { name: "Create Circle", exact: true }).click();
       await expect(page.getByRole("heading", { name: "Your Circle is live." })).toBeVisible();
       const [circle] = await rows(f, "SELECT id, join_mode, created_by_resident_id FROM circles WHERE name = ?", [circleName]);
@@ -30,7 +31,7 @@ test("LC-UI-DESKTOP-HOST: create Circle, create official plan, draft activity, p
       expect((await rows(f, "SELECT role FROM circle_members WHERE circle_id = ? AND resident_id = ?", [circle.id, personas.QA_HOST.id]))[0].role).toBe("organiser");
 
       // Part 17 — organiser creates the Circle's first official plan through the UI deep link.
-      await page.getByRole("button", { name: "Create first plan" }).click();
+      await page.getByRole("button", { name: "Create first activity" }).click();
       await expect(page.locator("#game-activity")).toHaveValue(activityName);
       await page.locator("#game-location").fill("QA UI meeting point");
       await page.locator("#game-date").fill("2030-09-20");
@@ -110,16 +111,16 @@ test("LC-UI-DESKTOP-PARTICIPANT: discover, join, refresh persistence, leave, Cir
       });
       await cardLink.click({ position: { x: 30, y: hit.height - 30 } }); // where a real click reaches the link
       await expect(page).toHaveURL(new RegExp(`/games/${game.id}`));
-      await page.getByRole("button", { name: "Join", exact: true }).click();
+      await page.getByRole("button", { name: "Join activity", exact: true }).click();
       await page.getByRole("button", { name: "Confirm I'm in" }).click();
-      await expect(page.getByRole("button", { name: "View plan" })).toBeVisible(); // joined confirmation state
+      await expect(page.getByRole("button", { name: "View activity" })).toBeVisible(); // joined confirmation state
       mark("reload"); await page.reload(); // refresh/session persistence
       await expect(page.getByRole("button", { name: "Leave session" }).first()).toBeVisible();
       expect((await rows(f, "SELECT status FROM game_participants WHERE game_id = ? AND resident_id = ?", [game.id, personas.QA_USER.id]))).toEqual([{ status: "joined" }]);
       mark("leave");
       await page.getByRole("button", { name: "Leave session" }).first().click();
       await page.getByRole("alertdialog").getByRole("button", { name: "Leave session" }).click();
-      await expect(page.getByRole("button", { name: "Join", exact: true })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Join activity", exact: true })).toBeVisible();
       expect((await rows(f, "SELECT status FROM game_participants WHERE game_id = ? AND resident_id = ?", [game.id, personas.QA_USER.id]))).toEqual([{ status: "cancelled" }]);
 
       mark("circle-join");
@@ -128,12 +129,12 @@ test("LC-UI-DESKTOP-PARTICIPANT: discover, join, refresh persistence, leave, Cir
       await page.getByRole("alertdialog").getByRole("button", { name: "Join Circle" }).click();
       await expect.poll(async () => (await rows(f, "SELECT role FROM circle_members WHERE circle_id = ? AND resident_id = ?", [circleRes.id, personas.QA_USER.id])).length).toBe(1);
       await page.reload();
-      mark("chat-open"); await page.getByRole("button", { name: /Group chat/ }).first().click();
+      mark("chat-open"); await page.getByRole("button", { name: /^More for / }).click(); await page.getByRole("menuitem", { name: "Open Circle chat" }).click();
       await page.getByRole("textbox", { name: "Message" }).fill("QA UI chat hello");
       await page.getByRole("button", { name: "Send", exact: true }).click();
       await expect(page.getByText("QA UI chat hello")).toBeVisible();
       await page.reload();
-      await page.getByRole("button", { name: /Group chat/ }).first().click();
+      await page.getByRole("button", { name: /^More for / }).click(); await page.getByRole("menuitem", { name: "Open Circle chat" }).click();
       await expect(page.getByText("QA UI chat hello")).toBeVisible();
       expect((await rows(f, "SELECT body FROM chat_messages WHERE scope_type = 'circle' AND scope_id = ?", [circleRes.id])).map(r => r.body)).toEqual(["QA UI chat hello"]);
 
@@ -146,7 +147,9 @@ test("LC-UI-DESKTOP-PARTICIPANT: discover, join, refresh persistence, leave, Cir
       await page.goto(`/circles/${circleRes.slug}`);
       await expect(page.getByRole("heading").first()).toBeVisible();
       await page.waitForLoadState("networkidle");
-      const chatButtonAfterSecondConversation = await page.getByRole("button", { name: /Group chat/ }).count();
+      await page.getByRole("button", { name: /^More for / }).click();
+      const chatButtonAfterSecondConversation = await page.getByRole("menuitem", { name: "Open Circle chat" }).count();
+      await page.keyboard.press("Escape");
       await page.goto("/chats");
       await page.waitForLoadState("networkidle");
       const chatsPageShowsFirst = await page.getByText("QA UI chat hello").count();

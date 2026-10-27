@@ -116,3 +116,11 @@ export function formatCircleAvailability(spotsLeft: number): string {
   if (spotsLeft <= 3) return `${spotsLeft} spots left`;
   return `${spotsLeft} more welcome`;
 }
+
+/** "90 min", "2h", "1.5h" — booking cards and experience facts. */
+export function formatDuration(minutes: number): string {
+  if (!minutes) return "";
+  if (minutes % 60 === 0 && minutes >= 60) return `${minutes / 60}h`;
+  if (minutes > 60) return `${(minutes / 60).toFixed(1)}h`;
+  return `${minutes} min`;
+}

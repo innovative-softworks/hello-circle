@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { MyLifePassport, MyLifePlans } from "../components/experience/MyLifeExperience";
 import { RefundStatus, SelfCancelControl } from "../components/SelfCancelControl";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { safeReturnTo } from "../authRedirect";
@@ -21,6 +22,13 @@ import {
   fetchMyProgramEnrollments,
   fetchMyRegistrations,
   fetchNeedsAttention,
+  fetchMyLifeSignals,
+  fetchMyLifeDismissals,
+  dismissMyLifeItem,
+  fetchFollowFeed,
+  fetchChatInbox,
+  fetchForYou,
+  fetchNewHere,
   fetchResidentFull,
   fetchRoutineSuggestions,
   fetchWaitlistOfferStatus,
@@ -31,41 +39,47 @@ import {
   rescheduleBooking,
   verifyGuestLink,
 } from "../api";
-import type { FollowedEntity } from "../api";
-import { ChevronRightIcon, CloseIcon, LightbulbIcon } from "../components/icons";
+import type { FollowedEntity, FollowFeedItem, MyLifeRoutineMatch, MyLifeSavedSignal } from "../api";
+import { ChevronRightIcon } from "../components/icons";
 import { MonthCalendar } from "../components/MonthCalendar";
 import { MyLifeCircles } from "../components/MyLifeCircles";
-import { MyLifeDiscoveryCTA } from "../components/MyLifeDiscoveryCTA";
-import { MyLifeEmptyState } from "../components/MyLifeEmptyState";
-import { MyLifeHeader } from "../components/MyLifeHeader";
-import { MyLifeInterests } from "../components/MyLifeInterests";
-import { MyLifeNeedsYou } from "../components/MyLifeNeedsYou";
-import { MyLifeNextUp, type NextUpData } from "../components/MyLifeNextUp";
+import { MyCirclePlans } from "../components/circle/MyCirclePlans";
 import { MyLifeRecentActivity } from "../components/MyLifeRecentActivity";
-import { MyLifeRepeatOpportunities } from "../components/MyLifeRepeatOpportunities";
-import { MyLifeRhythm } from "../components/MyLifeRhythm";
+import { MyLifeSaved } from "../components/MyLifeSaved";
 import { MyLifeFollowing } from "../components/MyLifeFollowing";
+import { describeAvailability } from "../participationVocab";
+import { MyLifeEmptyState } from "../components/MyLifeEmptyState";
+import { ActivitySummary, ClosingPrompt, IdeaTiles, MoreLinks, MyLifeTitle, NeedsList, NothingBooked, shortDay, RecentByDay, UpcomingByMonth, UpcomingCards, CircleCards, type CircleCard, type IdeaTile, type RecentItem, type UpcomingCard } from "../components/MyLifeOverview";
+import { ActionMenu } from "../components/ActionMenu";
+import { favouriteDetailHref } from "../favouriteLink";
+import { useExperienceFeatures } from "../circleFeatures";
 import { MyInvitationsPanel } from "../components/MyInvitationsPanel";
 import { MagicLinkCompleteAccount } from "../components/MagicLinkCompleteAccount";
 import { openOnboarding } from "../components/AccountSetupGate";
-import { MyLifeSaved } from "../components/MyLifeSaved";
-import { MyLifeThisMonth } from "../components/MyLifeThisMonth";
+import { AccountTab, FormModal, SegmentedTabs } from "./account/accountUi";
+import "./myLife.css";
+import { SavedPage } from "./account/SavedPage";
+import { FollowingPage } from "./account/FollowingPage";
+import { AddRoutineModal, RoutinesPage } from "./account/RoutinesPage";
+import { useUrlParam, useUrlTab } from "../useUrlTab";
+import { trackEvent } from "../analytics";
+import { useMediaQuery } from "./account/useMediaQuery";
+import { AddInterestModal, FreeTimePrompt, MadeForWeek, MiniCalendar, PassportTab, PreferencesModal, PulseList, type PulseItem, type Suggestion } from "../components/MyLifeEngage";
+import { useToast } from "../components/Toast";
 import { MyLifeWaitingFor } from "../components/MyLifeWaitingFor";
-import { ParticipationTimeline, type TimelineRow } from "../components/ParticipationTimeline";
 import { Photo } from "../components/Photo";
+import { PollVoteModal, pollTargetOf } from "../components/PollVoteModal";
 import { PostActivityFeedback } from "../components/PostActivityFeedback";
 import { Button, ConfirmDialog, EmptyState, onActivateProps, RowSkeleton, inputStyle, labelStyle, LoadErrorState } from "../components/ui";
 import { dateLabel, euro } from "../euro";
 import { formatIrishDateTime } from "../components/booking/policy";
 import { TIME_SLOTS } from "../constants";
-import { formatDatePill } from "../formatters";
 import { useGuest } from "../GuestContext";
 import { attendanceStateOf, isUpcomingProgramEnrollment, shouldPromptFeedback, shouldPromptProgramFeedback } from "../participation";
-import { getMediaUrl } from "../media";
-import { colors, fonts, radius } from "../theme";
-import { describeAvailability } from "../participationVocab";
-import type { Circle, Favourite, Game, MyBooking, MyExperienceBooking, MyIntent, MyProgramEnrollment, MyRegistration, NeedsAttentionItem, ParticipationEntry, ResidentFull, RoutineSuggestion, WaitlistOfferStatus } from "../types";
-import { irelandDaysFromToday, irelandToday } from "../irelandDate";
+import { getCircleCoverUrl, getMediaUrl } from "../media";
+import { colors, maxWidth, radius } from "../theme";
+import type { ChatInboxItem, ForYouSection, NewHereCircle, Circle, Favourite, Game, MyBooking, MyExperienceBooking, MyIntent, MyProgramEnrollment, MyRegistration, NeedsAttentionItem, ParticipationEntry, ResidentFull, RoutineSuggestion, WaitlistOfferStatus } from "../types";
+import { irelandDaysFromToday, irelandMonthStart, irelandToday } from "../irelandDate";
 
 // My Life — participation-first home (IA redesign). One purpose: "what am
 // I doing next, what else is coming, what's worth doing again, who/what am
@@ -102,46 +116,57 @@ function BookingQr({ reference }: { reference: string }) {
   return <img src={dataUrl} alt={`QR code for ${reference}`} style={{ width: 120, height: 120, borderRadius: radius.control, border: `1px solid ${colors.border}` }} />;
 }
 
-function RescheduleForm({ booking, onDone }: { booking: MyBooking; onDone: () => void }) {
+// Owner 2026-10-24: forms open in a centred popup, never inline.
+function RescheduleModal({ booking, open, onClose, onDone }: { booking: MyBooking; open: boolean; onClose: () => void; onDone: () => void }) {
   const [date, setDate] = useState(booking.date);
   const [time, setTime] = useState(booking.time);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const submit = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      await rescheduleBooking(booking.ref, date, time);
-      onDone();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't reschedule");
-    } finally {
-      setBusy(false);
+  useEffect(() => {
+    if (open) {
+      setDate(booking.date);
+      setTime(booking.time);
     }
-  };
-
+  }, [open, booking.date, booking.time]);
   return (
-    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "flex-end" }}>
-      <input type="date" aria-label="New date" value={date} onChange={(e) => setDate(e.target.value)} style={{ ...inputStyle, width: 150 }} />
-      <select aria-label="New start time" value={time} onChange={(e) => setTime(e.target.value)} style={{ ...inputStyle, width: 110 }}>
-        {TIME_SLOTS.map((t) => (
-          <option key={t} value={t}>{t}</option>
-        ))}
-      </select>
-      <Button onClick={submit} disabled={busy}>{busy ? "Saving…" : "Confirm new time"}</Button>
-      {error && <span style={{ color: colors.danger, fontSize: 12.5 }}>{error}</span>}
-    </div>
+    <FormModal
+      open={open}
+      title="Change date or time"
+      subtitle={`${booking.centreName}${booking.roomName ? ` — ${booking.roomName}` : ""}, now ${dateLabel(booking.date)} at ${booking.time}`}
+      submitLabel="Confirm new time"
+      dirty={date !== booking.date || time !== booking.time}
+      onClose={onClose}
+      onSubmit={async () => {
+        if (date === booking.date && time === booking.time) return false;
+        await rescheduleBooking(booking.ref, date, time);
+        onDone();
+      }}
+    >
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 12 }}>
+        <div>
+          <label htmlFor={`rs-date-${booking.ref}`} style={labelStyle}>New date</label>
+          <input id={`rs-date-${booking.ref}`} type="date" min={irelandToday()} value={date} onChange={(e) => setDate(e.target.value)} style={inputStyle} />
+        </div>
+        <div>
+          <label htmlFor={`rs-time-${booking.ref}`} style={labelStyle}>New start time</label>
+          <select id={`rs-time-${booking.ref}`} value={time} onChange={(e) => setTime(e.target.value)} style={inputStyle}>
+            {TIME_SLOTS.map((t) => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+      <p style={{ margin: 0, fontSize: 13, color: colors.mutedLight }}>The venue's availability is checked when you confirm.</p>
+    </FormModal>
   );
 }
 
 function BookingRow({
-  booking, onCancel, cancelling, error, recovered,
+  booking, onCancel, cancelling, error, recovered, lookupEmail,
 }: {
-  booking: MyBooking; onCancel: () => void; cancelling: boolean; error?: string; recovered?: boolean;
+  booking: MyBooking; onCancel: () => void; cancelling: boolean; error?: string; recovered?: boolean; lookupEmail?: string;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [rescheduleOpen, setRescheduleOpen] = useState(false);
   const cancelled = booking.status === "cancelled";
   // Ireland date, not the device's (sitemap audit P2-14) — dates are YYYY-MM-DD, so a string compare is a date compare.
   const isPast = booking.date.slice(0, 10) < irelandToday();
@@ -173,7 +198,9 @@ function BookingRow({
         </div>
         <div style={{ textAlign: "right", flex: "none" }}>
           <div style={{ fontWeight: 700 }}>{euro(booking.totalCents / 100)}</div>
-          <div style={{ fontSize: 12, color: colors.faint, marginBottom: canCancel ? 8 : 0 }}>{booking.ref}</div>
+          <div style={{ fontSize: 12, color: colors.faint, marginBottom: canCancel ? 8 : 0 }}>
+            {recovered && !lookupEmail ? booking.ref : <Link to={`/bookings/booking/${encodeURIComponent(booking.ref)}`} state={lookupEmail ? { lookupEmail } : undefined} style={{ color: colors.text, fontWeight: 700 }} aria-label={`Booking details ${booking.ref}`}>Details · {booking.ref}</Link>}
+          </div>
           {canCancel && (
             <Button variant="danger" onClick={() => setConfirmOpen(true)} disabled={cancelling}>
               {cancelling ? "Cancelling…" : "Cancel"}
@@ -199,22 +226,23 @@ function BookingRow({
       {expanded && !cancelled && (
         <div style={{ marginTop: 16, paddingTop: 16, borderTop: `1px solid ${colors.border}`, display: "flex", flexWrap: "wrap", gap: 24 }}>
           <div>
-            <div style={{ fontSize: 12, fontWeight: 700, color: colors.muted, marginBottom: 8 }}>CHECK-IN CODE</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: colors.muted, marginBottom: 8 }}>Check-in code</div>
             <BookingQr reference={booking.ref} />
           </div>
           <div style={{ flex: "1 1 260px" }}>
             {!isPast && (
               <button
                 onClick={() => downloadBookingIcs(booking.ref)}
-                style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: radius.pill, padding: "5px 12px", fontSize: 12.5, fontWeight: 600, color: colors.text, cursor: "pointer", marginBottom: 12 }}
+                className="ml-link"
+                style={{ display: "block", marginBottom: 12 }}
               >
                 Add to calendar
               </button>
             )}
             {canReschedule && (
               <>
-                <div style={{ fontSize: 12, fontWeight: 700, color: colors.muted, marginBottom: 8 }}>RESCHEDULE</div>
-                <RescheduleForm booking={booking} onDone={() => window.location.reload()} />
+                <Button variant="ghost" onClick={() => setRescheduleOpen(true)}>Change date or time</Button>
+                <RescheduleModal booking={booking} open={rescheduleOpen} onClose={() => setRescheduleOpen(false)} onDone={() => window.location.reload()} />
               </>
             )}
             {shouldPromptFeedback(attendanceStateOf({ cancelled, attendance: booking.attendance }), isPast) && (
@@ -281,9 +309,9 @@ function WaitlistOfferBanner({ clubId, clubName }: { clubId: string; clubName: s
 }
 
 function RegistrationRow({
-  registration, onCancel, cancelling, error, recovered,
+  registration, onCancel, cancelling, error, recovered, lookupEmail,
 }: {
-  registration: MyRegistration; onCancel: () => void; cancelling: boolean; error?: string; recovered?: boolean;
+  registration: MyRegistration; onCancel: () => void; cancelling: boolean; error?: string; recovered?: boolean; lookupEmail?: string;
 }) {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const cancelled = registration.status === "cancelled";
@@ -310,7 +338,9 @@ function RegistrationRow({
         </div>
         <div style={{ textAlign: "right", flex: "none" }}>
           <div style={{ fontWeight: 700 }}>{registration.trial ? "Free trial" : euro(registration.totalCents / 100)}</div>
-          <div style={{ fontSize: 12, color: colors.faint, marginBottom: canCancel ? 8 : 0 }}>{registration.ref}</div>
+          <div style={{ fontSize: 12, color: colors.faint, marginBottom: canCancel ? 8 : 0 }}>
+            {recovered && !lookupEmail ? registration.ref : <Link to={`/bookings/registration/${encodeURIComponent(registration.ref)}`} state={lookupEmail ? { lookupEmail } : undefined} style={{ color: colors.text, fontWeight: 700 }} aria-label={`Registration details ${registration.ref}`}>Details · {registration.ref}</Link>}
+          </div>
           {canCancel && (
             <Button variant="danger" onClick={() => setConfirmOpen(true)} disabled={cancelling}>
               {cancelling ? "Cancelling…" : "Cancel"}
@@ -353,9 +383,13 @@ function GameRow({ game }: { game: Game }) {
       style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "18px 20px", opacity: cancelled ? 0.6 : 1 }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
-        <div style={{ width: 52, height: 52, borderRadius: radius.control, background: colors.greenBg, flex: "none", display: "flex", alignItems: "center", justifyContent: "center", color: colors.greenText, fontWeight: 700, fontSize: 18 }}>
-          {game.activityLabel.charAt(0)}
-        </div>
+        {game.imageUrl ? (
+          <img src={getMediaUrl(game.imageUrl, "thumbnail")} alt="" style={{ width: 52, height: 52, borderRadius: radius.control, objectFit: "cover", flex: "none" }} />
+        ) : (
+          <div style={{ width: 52, height: 52, borderRadius: radius.control, background: colors.greenBg, flex: "none", display: "flex", alignItems: "center", justifyContent: "center", color: colors.greenText, fontWeight: 700, fontSize: 18 }}>
+            {game.activityLabel.charAt(0)}
+          </div>
+        )}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <span style={{ fontWeight: 700, fontSize: 16 }}>{game.activityLabel}</span>
@@ -384,7 +418,8 @@ function ExperienceBookingRow({ booking, onChanged }: { booking: MyExperienceBoo
     <div
       style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "18px 20px", opacity: cancelled ? 0.6 : 1 }}
     >
-      <Link to={`/experiences/${booking.experienceId}`} className="row-link" style={{ display: "flex", alignItems: "center", gap: 18 }}>
+      {/* Batch 2 — the row opens this booking's own page (which links on to the listing). */}
+      <Link to={`/bookings/experience/${encodeURIComponent(booking.ref)}`} className="row-link" style={{ display: "flex", alignItems: "center", gap: 18 }}>
         {booking.imageUrl ? (
           <img src={getMediaUrl(booking.imageUrl, "thumbnail")} alt={booking.title} style={{ width: 52, height: 52, borderRadius: radius.control, objectFit: "cover", flex: "none" }} />
         ) : (
@@ -458,7 +493,8 @@ function ProgramEnrollmentRow({ enrollment, onChanged }: { enrollment: MyProgram
   const cancelled = enrollment.status === "cancelled";
   return (
     <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "18px 20px", opacity: cancelled ? 0.6 : 1 }}>
-      <Link to={`/programs/${enrollment.programId}`} className="row-link" style={{ display: "flex", alignItems: "center", gap: 18 }}>
+      {/* Batch 2 — the row opens this enrolment's own page (which links on to the programme). */}
+      <Link to={`/bookings/program/${encodeURIComponent(enrollment.ref)}`} className="row-link" style={{ display: "flex", alignItems: "center", gap: 18 }}>
         <Photo src={enrollment.imageUrl} alt={enrollment.title} ph={colors.panel} style={{ width: 52, height: 52, borderRadius: radius.control, overflow: "hidden", flex: "none" }} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -507,23 +543,91 @@ function ProgramEnrollmentRow({ enrollment, onChanged }: { enrollment: MyProgram
 
 type LookupResult = { kind: "booking"; data: MyBooking } | { kind: "registration"; data: MyRegistration };
 
-/** One section header used throughout the page's lower, full-width sections
- * — small "/ EYEBROW" + a display h2, the same Swiss-editorial convention
- * as the page header and Next Up/Coming Up above it. */
-function SectionHeader({ eyebrow, title, subtitle }: { eyebrow: string; title: string; subtitle?: string }) {
-  return (
-    <div style={{ marginBottom: 18 }}>
-      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0, color: colors.mutedLight, marginBottom: 6 }}>/ {eyebrow}</div>
-      <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(20px,2.4vw,26px)", letterSpacing: 0, margin: subtitle ? "0 0 4px" : 0 }}>{title}</h2>
-      {subtitle && <p style={{ margin: 0, fontSize: 13.5, color: colors.mutedLight }}>{subtitle}</p>}
-    </div>
-  );
-}
+// My Life 3.0 (owner 2026-10-25, decision D2): five tabs. Older keys still
+// work: overview → For You, bookings → My Plans, routines → My Plans
+// (Routines view), following → Saved (Following view). Passport shows only
+// while its switches are on.
+const MY_LIFE_TABS = [
+  { key: "foryou", label: "For You" },
+  { key: "plans", label: "My Plans" },
+  { key: "circles", label: "My Circles" },
+  { key: "saved", label: "Saved" },
+  { key: "passport", label: "Passport" },
+] as const;
+const OLD_TAB_KEYS: Record<string, Record<string, string>> = {
+  overview: {},
+  bookings: { tab: "plans" },
+  routines: { tab: "plans", view: "routines" },
+  following: { tab: "saved", show: "following" },
+};
+type MyLifeTab = (typeof MY_LIFE_TABS)[number]["key"];
 
 export function MyBookings() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  // My Life tabs (sidebar merge 2026-10-24): Saved, Following and Routines
+  // moved here from the account sidebar; Bookings and Circles replace the old
+  // #my-bookings / #my-circles anchors (still honoured: see the hash effect).
+  const [myLifeTab, setMyLifeTab] = useUrlTab(MY_LIFE_TABS.map((t) => t.key), "foryou");
+  useEffect(() => {
+    const old = searchParams.get("tab");
+    if (old && OLD_TAB_KEYS[old]) {
+      const next = new URLSearchParams(searchParams);
+      next.delete("tab");
+      for (const [k, v] of Object.entries(OLD_TAB_KEYS[old])) next.set(k, v);
+      setSearchParams(next, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
   const { email: guestEmail, resident, loading: guestLoading, loadError: guestLoadError, refresh: refreshGuest } = useGuest();
+  // Called before any early return (rules of hooks): "More for you" links.
+  const experience = useExperienceFeatures();
+  const toastApi = useToast();
+  // Phones: the next action first, so "What are you up for?" moves below Your next moments (DOM order, not CSS).
+  const phone = useMediaQuery("(max-width: 760px)");
+  // Bookings tab view (Upcoming / Past / Calendar), kept in the URL.
+  // My Plans "Show all past", and old ?view= / ?show= links (from the
+  // earlier inner tabs) now scroll to their section on the one page.
+  const [showAllPast, setShowAllPast] = useState(false);
+  // Forms open in a popup on My Life, not a separate page (owner 2026-10-26).
+  const [prefsOpen, setPrefsOpen] = useState(false);
+  const [routineOpen, setRoutineOpen] = useState(false);
+  const [interestOpen, setInterestOpen] = useState(false);
+  const [routinesKey, setRoutinesKey] = useState(0);
+  const [bookingsTabView] = useUrlParam<string>("view", "");
+  const [savedShow] = useUrlParam<string>("show", "");
+
+  // My Life 3.0 data, each behind its own switch; all read-only.
+  const [signals, setSignals] = useState<{ saved: MyLifeSavedSignal[]; routines: MyLifeRoutineMatch[] }>({ saved: [], routines: [] });
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  const [forYou, setForYou] = useState<ForYouSection[]>([]);
+  const [followFeed, setFollowFeed] = useState<FollowFeedItem[]>([]);
+  const [chatInbox, setChatInbox] = useState<ChatInboxItem[]>([]);
+  const [newHereCircles, setNewHereCircles] = useState<NewHereCircle[]>([]);
+  const residentId = resident?.id ?? null;
+  useEffect(() => {
+    if (!residentId) return;
+    let live = true;
+    const keep = <T,>(set: (v: T) => void) => (v: T) => live && set(v);
+    if (experience["mylife.pulse"]) {
+      fetchMyLifeSignals().then(keep(setSignals)).catch(() => {});
+      fetchMyLifeDismissals().then((r) => live && setDismissed(new Set(r.keys))).catch(() => {});
+      fetchFollowFeed().then(keep(setFollowFeed)).catch(() => {});
+    }
+    if (experience["mylife.for_you"]) {
+      fetchForYou().then((r) => live && setForYou(r.sections)).catch(() => {});
+      if (!experience["mylife.pulse"]) fetchMyLifeDismissals().then((r) => live && setDismissed(new Set(r.keys))).catch(() => {});
+    }
+    fetchChatInbox().then((r) => live && setChatInbox(r.items)).catch(() => {});
+    fetchNewHere().then((r) => live && setNewHereCircles(r.circles)).catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [residentId, experience["mylife.pulse"], experience["mylife.for_you"]]);
+  const dismiss = (key: string) => {
+    setDismissed((d) => new Set([...d, key]));
+    trackEvent("mylife_item_dismissed", { key: key.split(":")[0] });
+    dismissMyLifeItem(key).catch(() => setDismissed((d) => { const n = new Set(d); n.delete(key); return n; }));
+  };
 
   const [bookings, setBookings] = useState<MyBooking[]>([]);
   const [regs, setRegs] = useState<MyRegistration[]>([]);
@@ -549,6 +653,13 @@ export function MyBookings() {
   const [favourites, setFavourites] = useState<Favourite[]>([]);
   const [follows, setFollows] = useState<FollowedEntity[]>([]);
   const [needsAttention, setNeedsAttention] = useState<NeedsAttentionItem[]>([]);
+  // "Vote" on an open poll opens a popup here instead of leaving My Life.
+  const [votingOn, setVotingOn] = useState<NeedsAttentionItem | null>(null);
+  const openInPlace = (n: NeedsAttentionItem) => {
+    if (!pollTargetOf(n)) return false;
+    setVotingOn(n);
+    return true;
+  };
 
   const [bookingsView, setBookingsView] = useState<"list" | "calendar">("list");
   const [showAllActivity, setShowAllActivity] = useState(false);
@@ -558,18 +669,33 @@ export function MyBookings() {
   const { hash } = useLocation();
   useEffect(() => {
     if (loading || (hash !== "#my-bookings" && hash !== "#my-circles")) return;
+    // Signed in: these are tabs now. Guests have no tabs, so keep the old scroll.
+    if (resident) {
+      setMyLifeTab(hash === "#my-bookings" ? "plans" : "circles");
+      return;
+    }
     if (hash === "#my-bookings") setShowAllActivity(true);
     const t = window.setTimeout(() => document.getElementById(hash.slice(1))?.scrollIntoView({ block: "start" }), 50);
     return () => window.clearTimeout(t);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hash, loading]);
+  useEffect(() => {
+    if (loading) return;
+    const target =
+      myLifeTab === "plans" && (bookingsTabView === "past" || bookingsTabView === "routines" || bookingsTabView === "week" || bookingsTabView === "calendar")
+        ? bookingsTabView === "past" ? "mlx-plans-past" : bookingsTabView === "routines" ? "mlx-plans-routines" : "mlx-plans-week"
+        : myLifeTab === "saved" && savedShow === "following" ? "mlx-following" : null;
+    if (!target) return;
+    if (target === "mlx-plans-past") setShowAllPast(true);
+    const t = window.setTimeout(() => document.getElementById(target)?.scrollIntoView({ block: "start" }), 80);
+    return () => window.clearTimeout(t);
+  }, [loading, myLifeTab, bookingsTabView, savedShow]);
   const [cancellingRef, setCancellingRef] = useState<string | null>(null);
   const [cancelErrors, setCancelErrors] = useState<Record<string, string>>({});
 
   const [lookupOpen, setLookupOpen] = useState(false);
   const [lookupRef, setLookupRef] = useState("");
   const [lookupEmail, setLookupEmail] = useState("");
-  const [lookupLoading, setLookupLoading] = useState(false);
-  const [lookupError, setLookupError] = useState<string | null>(null);
   const [lookupResult, setLookupResult] = useState<LookupResult | null>(null);
 
   const [verifying, setVerifying] = useState(false);
@@ -747,12 +873,16 @@ export function MyBookings() {
     }
   };
 
-  const handleLookup = async () => {
+  // Returns whether a booking was found; the popup shows the error otherwise.
+  const lookupErrorRef = useRef<string | null>(null);
+  const handleLookup = async (): Promise<boolean> => {
     const ref = lookupRef.trim();
     const email = lookupEmail.trim();
-    if (!ref || !email) return;
-    setLookupLoading(true);
-    setLookupError(null);
+    lookupErrorRef.current = null;
+    if (!ref || !email) {
+      lookupErrorRef.current = "Enter the booking reference and the email you booked with.";
+      return false;
+    }
     setLookupResult(null);
     try {
       if (ref.toUpperCase().startsWith("CR-")) {
@@ -761,10 +891,11 @@ export function MyBookings() {
         setLookupResult({ kind: "booking", data: await lookupBooking(ref, email) });
       }
     } catch (e) {
-      setLookupError(e instanceof Error ? e.message : "Couldn't find that booking");
-    } finally {
-      setLookupLoading(false);
+      const message = e instanceof Error ? e.message : "We couldn't find that booking. Check the reference and email.";
+      lookupErrorRef.current = message;
+      return false;
     }
+    return true;
   };
 
   // --- Next Up / Coming Up: one merged, chronological set of dated plans —
@@ -794,99 +925,100 @@ export function MyBookings() {
     ...upcomingProgramEnrollments.map((enrollment): NextEntity => ({ date: enrollment.nextSessionDate!, time: enrollment.nextSessionTime ?? "00:00", kind: "program", enrollment })),
   ].sort((a, b) => `${a.date}${a.time}`.localeCompare(`${b.date}${b.time}`));
 
-  const [nextEntity, ...restEntities] = nextEntities;
 
-  const dayEyebrow = (date: string, time: string): string => {
-    const label = date === today ? "TODAY" : date === tomorrow ? "TOMORROW" : formatDatePill(date);
-    return `${label} · ${time}`;
-  };
-
-  const nextUpData: NextUpData | null = !nextEntity ? null : nextEntity.kind === "game" ? {
-    eyebrow: dayEyebrow(nextEntity.date, nextEntity.time),
-    title: nextEntity.game.activityLabel,
-    subtitle: nextEntity.game.centreName ? `${nextEntity.game.centreName}${nextEntity.game.area ? ` · ${nextEntity.game.area}` : ""}` : (nextEntity.game.locationText || "Location to be confirmed"),
-    going: { joined: nextEntity.game.joined, capacity: nextEntity.game.capacity },
-    priceLabel: null,
-    ctaLabel: "View plan",
-    onCta: () => navigate(`/games/${nextEntity.game.id}`),
-  } : nextEntity.kind === "booking" ? {
-    eyebrow: dayEyebrow(nextEntity.date, nextEntity.time),
-    title: `${nextEntity.booking.centreName}${nextEntity.booking.roomName ? ` — ${nextEntity.booking.roomName}` : ""}`,
-    subtitle: `Ref ${nextEntity.booking.ref}`,
-    going: null,
-    priceLabel: euro(nextEntity.booking.totalCents / 100),
-    ctaLabel: "Manage booking",
-    onCta: () => setShowAllActivity(true),
-  } : nextEntity.kind === "experience" ? {
-    eyebrow: dayEyebrow(nextEntity.date, nextEntity.time),
-    title: nextEntity.booking.title,
-    subtitle: `${nextEntity.booking.partySize} ${nextEntity.booking.partySize === 1 ? "person" : "people"}`,
-    going: null,
-    priceLabel: euro(nextEntity.booking.totalCents / 100),
-    ctaLabel: "View booking",
-    onCta: () => navigate(`/experiences/${nextEntity.booking.experienceId}`),
-  } : {
-    eyebrow: dayEyebrow(nextEntity.date, nextEntity.time),
-    title: nextEntity.enrollment.title,
-    subtitle: nextEntity.enrollment.listingName,
-    going: null,
-    priceLabel: nextEntity.enrollment.totalCents ? euro(nextEntity.enrollment.totalCents / 100) : null,
-    ctaLabel: "View program",
-    onCta: () => navigate(`/programs/${nextEntity.enrollment.programId}`),
-  };
-
-  const comingUpRows: TimelineRow[] = restEntities.slice(0, 6).map((entity) => {
-    if (entity.kind === "game") {
-      const g = entity.game;
-      return {
-        key: `g-${g.id}`, date: g.date, kind: "PLAN", title: g.activityLabel,
-        subtitle: `${g.centreName ?? (g.locationText || "Location TBC")} · ${g.time}`,
-        meta: `${g.joined} of ${g.capacity} going`,
-        actionLabel: "View", onAction: () => navigate(`/games/${g.id}`),
-      };
-    }
-    if (entity.kind === "booking") {
-      const b = entity.booking;
-      return {
-        key: `b-${b.ref}`, date: b.date, kind: "BOOKING", title: `${b.centreName}${b.roomName ? ` — ${b.roomName}` : ""}`,
-        subtitle: `${b.time} · Ref ${b.ref}`,
-        meta: euro(b.totalCents / 100),
-        actionLabel: "Manage", onAction: () => setShowAllActivity(true),
-      };
-    }
-    if (entity.kind === "experience") {
-      const e = entity.booking;
-      return {
-        key: `eb-${e.ref}`, date: e.date, kind: "ADVENTURE", title: e.title,
-        subtitle: `${e.time} · ${e.partySize} ${e.partySize === 1 ? "person" : "people"}`,
-        meta: euro(e.totalCents / 100),
-        actionLabel: "View", onAction: () => navigate(`/experiences/${e.experienceId}`),
-      };
-    }
-    const p = entity.enrollment;
-    return {
-      key: `pe-${p.ref}`, date: entity.date, kind: "PROGRAM", title: p.title,
-      subtitle: `${entity.time !== "00:00" ? `${entity.time} · ` : ""}${p.listingName}`,
-      meta: p.totalCents ? euro(p.totalCents / 100) : "Free",
-      actionLabel: "View", onAction: () => navigate(`/programs/${p.programId}`),
-    };
-  });
+  // Booking changes (cancel, reschedule, QR) live on the full list: the
+  // Bookings tab for a resident, the expander for a tab-less guest.
+  const openBookings = () => (resident ? setMyLifeTab("plans") : setShowAllActivity(true));
 
   const comingUpTotal = nextEntities.length;
+  const recentEntries = participation.filter((e) => e.date < today);
   const activeIntents = intents.filter((i) => i.status === "active" || i.status === "matched");
 
-  // "Recently" — strictly past-dated participation only (date < today, not
-  // <=). fetchMyParticipation() includes future- *and* today-dated games
-  // too (its own doc comment); Next Up/Coming Up already own anything
-  // dated today-or-later, since a same-day plan is still something to
-  // attend, not something that's happened. Using <= today here would put a
-  // same-day entry in both sections at once — exactly the duplication the
-  // redesign's "one primary place per concept" rule rules out.
-  const recentEntries = participation.filter((e) => e.date < today);
+  const isHosting = games.some((g) => g.hostResidentId === resident?.id) || circles.some((c) => c.myRole === "organiser");
+  const hasActivity = upcomingRows.length > 0 || pastRows.length > 0 || regs.length > 0 || circles.length > 0 || programEnrollments.length > 0;
+  const renderTab = () => (
+    <div className="mlx-tab">
+      {myLifeTab === "plans" && renderBookingsTab()}
+      {myLifeTab === "circles" && renderCirclesTab()}
+      {myLifeTab === "saved" && (
+        // One page (owner 2026-10-26: no tabs inside tabs): what you saved,
+        // then the hosts and places you follow.
+        <>
+          <section className="mlx-section" aria-labelledby="mlx-saved-h">
+            <h2 className="mlx-label" id="mlx-saved-h">Saved · {favourites.length}</h2>
+            <AccountTab><SavedPage /></AccountTab>
+          </section>
+          <section className="mlx-section" id="mlx-following" aria-labelledby="mlx-following-h" style={{ scrollMarginTop: 96 }}>
+            <h2 className="mlx-label" id="mlx-following-h">Hosts &amp; places you follow · {follows.length}</h2>
+            <AccountTab><FollowingPage /></AccountTab>
+          </section>
+        </>
+      )}
+      {myLifeTab === "passport" && <PassportTab />}
+    </div>
+  );
 
-  const daysAgo = (iso: string) => Math.round((Date.now() - new Date(`${iso}T00:00:00`).getTime()) / 86400000);
-  const last30 = participation.filter((e) => { const d = daysAgo(e.date); return d >= 0 && d < 30; }).length;
-  const prev30 = participation.filter((e) => { const d = daysAgo(e.date); return d >= 30 && d < 60; }).length;
+  // Full activity list (bookings, references, history) — the overview's
+  // "View full activity" expander and the Bookings tab both render it.
+  const activityListFor = () => (
+    <div style={{ marginTop: 20 }}>
+      {(upcomingRows.length > 0 || pastRows.length > 0) && (
+        <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
+          {(["list", "calendar"] as const).map((v) => (
+            <button
+              key={v}
+              onClick={() => setBookingsView(v)}
+              style={{
+                border: "none", borderRadius: radius.pill, padding: "6px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", textTransform: "capitalize",
+                background: bookingsView === v ? colors.dark : colors.panel, color: bookingsView === v ? "#fff" : colors.muted,
+              }}
+            >
+              {v}
+            </button>
+          ))}
+        </div>
+      )}
+      {bookingsView === "calendar" && (
+        <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: 18, marginBottom: 32, maxWidth: 420 }}>
+          <MonthCalendar items={[...upcomingRows, ...pastRows]} />
+        </div>
+      )}
+      {bookingsView === "list" && upcomingRows.length > 0 && (
+        <>
+          <h2 style={{ fontSize: 15, fontWeight: 700, color: colors.muted, margin: "0 0 12px", letterSpacing: 0 }}>UPCOMING</h2>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 32 }}>
+            {upcomingRows.map((r) => r.el)}
+          </div>
+        </>
+      )}
+      {bookingsView === "list" && (regs.length > 0 || circles.length > 0 || programEnrollments.length > 0) && (
+        <>
+          <h2 style={{ fontSize: 15, fontWeight: 700, color: colors.muted, margin: "0 0 12px", letterSpacing: 0 }}>ONGOING</h2>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 32 }}>
+            {regs.map((r) => (
+              <RegistrationRow
+                key={r.ref}
+                registration={r}
+                onCancel={() => handleCancelRegistration(r.ref, guestEmail ?? undefined)}
+                cancelling={cancellingRef === r.ref}
+                error={cancelErrors[r.ref]}
+              />
+            ))}
+            {circles.map((c) => <CircleRow key={c.id} circle={c} />)}
+            {programEnrollments.map((e) => <ProgramEnrollmentRow key={e.ref} enrollment={e} onChanged={reloadProgramEnrollments} />)}
+          </div>
+        </>
+      )}
+      {bookingsView === "list" && pastRows.length > 0 && (
+        <>
+          <h2 style={{ fontSize: 15, fontWeight: 700, color: colors.muted, margin: "0 0 12px", letterSpacing: 0 }}>PAST</h2>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {pastRows.map((r) => r.el)}
+          </div>
+        </>
+      )}
+    </div>
+  );
 
   // Onboarding audit (consent pass) — a brand-new magic-link signup shows
   // this instead of the normal page until Terms are actually accepted; no
@@ -903,7 +1035,7 @@ export function MyBookings() {
 
   if (guestLoading || loading) {
     return (
-      <section className="section-pad" style={{ maxWidth: 1440, margin: "0 auto", padding: "36px 24px 80px" }}>
+      <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "36px 24px 80px" }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           {Array.from({ length: 4 }, (_, i) => <RowSkeleton key={i} />)}
         </div>
@@ -911,26 +1043,488 @@ export function MyBookings() {
     );
   }
 
-  return (
-    <div style={{ animation: "fadeUp .35s ease backwards" }}>
-      {/* Header + account/utility actions share one row so "Edit profile" /
-          "Find a booking" / "Sign out" read as one top-right cluster instead
-          of two disconnected rows. "Find a booking" (guest reference
-          lookup) has to stay reachable even with no resident signed in —
-          confirmation emails link straight back here — so this row always
-          renders, not just alongside MyLifeHeader. */}
-      <div className="section-pad" style={{ maxWidth: 1440, margin: "0 auto", padding: "40px 24px 20px" }}>
-        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 24, flexWrap: "wrap" }}>
-          {resident ? (
-            <MyLifeHeader name={resident.name} comingUpCount={comingUpTotal} circlesActiveCount={circles.length} />
-          ) : <div />}
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <Button variant="ghost" onClick={() => setLookupOpen((o) => !o)}>Find a booking</Button>
-            {guestEmail && <Button variant="ghost" onClick={() => setConfirmingSignOut(true)}>Sign out</Button>}
-            {resident && <Button variant="ghost" onClick={() => navigate("/profile")}>Edit profile</Button>}
+  // ---- Overview data (minimal photo-and-type design, owner 2026-10-25) ----
+  const dayNum = (iso: string) => Date.UTC(Number(iso.slice(0, 4)), Number(iso.slice(5, 7)) - 1, Number(iso.slice(8, 10))) / 86400000;
+  const myGameIds = new Set(games.map((g) => g.id));
+  const circlePlansThisWeek = circles
+    .filter((c) => c.nextPlan && c.nextPlan.source === "circle" && !myGameIds.has(c.nextPlan.id))
+    .filter((c) => c.nextPlan!.date >= today && c.nextPlan!.date <= irelandDaysFromToday(6));
+  const titleOf = (e: (typeof nextEntities)[number]) =>
+    e.kind === "game" ? e.game.activityLabel : e.kind === "booking" ? `${e.booking.centreName}${e.booking.roomName ? ` — ${e.booking.roomName}` : ""}` : e.kind === "experience" ? e.booking.title : e.enrollment.title;
+  const hrefOf = (e: (typeof nextEntities)[number]) =>
+    e.kind === "game" ? `/games/${e.game.id}` : e.kind === "booking" ? `/bookings/booking/${encodeURIComponent(e.booking.ref)}` : e.kind === "experience" ? `/bookings/experience/${encodeURIComponent(e.booking.ref)}` : `/programs/${e.enrollment.programId}`;
+  const openEntity = (e: (typeof nextEntities)[number]) =>
+    e.kind === "game"
+      ? () => navigate(`/games/${e.game.id}`)
+      : e.kind === "booking"
+      ? () => navigate(`/bookings/booking/${encodeURIComponent(e.booking.ref)}`)
+      : e.kind === "experience"
+      ? () => navigate(`/bookings/experience/${encodeURIComponent(e.booking.ref)}`)
+      : () => navigate(`/programs/${e.enrollment.programId}`);
+  const weekEnd = irelandDaysFromToday(6);
+  const thisWeekCount = nextEntities.filter((e) => e.date <= weekEnd).length;
+
+  const bigDate = (date: string) => (date === today ? "Today" : date === tomorrow ? "Tomorrow" : shortDay(date));
+  const imageOf = (e: (typeof nextEntities)[number]): string | null => {
+    const src = e.kind === "game" ? e.game.imageUrl : e.kind === "booking" ? e.booking.image : e.kind === "experience" ? e.booking.imageUrl : e.enrollment.imageUrl;
+    return src ? getMediaUrl(src, "hero") : null;
+  };
+
+  const metaOf = (e: (typeof nextEntities)[number]): string =>
+    e.kind === "game"
+      ? [e.game.centreName ? `${e.game.centreName}${e.game.area ? `, ${e.game.area}` : ""}` : e.game.locationText || "Location to be confirmed", `${e.game.joined} of ${e.game.capacity} going`].join(" · ")
+      : e.kind === "booking"
+      ? `Ref ${e.booking.ref} · ${euro(e.booking.totalCents / 100)}`
+      : e.kind === "experience"
+      ? `${e.booking.partySize} ${e.booking.partySize === 1 ? "person" : "people"} · ${euro(e.booking.totalCents / 100)}`
+      : e.enrollment.listingName;
+  const KIND_NAME = { game: "Session", booking: "Booking", experience: "Adventure", program: "Programme" } as const;
+  const upcomingCards: UpcomingCard[] = [
+    ...nextEntities.slice(0, 12).map((e, i): UpcomingCard => ({
+      key: `m-${e.kind}-${i}-${e.date}`, date: e.date, dateLabel: bigDate(e.date), time: e.time,
+      title: titleOf(e), meta: metaOf(e), kind: "mine", kindLabel: KIND_NAME[e.kind], image: imageOf(e), href: hrefOf(e),
+    })),
+    ...circlePlansThisWeek.map((c): UpcomingCard => ({
+      key: `c-${c.id}`, date: c.nextPlan!.date, dateLabel: bigDate(c.nextPlan!.date), time: c.nextPlan!.time,
+      title: c.name, meta: `${c.nextPlan!.spotsLeft > 0 ? `${c.nextPlan!.spotsLeft} ${c.nextPlan!.spotsLeft === 1 ? "space" : "spaces"} left` : "Full"} · not joined yet`,
+      kind: "circle", kindLabel: "Your Circle",
+      image: (() => { const u = getCircleCoverUrl(c); return u ? getMediaUrl(u, "card") : null; })(),
+      href: `/games/${c.nextPlan!.id}`,
+    })),
+  ].sort((a, b) => `${a.date}${a.time}`.localeCompare(`${b.date}${b.time}`));
+
+  // ---- Bookings tab (owner, 2026-10-25): Upcoming as photo cards by month
+  // (each opens its own page, where cancel/reschedule live), memberships and
+  // programmes as rows with their actions, Past as rows (review prompts),
+  // and the calendar.
+  const bookingCards: UpcomingCard[] = nextEntities.map((e, i) => ({
+    key: `b-${e.kind}-${i}-${e.date}`, date: e.date, dateLabel: bigDate(e.date), time: e.time,
+    title: titleOf(e), meta: metaOf(e), kind: "mine", kindLabel: KIND_NAME[e.kind], image: imageOf(e), href: hrefOf(e),
+  }));
+  const cancelledUpcoming = [
+    ...bookings.filter((b) => b.status === "cancelled" && b.date >= today).map((b) => (
+      <BookingRow key={`cb-${b.ref}`} booking={b} onCancel={() => undefined} cancelling={false} error={cancelErrors[b.ref]} />
+    )),
+    ...games.filter((g) => g.status === "cancelled" && g.date >= today).map((g) => <GameRow key={`cg-${g.id}`} game={g} />),
+    ...experienceBookings.filter((b) => b.status === "cancelled" && b.date >= today).map((b) => <ExperienceBookingRow key={`ce-${b.ref}`} booking={b} onChanged={reloadExperienceBookings} />),
+  ];
+  const memberships = regs.length + programEnrollments.length;
+  const pastByMonth: { key: string; label: string; els: JSX.Element[] }[] = [];
+  for (const r of pastRows) {
+    const key = r.date.slice(0, 7);
+    let m = pastByMonth.find((x) => x.key === key);
+    if (!m) {
+      m = { key, label: new Date(`${r.date.slice(0, 10)}T12:00:00Z`).toLocaleDateString("en-IE", { month: "long", year: "numeric", timeZone: "Europe/Dublin" }), els: [] };
+      pastByMonth.push(m);
+    }
+    m.els.push(r.el);
+  }
+
+  // Two of your plans starting at the same time on the same day. Only exact
+  // start times: durations aren't always known, so no "overlaps" guessing.
+  const sameStart = (() => {
+    const m = new Map<string, number>();
+    for (const e of nextEntities) if (e.time && e.time !== "00:00") m.set(`${e.date} ${e.time}`, (m.get(`${e.date} ${e.time}`) ?? 0) + 1);
+    return [...m.entries()].filter(([, n]) => n > 1).map(([k, count]) => ({ date: k.slice(0, 10), time: k.slice(11), count }));
+  })();
+
+  // My Plans (owner 2026-10-26: no tabs inside tabs): one page, 70/30.
+  // Main: what's coming up by month, memberships, cancelled, past (latest
+  // month first, then "Show all past"), your routines. Side: this month,
+  // this week and links. Old ?view= links scroll to their section.
+  // Default: the 5 most recent past items; "Show all past" for the rest.
+  const latestPast = pastByMonth.slice(0, 1).map((m) => ({ ...m, els: m.els.slice(0, 5) }));
+  const thisWeekPlans = nextEntities.filter((e) => e.date <= weekEnd);
+  const renderBookingsTab = () => (
+    <div className="mlx-split">
+      <div className="mlx-main">
+        {sameStart.length > 0 && (
+          <p className="mlx-muted" role="note">
+            {sameStart.map((c) => `${c.count} of your plans start at ${c.time} on ${bigDate(c.date)}`).join(". ")}. Check you can make them all.
+          </p>
+        )}
+        <section className="mlx-section" id="mlx-plans-upcoming" aria-labelledby="mlx-plans-up">
+          <div className="mlx-section-head">
+            <h2 className="mlx-label" id="mlx-plans-up">Coming up</h2>
+            <span className="mlx-muted" style={{ fontSize: 14 }}>{nextEntities.length} booked or joined</span>
           </div>
-        </div>
+          {bookingCards.length > 0 ? <UpcomingByMonth cards={bookingCards} /> : <NothingBooked hasIdeas={false} onFind={() => navigate("/explore")} />}
+        </section>
+
+        {memberships > 0 && (
+          <section className="mlx-section" aria-labelledby="mlx-memberships">
+            <h2 className="mlx-label" id="mlx-memberships">Club memberships and programmes</h2>
+            <div className="mlx-past">
+              {regs.map((r) => (
+                <RegistrationRow
+                  key={r.ref}
+                  registration={r}
+                  onCancel={() => handleCancelRegistration(r.ref, guestEmail ?? undefined)}
+                  cancelling={cancellingRef === r.ref}
+                  error={cancelErrors[r.ref]}
+                />
+              ))}
+              {programEnrollments.map((e) => <ProgramEnrollmentRow key={e.ref} enrollment={e} onChanged={reloadProgramEnrollments} />)}
+            </div>
+          </section>
+        )}
+
+        {cancelledUpcoming.length > 0 && (
+          <section className="mlx-section" aria-labelledby="mlx-cancelled">
+            <h2 className="mlx-label" id="mlx-cancelled">Cancelled</h2>
+            <div className="mlx-past">{cancelledUpcoming}</div>
+          </section>
+        )}
+
+        <section className="mlx-section" id="mlx-plans-past" aria-labelledby="mlx-past-h" style={{ scrollMarginTop: 96 }}>
+          <div className="mlx-section-head">
+            <h2 className="mlx-label" id="mlx-past-h">Past</h2>
+            {pastRows.length > 5 && (
+              <button type="button" className="mlx-link" aria-expanded={showAllPast} onClick={() => setShowAllPast((v) => !v)}>
+                {showAllPast ? "Show less" : `Show all past (${pastRows.length})`}
+              </button>
+            )}
+          </div>
+          {pastByMonth.length === 0 ? (
+            <p className="mlx-muted">Things you've booked or joined show here once their date has passed.</p>
+          ) : (
+            <div className="mlx-months">
+              {(showAllPast ? pastByMonth : latestPast).map((m) => (
+                <section key={m.key} className="mlx-month" aria-labelledby={`mlx-p-${m.key}`}>
+                  <h3 className="mlx-month-title" id={`mlx-p-${m.key}`}>{m.label} <span>{m.els.length}</span></h3>
+                  <div className="mlx-past">{m.els}</div>
+                </section>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section className="mlx-section" id="mlx-plans-routines" aria-labelledby="mlx-routines-h" style={{ scrollMarginTop: 96 }}>
+          <h2 className="mlx-label" id="mlx-routines-h">Your routines</h2>
+          {signals.routines.length > 0 && (
+            <ul className="mlx-plans">
+              {signals.routines.map((r) => (
+                <li key={r.routineId}>
+                  <strong>{r.matches.length} {r.activityLabel} {r.matches.length === 1 ? "session fits" : "sessions fit"} your {DAY_NAMES[r.dayOfWeek - 1]} routine</strong>
+                  <Link className="mlx-link" to={r.matches[0].href}>{bigDate(r.matches[0].date)} · {r.matches[0].time}</Link>
+                </li>
+              ))}
+            </ul>
+          )}
+          <AccountTab><RoutinesPage key={routinesKey} /></AccountTab>
+        </section>
       </div>
+
+      <aside className="mlx-aside" aria-label="Calendar and links">
+        <MiniCalendar days={calendarDays} onOpen={() => document.getElementById("mlx-plans-upcoming")?.scrollIntoView({ block: "start" })} />
+        <section className="mlx-section" id="mlx-plans-week" aria-labelledby="mlx-plans-thisweek" style={{ scrollMarginTop: 96 }}>
+          <h2 className="mlx-label" id="mlx-plans-thisweek">This week</h2>
+          {thisWeekPlans.length === 0 ? (
+            <p className="mlx-muted" style={{ fontSize: 14 }}>Nothing booked this week yet.</p>
+          ) : (
+            <ul className="mlx-plans">
+              {thisWeekPlans.map((e, i) => (
+                <li key={`pw-${i}`}>
+                  <button type="button" className="mlx-week-item" onClick={openEntity(e)}>
+                    <strong>{titleOf(e)}</strong>
+                    <span>{bigDate(e.date)}{e.time && e.time !== "00:00" ? ` · ${e.time}` : ""}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+        <MoreLinks
+          title="Bookings & payments"
+          links={[
+            { label: "Find a booking by reference", onClick: () => setLookupOpen(true) },
+            { label: "Payments & receipts", onClick: () => navigate("/profile?tab=payment") },
+            { label: "Add a routine", onClick: () => setRoutineOpen(true) },
+          ]}
+        />
+      </aside>
+    </div>
+  );
+
+  // ---- Circles tab: every Circle as a photo card with its next meetup.
+  const circleCards: CircleCard[] = circles.map((c) => {
+    const plan = c.nextPlan && c.nextPlan.source === "circle" ? c.nextPlan : null;
+    const cover = getCircleCoverUrl(c);
+    return {
+      key: c.id,
+      name: c.name,
+      meta: [c.activityLabel, c.area || c.county, `${c.members} ${c.members === 1 ? "member" : "members"}`].filter(Boolean).join(" · "),
+      image: cover ? getMediaUrl(cover, "card") : null,
+      organiser: c.myRole === "organiser",
+      next: plan ? `${bigDate(plan.date)} · ${plan.time}` : null,
+      planning: c.activePlan ? c.activePlan.title : null,
+      href: `/circles/${c.slug ?? c.id}`,
+    };
+  });
+  // ---- Recently (overview): by day, with the Session's or venue's photo.
+  const RECENT_KIND: Record<string, string> = { game: "Session", booking: "Booking", registration: "Club", program_enrollment: "Programme", circle: "Joined a Circle" };
+  const recentItems: RecentItem[] = recentEntries.map((e) => {
+    const src = e.kind === "game" ? games.find((g) => g.id === e.ref)?.imageUrl : e.kind === "booking" ? bookings.find((b) => b.ref === e.ref)?.image : null;
+    return {
+      key: `${e.kind}-${e.ref}`,
+      date: e.date.slice(0, 10),
+      title: e.title,
+      // The day is shown on the left, so drop a leading "YYYY-MM-DD" here.
+      detail: e.subtitle.replace(/^\d{4}-\d{2}-\d{2}[ T·]*/, ""),
+      kindLabel: RECENT_KIND[e.kind] ?? "Activity",
+      image: src ? getMediaUrl(src, "thumbnail") : null,
+      href: e.href,
+      cancelled: e.status === "cancelled",
+    };
+  });
+
+  const circleTodo = needsAttention.filter((n) => n.actionType === "open_poll" || n.actionType === "circle_invitation" || n.actionType === "join_request" || n.actionType === "plan_confirmation" || n.actionType === "plan_activity_creation");
+  // A function: it reads values computed further down, at render time.
+  const suggestedBlock = () => suggestedCircles.length > 0 && (
+    <section className="mlx-section" aria-labelledby="mlx-sugg-circles">
+      <div className="mlx-section-head">
+        <h2 className="mlx-label" id="mlx-sugg-circles">Circles you might like</h2>
+        <Link className="mlx-link" to="/circles">Browse all</Link>
+      </div>
+      <CircleCards
+        row
+        onFindMore={() => navigate("/circles")}
+        circles={suggestedCircles.map((nc) => ({
+          key: `s-${nc.id}`, name: nc.name, meta: `${nc.activityLabel} · ${nc.members} ${nc.members === 1 ? "member" : "members"}`,
+          image: nc.imageUrl ? getMediaUrl(nc.imageUrl, "card") : null, organiser: false, next: null, planning: null, href: `/circles/${nc.slug ?? nc.id}`,
+        }))}
+      />
+    </section>
+  );
+  const renderCirclesTab = () =>
+    circles.length > 0 ? (
+      <>
+        <div className="mlx-tab-head">
+          <div>
+            <p className="mlx-pulse-line">{circlePulseParts.length > 0 ? circlePulseParts.join(" · ") : "All quiet in your Circles this week."}</p>
+            <p className="mlx-muted" style={{ marginTop: 4 }}>{circles.length} {circles.length === 1 ? "Circle" : "Circles"} you're part of{circles.some((c) => c.myRole === "organiser") ? `, ${circles.filter((c) => c.myRole === "organiser").length} you organise` : ""}.</p>
+          </div>
+          {circles.some((c) => c.myRole === "organiser") && <button type="button" className="mlx-link" onClick={() => navigate("/manage")}>Manage your Circles</button>}
+        </div>
+        {circleTodo.length > 0 && (
+          <section className="mlx-section" aria-labelledby="mlx-circle-todo">
+            <h2 className="mlx-label" id="mlx-circle-todo">Waiting for you</h2>
+            <ul className="mlx-plans">
+              {circleTodo.map((n) => (
+                <li key={n.id}>
+                  <span>
+                    <strong style={{ display: "block" }}>{n.title}</strong>
+                    <span>{n.description}</span>
+                  </span>
+                  <Link className="mlx-link" to={n.actionUrl} onClick={(e) => { if (openInPlace(n)) e.preventDefault(); }}>{n.actionLabel}</Link>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+        <CircleCards circles={circleCards} onFindMore={() => navigate("/circles")} />
+        {suggestedBlock()}
+      </>
+    ) : (
+      <>
+        <div className="mlx-nothing">
+          <h2 className="mlx-nothing-title">Find people who enjoy what you enjoy.</h2>
+          <p className="mlx-muted">A Circle is a group that meets around a shared activity. Joining is free.</p>
+          <div><button type="button" className="mlx-btn" onClick={() => navigate("/circles")}>Browse Circles</button></div>
+        </div>
+        {suggestedBlock()}
+      </>
+    );
+
+  // On the day of a room booking: the check-in code right under the cards.
+  const todaysBooking = nextEntities.find((e) => e.kind === "booking" && e.date === today);
+
+  const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  // "Do it again" (real repeat detection on the server): a photo from one of
+  // your own Sessions of that activity when there is one.
+  const photoFor = (label: string) => {
+    const g = games.find((x) => x.activityLabel === label && x.imageUrl);
+    return g?.imageUrl ? getMediaUrl(g.imageUrl, "card") : null;
+  };
+  const ideaTiles: IdeaTile[] = routineSuggestions.slice(0, 3).map((r): IdeaTile => ({
+    key: `r-${r.activityLabel}-${r.dayOfWeek}`, kind: "again", title: r.activityLabel,
+    meta: `You've been going most ${DAY_NAMES[r.dayOfWeek - 1]}s${r.time ? ` · usually around ${r.time}` : ""} · ${r.sessionCount} times recently`,
+    image: photoFor(r.activityLabel),
+    href: `/games?activity=${encodeURIComponent(r.activityLabel)}`,
+  }));
+
+  // "Your activity": real participation dates only (never a fabricated streak).
+  const monthStart = irelandMonthStart();
+  const monthEntries = participation.filter((e) => e.date >= monthStart && e.date <= today && e.status !== "cancelled");
+  const weeksActive = Array.from({ length: 8 }, (_, i) => {
+    const weeksAgo = 7 - i;
+    return participation.some((e) => {
+      const ago = Math.floor((dayNum(today) - dayNum(e.date)) / 7);
+      return e.status !== "cancelled" && ago === weeksAgo && e.date <= today;
+    });
+  });
+  const hasActivityStats = monthEntries.length > 0 || weeksActive.some(Boolean);
+  // Life highlights: real counts only.
+  const joinedOn = (from: string, to: string) => participation.filter((e) => e.status !== "cancelled" && e.date >= from && e.date <= to).length;
+  const prevMonthStart = (() => { const d = new Date(`${monthStart}T12:00:00Z`); d.setUTCMonth(d.getUTCMonth() - 1); return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-01`; })();
+  const prevMonthEnd = irelandDaysFromToday(-(dayNum(today) - dayNum(monthStart)) - 1);
+  const shortDate = (iso: string) => new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-IE", { day: "numeric", month: "short", timeZone: "Europe/Dublin" });
+  const weekBars = Array.from({ length: 8 }, (_, i) => {
+    const weeksAgo = 7 - i;
+    const end = irelandDaysFromToday(-7 * weeksAgo);
+    const start = irelandDaysFromToday(-7 * weeksAgo - 6);
+    return { label: weeksAgo === 0 ? "This wk" : shortDate(start), count: joinedOn(start, end), current: weeksAgo === 0 };
+  });
+  const topThisMonth = (() => {
+    const m = new Map<string, number>();
+    for (const e of monthEntries) m.set(e.title, (m.get(e.title) ?? 0) + 1);
+    return [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([title, count]) => ({ title, count }));
+  })();
+  const monthName = new Date(`${today}T12:00:00Z`).toLocaleDateString("en-IE", { month: "long", timeZone: "Europe/Dublin" });
+
+  // ---- For You (My Life 3.0) ------------------------------------------------
+  const NA_SOURCE: Record<NeedsAttentionItem["actionType"], string> = {
+    payment_incomplete: "Booking", waitlist_offered: "Waitlist", join_request: "Your Circle", circle_invitation: "Invite",
+    plan_activity_creation: "Your Circle", plan_confirmation: "Your Circle", open_poll: "Poll",
+  };
+  const pulseItems: PulseItem[] = [
+    // Things that need an answer: payments and offered places are critical (first, never hidden).
+    ...needsAttention.map((n): PulseItem => ({
+      key: `pulse:na:${n.id}`, source: NA_SOURCE[n.actionType], title: n.title, context: n.description, when: n.dueAt ?? n.createdAt,
+      actionLabel: n.actionLabel, href: n.actionUrl, critical: n.actionType === "payment_incomplete" || n.actionType === "waitlist_offered",
+      onAction: pollTargetOf(n) ? () => setVotingOn(n) : undefined,
+    })),
+    ...chatInbox
+      .filter((c) => c.scopeType === "circle" && c.unread > 0)
+      .map((c): PulseItem => ({
+        key: `pulse:chat:${c.scopeId}:${c.lastMessage?.createdAt ?? ""}`.replace(/[^a-z0-9_:.\-]/gi, ""), source: "Discussion", title: c.title,
+        context: c.lastMessage ? `New messages in your Circle chat` : "New messages", when: c.lastMessage?.createdAt ?? null,
+        actionLabel: "Join discussion", href: c.href, critical: false, unread: c.unread,
+      })),
+    ...signals.routines.map((r): PulseItem => ({
+      key: `pulse:routine:${r.routineId}:${r.matches[0].id}`, source: "Routine",
+      title: `${r.matches.length} ${r.activityLabel} ${r.matches.length === 1 ? "session fits" : "sessions fit"} your ${DAY_NAMES[r.dayOfWeek - 1]} routine`,
+      context: `First: ${bigDate(r.matches[0].date)} · ${r.matches[0].time}`, when: null, actionLabel: "View", href: r.matches[0].href, critical: false,
+    })),
+    ...followFeed.slice(0, 3).map((f): PulseItem => ({
+      key: `pulse:follow:${f.kind}:${f.id}`, source: "Following", title: f.title, context: `New session · ${bigDate(f.date)} · ${f.time}`,
+      when: null, actionLabel: "View", href: f.href, critical: false,
+    })),
+    ...signals.saved
+      .filter((sv) => !nextEntities.some((e) => e.kind === "game" && e.game.id === sv.next.id))
+      .map((sv): PulseItem => ({
+        key: `pulse:saved:${sv.listingType}:${sv.listingId}:${sv.next.id}`, source: "Saved", title: sv.next.title,
+        context: sv.spotsLeft !== null ? `${sv.spotsLeft} ${sv.spotsLeft === 1 ? "place" : "places"} left · ${bigDate(sv.next.date)}` : `${sv.upcoming} upcoming · next ${bigDate(sv.next.date)} ${sv.next.time}`,
+        when: null, actionLabel: "View", href: sv.next.href, critical: false,
+      })),
+  ]
+    .filter((p) => p.critical || !dismissed.has(p.key))
+    .sort((a, b) => Number(b.critical) - Number(a.critical) || Number(!!b.unread) - Number(!!a.unread));
+
+  const REASON: Record<string, string> = {
+    for_you: "Matches your interests", when_free: "Fits when you're free", this_weekend: "This weekend", from_circles: "From your Circles",
+    near_you: "Near you", free_nearby: "Free, nearby", try_new: "Something new", come_alone: "Come-alone friendly", easy: "Easy to join", volunteer: "Give back",
+  };
+  const ORDER = ["for_you", "when_free", "this_weekend", "from_circles", "near_you", "try_new", "free_nearby", "come_alone", "easy", "volunteer"];
+  const suggestions: Suggestion[] = (() => {
+    const seen = new Set<string>();
+    const out: Suggestion[] = [];
+    for (const key of ORDER) {
+      const sec = forYou.find((f) => f.key === key);
+      for (const it of sec?.items ?? []) {
+        const id = `${it.kind}:${it.id}`;
+        const dk = `sugg:${it.kind}:${it.id}`;
+        if (seen.has(id) || dismissed.has(dk) || myGameIds.has(it.id)) continue;
+        seen.add(id);
+        out.push({
+          key: id, dismissKey: dk, date: it.date, dateLabel: bigDate(it.date), time: it.time, title: it.title,
+          meta: [it.centreName ?? it.clubName ?? it.area, it.priceCents ? euro(it.priceCents / 100) : "Free"].filter(Boolean).join(" · "),
+          kind: "mine", kindLabel: "", reason: it.matchReasons?.[0] ?? REASON[key] ?? sec!.title,
+          image: it.imageUrl ? getMediaUrl(it.imageUrl, "card") : null,
+          href: it.href,
+          onTrack: () => trackEvent("mylife_suggestion_opened", { section: key }),
+        });
+        if (out.length >= 8) return out;
+      }
+    }
+    return out;
+  })();
+
+  const lastActive = participation.filter((e) => e.date <= today && e.status !== "cancelled").map((e) => e.date).sort().pop() ?? null;
+  const longAgo = lastActive ? dayNum(today) - dayNum(lastActive) > 21 : false;
+  const nextOne = nextEntities[0];
+  const heroMessage: ReactNode = !resident ? null : nextOne ? (
+    <>You've got something good coming up: <a href="#mlx-upcoming-title" onClick={(e) => { e.preventDefault(); openEntity(nextOne)(); }}>{titleOf(nextOne)}, {bigDate(nextOne.date).toLowerCase() === "today" || bigDate(nextOne.date).toLowerCase() === "tomorrow" ? bigDate(nextOne.date).toLowerCase() : bigDate(nextOne.date)}</a>.</>
+  ) : hasNone ? (
+    "Your next good day starts here."
+  ) : longAgo ? (
+    "Something new is happening around you."
+  ) : (
+    "Nothing booked yet. Here are a few ideas for this week."
+  );
+  const kicker = resident ? new Date(`${today}T12:00:00Z`).toLocaleDateString("en-IE", { weekday: "long", day: "numeric", month: "long", timeZone: "Europe/Dublin" }) : undefined;
+
+  const circlePolls = needsAttention.filter((n) => n.actionType === "open_poll").length;
+  const circleInvites = needsAttention.filter((n) => n.actionType === "circle_invitation").length;
+  const circleUnread = chatInbox.filter((c) => c.scopeType === "circle").reduce((n, c) => n + c.unread, 0);
+  const circleMeetups = circles.filter((c) => c.nextPlan && c.nextPlan.source === "circle" && c.nextPlan.date <= weekEnd).length;
+  const circlePulseParts = [
+    circleMeetups ? `${circleMeetups} ${circleMeetups === 1 ? "meetup" : "meetups"} this week` : null,
+    circleUnread ? `${circleUnread} unread ${circleUnread === 1 ? "message" : "messages"}` : null,
+    circlePolls ? `${circlePolls} ${circlePolls === 1 ? "poll" : "polls"} waiting` : null,
+    circleInvites ? `${circleInvites} ${circleInvites === 1 ? "invitation" : "invitations"}` : null,
+  ].filter(Boolean) as string[];
+  const plansInCircles = circles.filter((c) => c.activePlan);
+  const thisWeekEntities = nextEntities.filter((e) => e.date <= weekEnd);
+  const calendarDays = new Set([...nextEntities.map((e) => e.date), ...circlePlansThisWeek.map((c) => c.nextPlan!.date)]);
+  const suggestedCircles = newHereCircles.filter((nc) => !circles.some((c) => c.id === nc.id)).slice(0, 4);
+
+  const moreLinks = [
+    ...(isHosting ? [{ label: "Manage your hosting", onClick: () => navigate("/manage") }] : []),
+    ...(experience["experience.plan_my_day"] ? [{ label: "Plan a day", onClick: () => navigate("/plan-my-day") }] : []),
+    ...(experience["experience.activity_passport"] ? [{ label: "Your Activity Passport", onClick: () => (experience["mylife.passport_tab"] ? setMyLifeTab("passport") : navigate("/my-life/passport")) }] : []),
+    ...(resident ? [
+      { label: "Routines", onClick: () => navigate("/bookings?tab=plans&view=routines") },
+      ...(experience["mylife.for_you"] ? [{ label: "For Me: more ideas", onClick: () => navigate("/my-life/for-you") }] : []),
+      { label: "Free time", onClick: () => navigate("/free-time") },
+      { label: "Your preferences", onClick: () => setPrefsOpen(true) },
+    ] : []),
+  ];
+
+  const summary = resident
+    ? [
+        thisWeekCount > 0 ? `${thisWeekCount} ${thisWeekCount === 1 ? "thing" : "things"} this week` : "Nothing booked this week",
+        circles.length > 0 ? `${circles.length} ${circles.length === 1 ? "Circle" : "Circles"}` : null,
+      ].filter(Boolean).join(" · ")
+    : null;
+
+  const headActions = (
+    <>
+      <button type="button" className="mlx-link" onClick={() => setLookupOpen(true)}>Find a booking</button>
+      {resident ? (
+        <ActionMenu
+          label="More for My Life"
+          appearance="icon"
+          items={[
+            { label: "Edit profile", onSelect: () => navigate("/profile") },
+            ...(guestEmail ? [{ label: "Sign out", onSelect: () => setConfirmingSignOut(true) }] : []),
+          ]}
+        />
+      ) : guestEmail ? (
+        <button type="button" className="mlx-link" onClick={() => setConfirmingSignOut(true)}>Sign out</button>
+      ) : null}
+    </>
+  );
+
+  const passportTabOn = experience["mylife.passport_tab"] && experience["experience.activity_passport"];
+  const tabOptions = MY_LIFE_TABS.filter((t) => t.key !== "passport" || passportTabOn).map((t) => ({
+    ...t,
+    count: t.key === "plans" ? nextEntities.length : t.key === "circles" ? circles.length : t.key === "saved" ? favourites.length + follows.length : undefined,
+  }));
+
+  return (
+    <div className="mlx">
+      <MyLifeTitle name={resident?.name ?? null} summary={summary} actions={headActions} kicker={kicker} message={heroMessage} />
       <ConfirmDialog
         open={confirmingSignOut}
         title="Sign out?"
@@ -941,89 +1535,104 @@ export function MyBookings() {
         onConfirm={handleSignOut}
         onCancel={() => setConfirmingSignOut(false)}
       />
+      {/* Owner 2026-10-24: forms open in a centred popup, never inline. */}
+      <FormModal
+        open={lookupOpen}
+        title="Find a booking"
+        subtitle="Use the reference from your confirmation email and the email you booked with."
+        submitLabel="Find booking"
+        dirty={false}
+        onClose={() => setLookupOpen(false)}
+        onSubmit={async () => {
+          const ok = await handleLookup();
+          if (!ok) throw new Error(lookupErrorRef.current ?? "We couldn't find that booking. Check the reference and email.");
+        }}
+      >
+        <div>
+          <label htmlFor="lookup-ref" style={labelStyle}>Reference</label>
+          <input id="lookup-ref" value={lookupRef} onChange={(e) => setLookupRef(e.target.value)} placeholder="HB-123456" autoComplete="off" style={inputStyle} />
+        </div>
+        <div>
+          <label htmlFor="lookup-email" style={labelStyle}>Email</label>
+          <input id="lookup-email" type="email" value={lookupEmail} onChange={(e) => setLookupEmail(e.target.value)} placeholder="you@email.ie" autoComplete="email" style={inputStyle} />
+        </div>
+      </FormModal>
 
-      <div className="section-pad" style={{ maxWidth: 1440, margin: "0 auto", padding: "0 24px 0" }}>
-        {!hasNone && resident && residentFull && residentFull.interests.length === 0 && !interestsNudgeDismissed && (
-          <div
-            className="pop-in"
-            style={{
-              background: colors.greenBg, borderRadius: radius.control, padding: "14px 18px", marginBottom: 24,
-              display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap",
+      {resident && (
+        <>
+          <PollVoteModal
+            item={votingOn}
+            onClose={(voted) => {
+              setVotingOn(null);
+              // A vote takes the poll off "Needs you"; refresh just that list.
+              if (voted) fetchNeedsAttention().then(setNeedsAttention).catch(() => {});
             }}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <div style={{ width: 34, height: 34, borderRadius: "50%", background: colors.surface, color: colors.greenText, display: "flex", alignItems: "center", justifyContent: "center", flex: "none" }}>
-                <LightbulbIcon size={16} />
-              </div>
-              <div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: colors.text }}>Tell us what you're into</div>
-                <div style={{ fontSize: 12.5, color: colors.mutedLight }}>Takes under a minute — makes Explore actually useful.</div>
-              </div>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-              <Button onClick={() => openOnboarding()}>Get started</Button>
-              <button
-                onClick={() => {
-                  localStorage.setItem(INTERESTS_NUDGE_DISMISSED_KEY, "1");
-                  setInterestsNudgeDismissed(true);
-                }}
-                aria-label="Dismiss"
-                style={{ background: "none", border: "none", padding: 4, color: colors.mutedLight, cursor: "pointer", display: "flex" }}
-              >
-                <CloseIcon size={16} />
-              </button>
-            </div>
-          </div>
-        )}
+          />
+          <PreferencesModal
+            open={prefsOpen}
+            onClose={() => setPrefsOpen(false)}
+            interests={residentFull?.interests ?? []}
+            availability={residentFull?.availability ?? []}
+            onSaved={() => {
+              toastApi.success("Saved");
+              fetchResidentFull().then(({ resident: r }) => setResidentFull(r)).catch(() => {});
+              if (experience["mylife.for_you"]) fetchForYou().then((r) => setForYou(r.sections)).catch(() => {});
+            }}
+          />
+          <AddRoutineModal
+            open={routineOpen}
+            onClose={() => setRoutineOpen(false)}
+            onAdded={() => {
+              setRoutineOpen(false);
+              setRoutinesKey((k) => k + 1);
+              fetchRoutineSuggestions().then(setRoutineSuggestions).catch(() => {});
+              if (experience["mylife.pulse"]) fetchMyLifeSignals().then(setSignals).catch(() => {});
+            }}
+          />
+          <AddInterestModal
+            open={interestOpen}
+            onClose={() => setInterestOpen(false)}
+            county={resident.homeCounty || ""}
+            onAdded={() => {
+              toastApi.success("Added. We'll let you know when something matches.");
+              void loadMyStuff();
+            }}
+          />
+        </>
+      )}
+      {resident && (
+        <div className="mlx-tabs">
+          <SegmentedTabs<MyLifeTab> label="My Life" value={myLifeTab} onChange={setMyLifeTab} options={tabOptions} />
+        </div>
+      )}
 
-        {verifying && (
-          <div style={{ background: colors.greenBg, color: colors.greenText, borderRadius: radius.control, padding: "14px 20px", marginBottom: 20, fontSize: 14, fontWeight: 600 }}>
-            Signing you in…
-          </div>
-        )}
-        {verifyError && (
-          <div style={{ background: colors.dangerBg, color: colors.danger, borderRadius: radius.control, padding: "14px 20px", marginBottom: 20, fontSize: 14 }}>
-            {verifyError}
-          </div>
-        )}
+      {resident && myLifeTab !== "foryou" ? (
+        renderTab()
+      ) : (
+      <>
+      <div className="mlx-body">
+        {verifying && <div className="mlx-note" role="status"><p><strong>Signing you in…</strong></p></div>}
+        {verifyError && <div className="mlx-note" role="alert"><p><strong style={{ color: colors.danger }}>{verifyError}</strong></p></div>}
 
         {/* HC-QA-064 — a failed session/profile check is an error with a
             retry, never a "Sign in" prompt for someone who is signed in. */}
         {guestLoadError && !resident && (
-          <div style={{ marginBottom: 24 }}>
-            <LoadErrorState title="We couldn't load your account right now." detail="You're still signed in — this is usually temporary." onRetry={() => void refreshGuest()} />
-          </div>
+          <LoadErrorState title="We couldn't load your account right now." detail="You're still signed in — this is usually temporary." onRetry={() => void refreshGuest()} />
         )}
+        {/* PUB-33 — one signed-out state: this is the page's heading and
+            primary action. */}
         {!guestEmail && !guestLoadError && (
-          <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.control, padding: "18px 20px", marginBottom: 24, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
-            <div>
-              <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 2 }}>Sign in to see your life</div>
-              <div style={{ fontSize: 13.5, color: colors.mutedLight }}>Your plans, Circles and history, all in one place.</div>
+          <div className="mlx-note">
+            <p><strong>Sign in to see your life</strong><span>Your plans, Circles and history, all in one place.</span></p>
+            <div className="mlx-note-actions">
+              <button type="button" className="mlx-btn" onClick={() => navigate("/signin")}>Sign in</button>
+              {hasNone && <button type="button" className="mlx-link" onClick={() => navigate("/explore")}>Explore HelloCircle</button>}
             </div>
-            <Button onClick={() => navigate("/signin")}>Sign in</Button>
-          </div>
-        )}
-        {lookupOpen && (
-          <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.control, padding: "16px 20px", marginBottom: 24 }}>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "flex-end" }}>
-              <div style={{ flex: "1 1 160px" }}>
-                <label style={labelStyle}>Reference</label>
-                <input value={lookupRef} onChange={(e) => setLookupRef(e.target.value)} placeholder="HB-123456" style={inputStyle} />
-              </div>
-              <div style={{ flex: "1 1 200px" }}>
-                <label style={labelStyle}>Email</label>
-                <input value={lookupEmail} onChange={(e) => setLookupEmail(e.target.value)} placeholder="you@email.ie" style={inputStyle} />
-              </div>
-              <Button onClick={handleLookup} disabled={lookupLoading || !lookupRef.trim() || !lookupEmail.trim()}>
-                {lookupLoading ? "Searching…" : "Find"}
-              </Button>
-            </div>
-            {lookupError && <div style={{ color: colors.danger, fontSize: 13, marginTop: 10 }}>{lookupError}</div>}
           </div>
         )}
 
         {lookupResult && (
-          <div style={{ marginBottom: 24 }}>
+          <div>
             {lookupResult.kind === "booking" ? (
               <BookingRow
                 booking={lookupResult.data}
@@ -1031,6 +1640,7 @@ export function MyBookings() {
                 cancelling={cancellingRef === lookupResult.data.ref}
                 error={cancelErrors[lookupResult.data.ref]}
                 recovered
+                lookupEmail={lookupEmail.trim()}
               />
             ) : (
               <RegistrationRow
@@ -1039,236 +1649,259 @@ export function MyBookings() {
                 cancelling={cancellingRef === lookupResult.data.ref}
                 error={cancelErrors[lookupResult.data.ref]}
                 recovered
+                lookupEmail={lookupEmail.trim()}
               />
             )}
           </div>
         )}
 
         {failedSources > 0 && !loading && (
-          <div style={{ marginBottom: 24 }}>
-            <LoadErrorState
-              title="Some of your activity couldn't load."
-              detail="What's shown below may be incomplete — nothing has been cancelled or changed."
-              onRetry={() => void loadMyStuff()}
-            />
-          </div>
+          <LoadErrorState
+            title="Some of your activity couldn't load."
+            detail="What's shown below may be incomplete — nothing has been cancelled or changed."
+            onRetry={() => void loadMyStuff()}
+          />
         )}
         {resident && <MyInvitationsPanel />}
 
         {hasNone && resident ? (
-          <MyLifeEmptyState />
-        ) : hasNone && !resident ? (
-          <EmptyState icon={<ChevronRightIcon size={20} />} title="Nothing here yet" subtitle="Find a hall, club or plan to get started." action={<Button onClick={() => navigate("/home")}>Explore HelloCircle</Button>} />
-        ) : (
+          // New user (My Life 3.0): real things to do first, then the steps.
           <>
-            {/* One continuous grid from Next Up through Recently — the right
-                rail is a single item spanning every row (gridRow: "1 / -1"),
-                so it stays sticky across the whole span instead of just the
-                first row. Full-width sections (Do It Again/Interests/
-                Availability) span both columns (gridColumn: "1 / -1") so
-                they stay full width without breaking the grid into
-                separate containers, which would reset the sticky rail. My
-                Circles/Recently stay in column 1 only, lining up under Next
-                Up/Coming Up. Interests/Availability/the final CTA fall
-                outside this grid, unaffected. */}
-            <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "minmax(0,2.4fr) minmax(0,1fr)", gap: 30, alignItems: "start", marginBottom: 44 }}>
-              <div style={{ gridColumn: 1 }}>
-                {nextUpData && <div style={{ marginBottom: 36 }}><MyLifeNextUp data={nextUpData} /></div>}
-                {comingUpRows.length > 0 && (
-                  <section>
-                    <SectionHeader eyebrow="COMING UP" title="Coming up" />
-                    <ParticipationTimeline rows={comingUpRows} />
-                  </section>
-                )}
+            <FreeTimePrompt planDay={experience["experience.plan_my_day"]} forMe={experience["mylife.for_you"]} />
+            {experience["mylife.for_you"] && <MadeForWeek title="On soon near you" items={suggestions} onDismiss={dismiss} seeAll={<Link className="mlx-link" to="/my-life/for-you">For Me</Link>} />}
+            <MyLifeEmptyState />
+          </>
+        ) : hasNone && !resident ? (
+          guestEmail ? (
+            <div className="mlx-nothing">
+              <h2 className="mlx-nothing-title">Nothing here yet.</h2>
+              <p className="mlx-muted">Find a hall, club or plan to get started.</p>
+              <div><button type="button" className="mlx-btn" onClick={() => navigate("/explore")}>Explore HelloCircle</button></div>
+            </div>
+          ) : null
+        ) : (
+          <div className="mlx-split">
+          <div className="mlx-main">
+            {resident && residentFull && residentFull.interests.length === 0 && !interestsNudgeDismissed && (
+              <div className="mlx-note">
+                <p><strong>Tell us what you're into</strong><span>It takes under a minute and makes your suggestions fit you.</span></p>
+                <div className="mlx-note-actions">
+                  <button type="button" className="mlx-btn" onClick={() => openOnboarding()}>Get started</button>
+                  <button
+                    type="button"
+                    className="mlx-link"
+                    onClick={() => {
+                      try { localStorage.setItem(INTERESTS_NUDGE_DISMISSED_KEY, "1"); } catch { /* private mode: dismiss for this visit only */ }
+                      setInterestsNudgeDismissed(true);
+                    }}
+                  >
+                    Not now
+                  </button>
+                </div>
               </div>
+            )}
 
-              <div className="sticky-aside" style={{ gridColumn: 2, gridRow: "1 / -1", position: "sticky", top: 90, display: "flex", flexDirection: "column", gap: 18 }}>
-                {needsAttention.length > 0 && (
-                  <div style={{ border: `1px solid ${colors.border}`, borderRadius: radius.control, padding: "16px 18px", background: colors.surface }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0, color: colors.mutedLight, marginBottom: 12 }}>NEEDS YOU</div>
-                    <MyLifeNeedsYou items={needsAttention} />
-                  </div>
-                )}
-                {(games.some((g) => g.hostResidentId === resident?.id) || circles.some((c) => c.myRole === "organiser")) && (
-                  <div style={{ border: `1px solid ${colors.border}`, borderRadius: radius.control, padding: "16px 18px", background: colors.surface }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0, color: colors.mutedLight, marginBottom: 10 }}>HOSTING</div>
-                    <p style={{ margin: "0 0 12px", fontSize: 13, color: colors.muted }}>Manage the sessions and Circles you run — edit, post updates, or check who's joined.</p>
-                    <Button variant="ghost" onClick={() => navigate("/manage")}>Manage your hosting →</Button>
-                  </div>
-                )}
-                <MyLifeThisMonth entries={participation} />
-                <MyLifeRhythm entries={participation} />
-                {activeIntents.length > 0 && (
-                  <div style={{ border: `1px solid ${colors.border}`, borderRadius: radius.control, padding: "16px 18px", background: colors.surface }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0, color: colors.mutedLight, marginBottom: 12 }}>WAITING</div>
-                    <MyLifeWaitingFor intents={activeIntents.slice(0, 2)} onChange={loadMyStuff} />
-                  </div>
-                )}
-                {favourites.length > 0 && (
-                  <div style={{ border: `1px solid ${colors.border}`, borderRadius: radius.control, padding: "16px 18px", background: colors.surface }}>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0, color: colors.mutedLight }}>FOR LATER</div>
-                      <button onClick={() => navigate("/profile")} style={{ background: "none", border: "none", padding: 0, fontSize: 12, fontWeight: 700, color: colors.text, cursor: "pointer" }}>View all</button>
-                    </div>
-                    <MyLifeSaved favourites={favourites} />
-                  </div>
-                )}
-                {follows.length > 0 && (
-                  <div style={{ border: `1px solid ${colors.border}`, borderRadius: radius.control, padding: "16px 18px", background: colors.surface }}>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0, color: colors.mutedLight }}>FOLLOWING</div>
-                      <button onClick={() => navigate("/profile")} style={{ background: "none", border: "none", padding: 0, fontSize: 12, fontWeight: 700, color: colors.text, cursor: "pointer" }}>View all</button>
-                    </div>
-                    <MyLifeFollowing follows={follows} />
-                  </div>
-                )}
+            {resident && !phone && <FreeTimePrompt planDay={experience["experience.plan_my_day"]} forMe={experience["mylife.for_you"]} />}
+
+            {experience["mylife.pulse"] ? (
+              <PulseList items={pulseItems} onDismiss={dismiss} onOpen={(it) => trackEvent("mylife_pulse_opened", { source: it.source })} />
+            ) : (
+              <NeedsList items={needsAttention} onAction={openInPlace} />
+            )}
+
+            {/* Your next moments: a horizontal row of photo cards. */}
+            <section className="mlx-upcoming" aria-labelledby="mlx-upcoming-title">
+              <div className="mlx-section-head">
+                <h2 className="mlx-label" id="mlx-upcoming-title">Your next moments</h2>
+                {upcomingRows.length > 0 && <button type="button" className="mlx-link" onClick={openBookings}>My Plans</button>}
               </div>
-
-              {routineSuggestions.length > 0 && (
-                <section style={{ gridColumn: "1 / -1", borderTop: `1px solid ${colors.border}`, paddingTop: 36 }}>
-                  <SectionHeader eyebrow="DO IT AGAIN" title="Worth doing again" subtitle="Things you've enjoyed before, happening again." />
-                  <MyLifeRepeatOpportunities suggestions={routineSuggestions} />
-                </section>
+              {upcomingCards.length > 0 ? (
+                <UpcomingCards cards={upcomingCards} />
+              ) : (
+                <NothingBooked hasIdeas={suggestions.length > 0 || ideaTiles.length > 0} onFind={() => navigate("/explore")} />
               )}
-
-              {circles.length > 0 && (
-                <section id="my-circles" style={{ gridColumn: 1, borderTop: `1px solid ${colors.border}`, paddingTop: 36, scrollMarginTop: 96 }}>
-                  <SectionHeader eyebrow="CIRCLES" title="My Circles" />
-                  <MyLifeCircles circles={circles} />
-                </section>
-              )}
-
-              {residentFull && residentFull.interests.length > 0 && (
-                <section style={{ gridColumn: "1 / -1", borderTop: `1px solid ${colors.border}`, paddingTop: 36 }}>
-                  <SectionHeader eyebrow="INTERESTS" title="What you're into" />
-                  <MyLifeInterests interests={residentFull.interests} />
-                </section>
-              )}
-
-              {residentFull && residentFull.availability.length > 0 && (
-                <section style={{ gridColumn: "1 / -1", borderTop: `1px solid ${colors.border}`, paddingTop: 36 }}>
-                  <SectionHeader eyebrow="AVAILABILITY" title="When you're usually free" />
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
-                    {describeAvailability(residentFull.availability).map((a) => (
-                      <span key={a} style={{ background: colors.panel, color: colors.text, borderRadius: radius.pill, padding: "7px 14px", fontSize: 13, fontWeight: 600 }}>{a}</span>
-                    ))}
-                    {/* Was openOnboarding() — but onboarding only asks location +
-                        interests now, so availability lives in Profile's
-                        preferences (same target MyLifeEmptyState already uses). */}
-                    <button onClick={() => navigate("/profile?tab=preferences")} style={{ background: "none", border: "none", padding: 0, fontSize: 13, fontWeight: 700, color: colors.text, cursor: "pointer", textDecoration: "underline" }}>
-                      Update availability
-                    </button>
+              {todaysBooking && todaysBooking.kind === "booking" && (
+                <div className="mlx-checkin">
+                  <BookingQr reference={todaysBooking.booking.ref} />
+                  <div style={{ display: "grid", gap: 4 }}>
+                    <span style={{ fontSize: 13, color: colors.mutedLight }}>Today · show this at the door</span>
+                    <strong style={{ fontSize: 15 }}>{titleOf(todaysBooking)} · {todaysBooking.booking.ref}</strong>
+                    <button type="button" className="mlx-link" style={{ justifySelf: "start" }} onClick={() => downloadBookingIcs(todaysBooking.booking.ref)}>Add to calendar</button>
                   </div>
-                </section>
+                </div>
               )}
+            </section>
 
-              {recentEntries.length > 0 && (
-                <section style={{ gridColumn: 1, borderTop: `1px solid ${colors.border}`, paddingTop: 36 }}>
-                  <SectionHeader
-                    eyebrow="RECENTLY"
-                    title="Recently"
-                    subtitle={
-                      last30 > 0 && prev30 > 0
-                        ? (last30 > prev30
-                            ? `You've been getting out more — ${last30} in the last 30 days, compared with ${prev30} before that.`
-                            : last30 < prev30
-                            ? `${last30} plans in the last 30 days, compared with ${prev30} before that.`
-                            : `${last30} plans in the last 30 days, same as the 30 days before.`)
-                        : undefined
-                    }
-                  />
-                  <MyLifeRecentActivity entries={recentEntries} onViewFull={() => setShowAllActivity(true)} />
-                </section>
-              )}
+            {/* Circles 3.0 — Circle plans you're in, labelled Booked / booking required / interested. */}
+            {resident && <MyCirclePlans />}
 
-              {/* Full history — kept for real functionality (cancel/
-                  reschedule/QR check-in/attendance confirmation/reviews),
-                  collapsed by default since the sections above already
-                  surface what matters most. Left-column width only (same
-                  as My Circles/Recently above), still inside the same grid
-                  so the sticky rail keeps following while this is open. */}
-              <div id="my-bookings" style={{ gridColumn: 1, borderTop: `1px solid ${colors.border}`, paddingTop: 24, scrollMarginTop: 96 }}>
+            {resident && phone && <FreeTimePrompt planDay={experience["experience.plan_my_day"]} forMe={experience["mylife.for_you"]} />}
+
+            {circles.length > 0 && (
+              <section id="my-circles" className="mlx-section" aria-labelledby="mlx-circles" style={{ scrollMarginTop: 96 }}>
+                <div className="mlx-section-head">
+                  <h2 className="mlx-label" id="mlx-circles">Your Circles</h2>
+                  <button type="button" className="mlx-link" onClick={() => setMyLifeTab("circles")}>My Circles</button>
+                </div>
+                {circlePulseParts.length > 0 && <p className="mlx-pulse-line">{circlePulseParts.join(" · ")}</p>}
+                <CircleCards circles={circleCards} onFindMore={() => navigate("/circles")} row />
+              </section>
+            )}
+
+            {experience["mylife.for_you"] && (
+              <MadeForWeek
+                items={suggestions}
+                onDismiss={dismiss}
+                seeAll={<Link className="mlx-link" to="/my-life/for-you">For Me</Link>}
+              />
+            )}
+
+            <IdeaTiles tiles={ideaTiles} title="Do it again" />
+
+            {/* Only when a Circle has a plan in progress (owner 2026-10-26: it
+                repeated "Plan a day", which the free time panel and Quick
+                actions already offer). */}
+            {resident && plansInCircles.length > 0 && (
+              <section className="mlx-section mlx-boxed" aria-labelledby="mlx-together">
+                <h2 className="mlx-label" id="mlx-together">Plans in your Circles</h2>
+                <ul className="mlx-plans">
+                  {plansInCircles.map((c) => (
+                    <li key={c.id}>
+                      <span>
+                        <strong style={{ display: "block" }}>{c.activePlan!.title}</strong>
+                        <span>{c.name} · {c.activePlan!.status === "confirmed" ? "Agreed" : "Idea"}{c.activePlan!.proposedDate ? ` · ${bigDate(c.activePlan!.proposedDate)}` : ""}</span>
+                      </span>
+                      <Link className="mlx-link" to={`/circles/${c.slug ?? c.id}`}>See the plan</Link>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+            <MyLifePlans />
+
+            {hasActivityStats && (
+              <ActivitySummary
+                monthName={monthName}
+                month={monthEntries.length}
+                lastMonth={joinedOn(prevMonthStart, prevMonthEnd)}
+                distinct={new Set(monthEntries.map((e) => e.title)).size}
+                weeks={weekBars}
+                top={topThisMonth}
+                onSeeAll={openBookings}
+                extra={passportTabOn ? <button type="button" className="mlx-link" onClick={() => setMyLifeTab("passport")}>Passport</button> : undefined}
+              />
+            )}
+
+            {recentEntries.length > 0 && (
+              <section className="mlx-section" aria-labelledby="mlx-recent">
+                <div className="mlx-section-head">
+                  <h2 className="mlx-label" id="mlx-recent">Recently</h2>
+                  <button type="button" className="mlx-link" onClick={openBookings}>All activity</button>
+                </div>
+                <RecentByDay items={recentItems} />
+              </section>
+            )}
+
+            {/* Full history for a visitor without tabs (guest bookings by
+                device or email): cancel, reschedule, QR check-in and reviews
+                stay reachable. Residents use My Plans. */}
+            {!resident && (
+              <section id="my-bookings" className="mlx-section" style={{ scrollMarginTop: 96 }}>
                 <button
                   type="button"
+                  className="mlx-link"
                   aria-expanded={showAllActivity}
-                  onClick={() => setShowAllActivity((s) => !s)}
-                  style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", padding: 0, fontSize: 13.5, fontWeight: 700, color: colors.text, cursor: "pointer" }}
+                  onClick={() => setShowAllActivity((v) => !v)}
+                  style={{ display: "inline-flex", alignItems: "center", gap: 6, alignSelf: "flex-start" }}
                 >
-                  <ChevronRightIcon size={14} style={{ transform: showAllActivity ? "rotate(90deg)" : "none", transition: "transform .15s ease" }} />
-                  {showAllActivity ? "Hide" : "View"} full activity — bookings, references and history
+                  <ChevronRightIcon size={14} style={{ transform: showAllActivity ? "rotate(90deg)" : "none" }} />
+                  {showAllActivity ? "Hide" : "Show"} all bookings, references and history
                 </button>
-  
-                {showAllActivity && (
-                  <div style={{ marginTop: 20 }}>
-                    {(upcomingRows.length > 0 || pastRows.length > 0) && (
-                      <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
-                        {(["list", "calendar"] as const).map((v) => (
-                          <button
-                            key={v}
-                            onClick={() => setBookingsView(v)}
-                            style={{
-                              border: "none", borderRadius: radius.pill, padding: "6px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", textTransform: "capitalize",
-                              background: bookingsView === v ? colors.dark : colors.panel, color: bookingsView === v ? "#fff" : colors.muted,
-                            }}
-                          >
-                            {v}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                    {bookingsView === "calendar" && (
-                      <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: 18, marginBottom: 32, maxWidth: 420 }}>
-                        <MonthCalendar items={[...upcomingRows, ...pastRows]} />
-                      </div>
-                    )}
-                    {bookingsView === "list" && upcomingRows.length > 0 && (
-                      <>
-                        <h2 style={{ fontSize: 15, fontWeight: 700, color: colors.muted, margin: "0 0 12px", letterSpacing: 0 }}>UPCOMING</h2>
-                        <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 32 }}>
-                          {upcomingRows.map((r) => r.el)}
-                        </div>
-                      </>
-                    )}
-                    {bookingsView === "list" && (regs.length > 0 || circles.length > 0 || programEnrollments.length > 0) && (
-                      <>
-                        <h2 style={{ fontSize: 15, fontWeight: 700, color: colors.muted, margin: "0 0 12px", letterSpacing: 0 }}>ONGOING</h2>
-                        <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 32 }}>
-                          {regs.map((r) => (
-                            <RegistrationRow
-                              key={r.ref}
-                              registration={r}
-                              onCancel={() => handleCancelRegistration(r.ref, guestEmail ?? undefined)}
-                              cancelling={cancellingRef === r.ref}
-                              error={cancelErrors[r.ref]}
-                            />
-                          ))}
-                          {circles.map((c) => <CircleRow key={c.id} circle={c} />)}
-                          {programEnrollments.map((e) => <ProgramEnrollmentRow key={e.ref} enrollment={e} onChanged={reloadProgramEnrollments} />)}
-                        </div>
-                      </>
-                    )}
-                    {bookingsView === "list" && pastRows.length > 0 && (
-                      <>
-                        <h2 style={{ fontSize: 15, fontWeight: 700, color: colors.muted, margin: "0 0 12px", letterSpacing: 0 }}>PAST</h2>
-                        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                          {pastRows.map((r) => r.el)}
-                        </div>
-                      </>
-                    )}
+                {showAllActivity && activityListFor()}
+              </section>
+            )}
+          </div>
+
+          {/* 70/30: the side column complements the main one (owner 2026-10-25). */}
+          <aside className="mlx-aside" aria-label="This week and quick actions">
+            {resident && <MiniCalendar days={calendarDays} onOpen={() => navigate("/bookings?tab=plans&view=calendar")} />}
+            {resident && (
+              <section className="mlx-section" aria-labelledby="mlx-thisweek">
+                <div className="mlx-section-head">
+                  <h2 className="mlx-label" id="mlx-thisweek">This week</h2>
+                  <button type="button" className="mlx-link" onClick={() => navigate("/bookings?tab=plans&view=week")}>Week</button>
+                </div>
+                {thisWeekEntities.length === 0 ? (
+                  <p className="mlx-muted" style={{ fontSize: 14 }}>Nothing booked this week yet.</p>
+                ) : (
+                  <ul className="mlx-plans">
+                    {thisWeekEntities.slice(0, 5).map((e, i) => (
+                      <li key={`tw-${i}`}>
+                        <span>
+                          <strong style={{ display: "block", fontSize: 15 }}>{titleOf(e)}</strong>
+                          <span>{bigDate(e.date)}{e.time && e.time !== "00:00" ? ` · ${e.time}` : ""}</span>
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+            )}
+            <MoreLinks links={moreLinks} title="Quick actions" />
+            {activeIntents.length > 0 && (
+              <section className="mlx-section" aria-labelledby="mlx-waiting">
+                <div className="mlx-section-head">
+                  <h2 className="mlx-label" id="mlx-waiting">Waiting for</h2>
+                  <button type="button" className="mlx-link" onClick={() => setInterestOpen(true)}>Add another</button>
+                </div>
+                <MyLifeWaitingFor intents={activeIntents.slice(0, 2)} onChange={loadMyStuff} />
+              </section>
+            )}
+            {favourites.length > 0 && (
+              <section className="mlx-section" aria-labelledby="mlx-saved">
+                <div className="mlx-section-head">
+                  <h2 className="mlx-label" id="mlx-saved">Saved ideas</h2>
+                  <button type="button" className="mlx-link" onClick={() => setMyLifeTab("saved")}>View all</button>
+                </div>
+                <MyLifeSaved favourites={favourites.slice(0, 4)} />
+              </section>
+            )}
+            {follows.length > 0 && (
+              <section className="mlx-section" aria-labelledby="mlx-following">
+                <div className="mlx-section-head">
+                  <h2 className="mlx-label" id="mlx-following">Following</h2>
+                  <button type="button" className="mlx-link" onClick={() => navigate("/bookings?tab=saved&show=following")}>View all</button>
+                </div>
+                <MyLifeFollowing follows={follows} />
+              </section>
+            )}
+            {residentFull && (residentFull.interests.length > 0 || residentFull.availability.length > 0) && (
+              <section className="mlx-section" aria-labelledby="mlx-prefs">
+                <div className="mlx-section-head">
+                  <h2 className="mlx-label" id="mlx-prefs">Your preferences</h2>
+                  <button type="button" className="mlx-link" onClick={() => setPrefsOpen(true)}>Edit</button>
+                </div>
+                {residentFull.interests.length > 0 && (
+                  <div className="mlx-pref">
+                    <span className="mlx-pref-label">What you're into</span>
+                    <div className="mlx-chips">{residentFull.interests.map((i) => <span key={i} className="mlx-chip">{i}</span>)}</div>
                   </div>
                 )}
-              </div>
-            </div>
-          </>
+                {residentFull.availability.length > 0 && (
+                  <div className="mlx-pref">
+                    <span className="mlx-pref-label">When you're usually free</span>
+                    <div className="mlx-chips">{describeAvailability(residentFull.availability).map((a) => <span key={a} className="mlx-chip">{a}</span>)}</div>
+                  </div>
+                )}
+              </section>
+            )}
+          </aside>
+          </div>
         )}
       </div>
 
-      {!hasNone && (
-        <section style={{ background: colors.bg, marginTop: 56 }}>
-          <div className="section-pad" style={{ maxWidth: 1440, margin: "0 auto", padding: "0 24px 60px" }}>
-            <MyLifeDiscoveryCTA />
-          </div>
-        </section>
+      {!hasNone && <ClosingPrompt onInterest={() => setInterestOpen(true)} onFind={() => navigate("/games")} />}
+      </>
       )}
     </div>
   );

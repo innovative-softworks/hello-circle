@@ -4,6 +4,8 @@ import type { ProgramEnrollment } from "../api";
 import { CheckIcon, SearchIcon } from "./icons";
 import { Avatar, Button, EmptyState, LoadErrorState, Modal, PageSpinner } from "./ui";
 import { useToast } from "./Toast";
+import { ScanPassModal, readPassCode, type ScanResult } from "./pass/ScanPassModal";
+import { QrCode } from "lucide-react";
 import { errorMessage } from "./admin/adminUi";
 import { dateLabel } from "../euro";
 import { colors, fonts, radius } from "../theme";
@@ -33,6 +35,7 @@ export function VendorCheckInScreen({
   const [busyId, setBusyId] = useState<number | null>(null);
 
   const [loadFailed, setLoadFailed] = useState(false);
+  const [scanning, setScanning] = useState(false);
   const toast = useToast();
 
   // Enrolments and the attendance already recorded load together: showing the
@@ -76,6 +79,24 @@ export function VendorCheckInScreen({
     }
   };
 
+  // Scan passes (owner 2026-10-27): a programme pass holds its enrolment reference.
+  const onScan = async (text: string): Promise<ScanResult> => {
+    if (!session || !enrollments) return { ok: false, message: "The list is still loading." };
+    const code = readPassCode(text);
+    if (!code) return { ok: false, message: "That isn't a HelloCircle pass." };
+    if (code.kind !== "program") return { ok: false, message: "That pass isn't for a programme." };
+    const e = active.find((x) => x.ref.toUpperCase() === code.ref);
+    if (!e) return { ok: false, message: "That enrolment isn't on this programme's list." };
+    if (isPresent(e.id)) return { ok: true, message: `${e.participantName} is already checked in.` };
+    await markSessionAttendance(session.id, e.id, "present");
+    setAttendance((prev) => ({ ...prev, [String(e.id)]: "present" }));
+    return { ok: true, message: `Checked in: ${e.participantName}` };
+  };
+
+  if (scanning && session) {
+    return <ScanPassModal open title="Scan passes · session check-in" onClose={() => setScanning(false)} onCode={onScan} />;
+  }
+
   const linkButton = { background: "none", border: "none", padding: 0, fontSize: 13, fontWeight: 700, color: colors.muted, cursor: "pointer", textDecoration: "underline" } as const;
 
   return (
@@ -96,6 +117,9 @@ export function VendorCheckInScreen({
             <div aria-hidden="true" style={{ height: 6, borderRadius: radius.control, background: colors.panel, overflow: "hidden" }}>
               <div style={{ height: "100%", width: `${active.length ? (checkedInCount / active.length) * 100 : 0}%`, background: colors.green, transition: "width .3s ease" }} />
             </div>
+            <Button variant="ghost" onClick={() => setScanning(true)}>
+              <QrCode size={16} aria-hidden="true" /> Scan passes
+            </Button>
             <div style={{ display: "flex", alignItems: "center", gap: 8, background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.control, padding: "10px 14px" }}>
               <SearchIcon size={15} style={{ color: colors.faint }} />
               <input

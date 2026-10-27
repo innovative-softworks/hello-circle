@@ -2,7 +2,7 @@ import { useNavigate } from "react-router-dom";
 import { PinIcon } from "./icons";
 import { EntityTypeLabel } from "./symbols";
 import { Button } from "./ui";
-import { ListingCard, cardButtonStyle } from "./ListingCard";
+import { CardArrow, ListingCard } from "./ListingCard";
 import { colors, placeholderStripes } from "../theme";
 import type { SimilarProvider } from "../types";
 
@@ -22,9 +22,7 @@ export function ProviderCard({ provider }: { provider: SimilarProvider }) {
       details={[provider.area ? { icon: <PinIcon size={13} />, text: provider.area } : null]}
       facts={<span style={{ color: colors.text }}>{provider.listingCount} listing{provider.listingCount === 1 ? "" : "s"}</span>}
       action={
-        <Button style={cardButtonStyle} variant="ghost" onClick={() => navigate(href)}>
-          View provider
-        </Button>
+        <CardArrow label={`View provider: ${provider.name}`} onClick={() => navigate(href)} />
       }
     />
   );

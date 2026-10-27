@@ -5,6 +5,7 @@ import { fetchAdminReviews, fetchModerationReports, fetchReportCase, hideReview,
 import { DecisionReasonFields, emptyReason, reasonComplete, toReasonInput, type ReasonDraft } from "./DecisionReason";
 import type { ModerationReport, ReportCase, Review } from "../../types";
 import { ConfirmDialog } from "../ui";
+import { useToast } from "../Toast";
 import {
   AdminButton,
   Badge,
@@ -26,6 +27,12 @@ import {
   useAdminAction,
   useAdminData,
   usePaged,
+  statusLabel,
+  BulkBar,
+  RowMenu,
+  SelectAllHeader,
+  SelectCell,
+  useRowSelection,
 } from "./adminUi";
 
 // Reviews & reports (admin redesign 2026-10-14). Hide/unhide and the report
@@ -39,6 +46,8 @@ type AdminReview = Review & { hidden: number; listing_type?: string; listing_id?
 const LISTING_TYPE: Record<string, string> = { centre: "Community centre", club: "Sports club", game: "Game", host: "Host", experience: "Experience", program: "Program" };
 
 import { RecordState, RecordView } from "../workspace/RecordView";
+import { ContextSection, CopyValue, DetailFacts, DetailSection, DetailStats } from "../workspace/DetailParts";
+import { waitingLabel } from "./timeLabels";
 import { useRecordParam, useUrlParam } from "../../useUrlTab";
 import { ObjectActivity } from "./AdminAudit";
 
@@ -72,6 +81,31 @@ function ReviewsBox() {
   const paged = usePaged(rows, 20, `${q}|${view}|${rating}`);
   const act = (r: AdminReview, hide: boolean) =>
     run(`${r.id}`, () => (hide ? hideReview(r.id) : unhideReview(r.id)), { success: hide ? "Review hidden" : "Review visible again" }).then((ok) => ok && state.reload());
+  // Bulk hide / unhide: the same calls as each row's button, once per review.
+  const canModerate = can("reviews.moderate");
+  const sel = useRowSelection(canModerate ? paged.slice.map((r) => String(r.id)) : []);
+  const chosen = rows.filter((r) => sel.has(String(r.id)));
+  const toHide = chosen.filter((r) => !r.hidden);
+  const toShow = chosen.filter((r) => !!r.hidden);
+  const [bulk, setBulk] = useState<"hide" | "unhide" | null>(null);
+  const toast = useToast();
+  const runBulk = async () => {
+    const list = bulk === "hide" ? toHide : toShow;
+    let done = 0;
+    for (const r of list) {
+      try {
+        await (bulk === "hide" ? hideReview(r.id) : unhideReview(r.id));
+        done++;
+      } catch {
+        // counted below
+      }
+    }
+    setBulk(null);
+    sel.clear();
+    state.reload();
+    if (done === list.length) toast.success(`${done} review${done === 1 ? "" : "s"} ${bulk === "hide" ? "hidden" : "visible again"}`);
+    else toast.error(`${done} of ${list.length} done; try the others one at a time.`);
+  };
 
   return (
     <Box icon={Star} title="Reviews" subtitle="Hidden reviews disappear from the public listing page immediately; you can restore them here." flush>
@@ -95,11 +129,24 @@ function ReviewsBox() {
             <EmptyMessage icon={<Star size={22} strokeWidth={1.9} aria-hidden="true" />} title={all.length ? "No reviews match" : "No reviews yet"} />
           ) : (
             <>
+              <BulkBar sel={sel} noun="review">
+                {toHide.length > 0 && (
+                  <AdminButton variant="primary" size="sm" onClick={() => setBulk("hide")}>
+                    Hide {toHide.length}
+                  </AdminButton>
+                )}
+                {toShow.length > 0 && (
+                  <AdminButton size="sm" onClick={() => setBulk("unhide")}>
+                    Unhide {toShow.length}
+                  </AdminButton>
+                )}
+              </BulkBar>
               <div className="adm-table-wrap">
                 <table className="adm-table adm-table--stack">
                   <caption className="adm-visually-hidden">Reviews</caption>
                   <thead>
                     <tr>
+                      {canModerate && <SelectAllHeader sel={sel} label="Select all reviews on this page" />}
                       <th scope="col">Review</th>
                       <th scope="col">About</th>
                       <th scope="col">Date</th>
@@ -114,6 +161,7 @@ function ReviewsBox() {
                       const t = reviewTarget(r);
                       return (
                         <tr key={r.id}>
+                          {canModerate && <SelectCell sel={sel} rowKey={String(r.id)} label={`Select review by ${r.name}`} />}
                           <td data-label="Review">
                             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                               <span className="adm-cell-title">{r.name}</span>
@@ -140,6 +188,11 @@ function ReviewsBox() {
                                   Hide
                                 </AdminButton>
                               )}
+                              <RowMenu
+                                name={`review by ${r.name}`}
+                                items={canModerate ? [r.hidden ? { label: "Unhide", onSelect: () => act(r, false) } : { label: "Hide…", danger: true, onSelect: () => setConfirmHide(r) }] : []}
+                                copy={{ label: "Copy listing reference", value: t.id }}
+                              />
                             </div>
                           </td>
                         </tr>
@@ -163,6 +216,15 @@ function ReviewsBox() {
           setConfirmHide(null);
         }}
         onCancel={() => setConfirmHide(null)}
+      />
+      <ConfirmDialog
+        open={bulk !== null}
+        title={bulk === "hide" ? `Hide ${toHide.length} review${toHide.length === 1 ? "" : "s"}?` : `Unhide ${toShow.length} review${toShow.length === 1 ? "" : "s"}?`}
+        message={bulk === "hide" ? "They disappear from the public listing pages immediately. You can unhide them again later from this page." : "They show on the public listing pages again."}
+        confirmLabel={bulk === "hide" ? `Hide ${toHide.length}` : `Unhide ${toShow.length}`}
+        tone={bulk === "hide" ? undefined : "neutral"}
+        onConfirm={runBulk}
+        onCancel={() => setBulk(null)}
       />
     </Box>
   );
@@ -193,6 +255,10 @@ function suspendAction(type: string, t: Record<string, unknown> | null): { label
       return { label: "Suspend listing", done: "Listing suspended", impact: "Hides the listing and closes it to new bookings. Existing bookings are kept. The partner is told why and can't resume it themselves.", needsReason: true, audience: "partner" };
     case "circle":
       return { label: "Close Circle", done: "Circle closed", impact: "Closes the Circle: its chat becomes read-only history.", needsReason: false, audience: "applicant" };
+    case "circle_memory":
+      return { label: "Remove memory", done: "Memory removed", impact: "Removes the photo or reflection from the Circle's Memories for everyone. The record stays for this case.", needsReason: true, audience: "applicant" };
+    case "circle_plan":
+      return { label: "Remove plan", done: "Plan removed", impact: "Takes the suggested plan down. Members are told why. Bookings on the listing it points at are not affected.", needsReason: true, audience: "applicant" };
     case "review":
       return { label: "Hide review", done: "Review hidden", impact: "Hides the review from the listing page.", needsReason: false, audience: "applicant" };
     default:
@@ -219,6 +285,17 @@ function targetFacts(type: string, t: Record<string, unknown>): [string, React.R
       return [["Listing", v("name")], ["Partner", v("partnerName")], ["Status", v("status")]];
     case "circle":
       return [["Circle", v("name")], ["Status", v("status")]];
+    case "circle_memory":
+      // The photo itself stays members-only (owner decision D4); the case shows the words around it.
+      return [["Circle", v("circleName")], ["Kind", v("kind") === "photo" ? "Photo" : "Reflection"], ["Caption", v("caption")], ["Text", v("body")], ["Added by", v("authorName")], ["Status", v("status") === "removed" ? "Removed" : "Visible"]];
+    case "circle_plan":
+      return [["Circle", v("circleName")], ["Plan", v("title")], ["Note", v("note")], ["About", t.listingType ? `${v("listingType")} · ${v("listingId")}` : "Not linked to a listing"], ["Suggested by", v("authorName")], ["Status", v("status")]];
+    case "program":
+      return [["Programme", v("name")], ["Partner", v("partnerName")], ["Status", v("status")]];
+    case "host":
+      return [["Host", v("name")], ["Host status", v("hostStatus")]];
+    case "provider":
+      return [["Provider", v("name")], ["Account status", v("status")]];
     case "review":
       return [["Review", v("comment")], ["By", v("name")], ["Hidden", Number(t.hidden) ? "Yes" : "No"]];
     default:
@@ -283,6 +360,43 @@ function ReportCasePage({ reportId, onBack, onResolved }: { reportId: number; on
       reference={<>Filed {formatDate(report.createdAt, true)}</>}
       backLabel="Reviews & reports"
       onBack={onBack}
+      stats={
+        <DetailStats
+          items={[
+            { label: pending ? "Open for" : "Status", value: pending ? (waitingLabel(report.createdAt) ?? "").replace("Waiting ", "") || "—" : statusLabel(report.status), sub: `Filed ${formatDate(report.createdAt)}` },
+            { label: "Reported", value: statusLabel(report.targetType), sub: caseData.target ? "Still exists" : "No longer exists" },
+            { label: "Other reports", value: String(caseData.relatedReports.length), sub: "On the same item" },
+          ]}
+        />
+      }
+      asideLabel="Case details and investigation notes"
+      aside={
+        <>
+          <ContextSection title="Case details">
+            <DetailFacts
+              columns={1}
+              rows={[
+                ["Case", <CopyValue value={String(report.id)} label="case number" />],
+                ["Status", pending ? "Open" : statusLabel(report.status)],
+                ["Filed", formatDate(report.createdAt, true)],
+                ["Target type", report.targetType],
+                ["Target ID", <CopyValue value={report.targetId} label="target ID" />],
+              ]}
+            />
+          </ContextSection>
+          <ContextSection title="Investigation notes" action={<Visibility who="internal" />}>
+            <label htmlFor="adm-report-notes" className="adm-visually-hidden">
+              Investigation notes
+            </label>
+            <textarea id="adm-report-notes" className="adm-input" rows={4} value={notes} onChange={(e) => setNotes(e.target.value)} style={{ width: "100%", resize: "vertical" }} />
+            <div style={{ marginTop: 8 }}>
+              <AdminButton size="sm" disabled={!canDecide || !!busy || notes === (report.adminNotes ?? "")} onClick={() => run("notes", () => resolveReport(reportId, { notes }), { success: "Notes saved" }).then((ok) => ok && load())}>
+                {busy === "notes" ? "Saving…" : "Save notes"}
+              </AdminButton>
+            </div>
+          </ContextSection>
+        </>
+      }
       statuses={
         <>
           <span className="adm-note">Case:</span> <StatusTag status={report.status} label={pending ? "Open" : undefined} />
@@ -310,59 +424,37 @@ function ReportCasePage({ reportId, onBack, onResolved }: { reportId: number; on
         ) : undefined
       }
     >
-      <div className="adm-record-grid">
-        <div>
-          <SectionLabel>Report</SectionLabel>
-          <Facts
-            rows={[
-              ["Reason", report.reason],
-              ["Filed", formatDate(report.createdAt, true)],
-              ["Target", <span className="adm-mono">{report.targetType} · {report.targetId}</span>],
-            ]}
-          />
-          <SectionLabel>Reported content</SectionLabel>
-          {caseData.target ? (
-            <>
-            <Facts rows={targetFacts(report.targetType, caseData.target)} />
-            <details className="adm-tech">
+      <DetailSection title="Report">
+        <p className="adm-review-text">{report.reason}</p>
+      </DetailSection>
+      <DetailSection title="Reported content">
+        {caseData.target ? (
+          <>
+            <DetailFacts rows={targetFacts(report.targetType, caseData.target)} />
+            <details className="adm-tech" style={{ marginTop: 12 }}>
               <summary>Record as stored</summary>
               <pre style={{ fontSize: 12, background: "var(--color-surface)", border: "1px solid var(--color-border)", padding: 10, overflowX: "auto", margin: "6px 0 0" }}>{JSON.stringify(caseData.target, null, 2)}</pre>
             </details>
-            </>
-          ) : (
-            <p className="adm-note">The reported item no longer exists.</p>
-          )}
-          {caseData.relatedReports.length > 0 && (
-            <>
-              <SectionLabel>Other reports on this item ({caseData.relatedReports.length})</SectionLabel>
-              <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13 }}>
-                {caseData.relatedReports.map((rr) => (
-                  <li key={rr.id}>
-                    {rr.reason} — {rr.status}
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-        </div>
-        <div>
-          <SectionLabel>Investigation notes</SectionLabel>
-          <div style={{ marginBottom: 6 }}>
-            <Visibility who="internal" />
-          </div>
-          <label htmlFor="adm-report-notes" className="adm-visually-hidden">
-            Investigation notes
-          </label>
-          <textarea id="adm-report-notes" className="adm-input" rows={4} value={notes} onChange={(e) => setNotes(e.target.value)} style={{ width: "100%", resize: "vertical" }} />
-          <div style={{ marginTop: 8 }}>
-            <AdminButton size="sm" disabled={!canDecide || !!busy || notes === (report.adminNotes ?? "")} onClick={() => run("notes", () => resolveReport(reportId, { notes }), { success: "Notes saved" }).then((ok) => ok && load())}>
-              {busy === "notes" ? "Saving…" : "Save notes"}
-            </AdminButton>
-          </div>
-          <SectionLabel>Activity</SectionLabel>
-          <ObjectActivity objectIds={[String(report.id)]} note="Decisions on reports are recorded." />
-        </div>
-      </div>
+          </>
+        ) : (
+          <p className="adm-note">The reported item no longer exists.</p>
+        )}
+      </DetailSection>
+      {caseData.relatedReports.length > 0 && (
+        <DetailSection title={`Other reports on this item (${caseData.relatedReports.length})`}>
+          <ul className="wd-rows">
+            {caseData.relatedReports.map((rr) => (
+              <li key={rr.id}>
+                <span className="wd-rows-main">{rr.reason}</span>
+                <StatusTag status={rr.status} />
+              </li>
+            ))}
+          </ul>
+        </DetailSection>
+      )}
+      <DetailSection title="Activity">
+        <ObjectActivity objectIds={[String(report.id)]} note="Decisions on reports are recorded." />
+      </DetailSection>
       <ConfirmDialog
         open={confirming !== null}
         title={confirming === "suspended" ? `${action?.label ?? "Suspend the content"}?` : confirming === "dismissed" ? "Dismiss this report?" : "Mark this report as actioned?"}
@@ -435,6 +527,29 @@ function ReportsBox({ onCountsChanged }: { onCountsChanged?: () => void }) {
   const [, openRecord] = useRecordParam();
   const setOpen = (r: ModerationReport) => openRecord(`report:${r.id}`);
   const paged = usePaged(state.data ?? [], 20, view, "reportsPage");
+  // Bulk dismiss: the case page's "Dismiss report", once per open report.
+  const canDecide = useAdminCan()("reports.moderate");
+  const sel = useRowSelection(canDecide ? paged.slice.filter((r) => r.status === "pending").map((r) => String(r.id)) : []);
+  const [dismissing, setDismissing] = useState(false);
+  const toast = useToast();
+  const dismissSelected = async () => {
+    const ids = [...sel.selected];
+    let done = 0;
+    for (const id of ids) {
+      try {
+        await resolveReport(Number(id), { status: "dismissed" });
+        done++;
+      } catch {
+        // counted below
+      }
+    }
+    setDismissing(false);
+    sel.clear();
+    state.reload();
+    onCountsChanged?.();
+    if (done === ids.length) toast.success(`${done} report${done === 1 ? "" : "s"} dismissed`);
+    else toast.error(`${done} of ${ids.length} dismissed; open the others to see why.`);
+  };
 
   return (
     <Box icon={Flag} title="Reports" subtitle="User-submitted flags on reviews or circles. Open a case to see the reported item, related reports and notes, then decide." flush>
@@ -453,11 +568,17 @@ function ReportsBox({ onCountsChanged }: { onCountsChanged?: () => void }) {
             <EmptyMessage icon={<Flag size={22} strokeWidth={1.9} aria-hidden="true" />} title={view === "pending" ? "No open reports" : "No reports yet"} />
           ) : (
             <>
+              <BulkBar sel={sel} noun="report">
+                <AdminButton variant="primary" size="sm" onClick={() => setDismissing(true)}>
+                  Dismiss {sel.count}
+                </AdminButton>
+              </BulkBar>
               <div className="adm-table-wrap">
                 <table className="adm-table adm-table--stack">
                   <caption className="adm-visually-hidden">Moderation reports</caption>
                   <thead>
                     <tr>
+                      {canDecide && <SelectAllHeader sel={sel} label="Select all open reports on this page" />}
                       <th scope="col">Reason</th>
                       <th scope="col">Reported item</th>
                       <th scope="col">Filed</th>
@@ -470,6 +591,7 @@ function ReportsBox({ onCountsChanged }: { onCountsChanged?: () => void }) {
                   <tbody>
                     {paged.slice.map((r) => (
                       <tr key={r.id}>
+                        {canDecide && <SelectCell sel={sel} rowKey={String(r.id)} label={`Select report ${r.id}`} disabled={r.status !== "pending"} />}
                         <td data-label="Reason" style={{ maxWidth: 420 }}>{r.reason}</td>
                         <td data-label="Reported item">
                           <div style={{ textTransform: "capitalize" }}>{r.targetType}</div>
@@ -484,6 +606,7 @@ function ReportsBox({ onCountsChanged }: { onCountsChanged?: () => void }) {
                             <AdminButton size="sm" variant={r.status === "pending" ? "primary" : "secondary"} onClick={() => setOpen(r)}>
                               {r.status === "pending" ? "Review case" : "View case"}
                             </AdminButton>
+                            <RowMenu name={`report ${r.id}`} items={[{ label: r.status === "pending" ? "Review case" : "View case", onSelect: () => setOpen(r) }]} copy={{ label: "Copy reported item reference", value: r.targetId }} />
                           </div>
                         </td>
                       </tr>
@@ -492,6 +615,15 @@ function ReportsBox({ onCountsChanged }: { onCountsChanged?: () => void }) {
                 </table>
               </div>
               <Pager {...paged} noun="reports" />
+              <ConfirmDialog
+                open={dismissing}
+                title={`Dismiss ${sel.count} report${sel.count === 1 ? "" : "s"}?`}
+                message="Closes each report with no action on the reported item, the same as Dismiss report on a case page. No statement of reasons is recorded; open a case on its own to add one."
+                confirmLabel={`Dismiss ${sel.count}`}
+                tone="neutral"
+                onConfirm={dismissSelected}
+                onCancel={() => setDismissing(false)}
+              />
             </>
           )
         }

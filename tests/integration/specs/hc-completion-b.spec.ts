@@ -41,7 +41,9 @@ test("COMPLETE-HOST: the activity record page opens from the list, shows separat
       await expect(page).toHaveURL(new RegExp(`record=activity`));
       await expect(page.getByRole("heading", { level: 1, name: game.activityLabel })).toBeVisible();
       await step("host-record");
-      await expect(page.getByRole("group", { name: "Status" })).toContainText("Places:");
+      await expect(page.getByRole("group", { name: "Status" })).toContainText("Activity:");
+      // Richer header (2026-10-20): places, price, waitlist and date are the record's key numbers.
+      await expect(page.getByLabel("Key numbers")).toContainText("Going");
       await expect(page.getByRole("heading", { level: 2, name: "Participants" })).toBeVisible();
       expect(await page.locator(".slide-in-right, .slide-in-left").count()).toBe(0);
       await shot(page, "host-activity-record");

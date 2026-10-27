@@ -51,7 +51,7 @@ test("OG-27-UI: a join request on an approval activity, approved by the host", a
 
       // Resident asks to join: a request, not a seat.
       await user.page.goto(`/games/${game.id}`);
-      await user.page.getByRole("button", { name: "Ask to join" }).filter({ visible: true }).first().click();
+      await user.page.getByRole("button", { name: "Request to join" }).filter({ visible: true }).first().click();
       await user.page.locator("#join-request-note").fill("New to the area");
       await user.page.getByRole("button", { name: "Send request" }).click();
       await expect(user.page.getByRole("heading", { name: "Request sent" })).toBeVisible();

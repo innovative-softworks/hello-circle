@@ -1,3 +1,6 @@
+import { CtaBand } from "../components/CtaBand";
+import { FeaturedPicks } from "../components/FeaturedPicks";
+import { fetchCategories, type PublicCategory } from "../api";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowRight, CalendarCheck, CalendarDays, ChevronLeft, ChevronRight, Compass, Heart, HeartHandshake, Landmark, LocateFixed, MapPin, Search, Sprout, Users, X } from "lucide-react";
@@ -13,7 +16,8 @@ import { getCircleCoverUrl, getMediaUrl } from "../media";
 import { useScrollReveal } from "../useScrollReveal";
 import { POPULAR_SEARCHES, loadRecent } from "../recentSearches";
 import { SaveButton, useSavedState } from "../components/SaveButton";
-import { CardPrice, ListingCard, cardButtonStyle } from "../components/ListingCard";
+import { CardArrow, CardAvailability, CardPrice, ListingCard, priceUnitFor } from "../components/ListingCard";
+import { bigDay, CardDate, discoverCardLabel } from "../components/CardDate";
 import { Button } from "../components/ui";
 import { placeholderStripes } from "../theme";
 import { useToast } from "../components/Toast";
@@ -868,6 +872,8 @@ export function Home() {
         </div>
       </section>
 
+      <PopularCategories go={go} />
+
       {/* 03 — Different ways to belong: big sports tile under the headline,
           experiences + circles + events on the right, then three link rows. */}
       <section className="hx-belongways" aria-labelledby="hx-ways-title">
@@ -1030,7 +1036,9 @@ export function Home() {
                   </div>
                 </div>
               ) : (
-                <ul ref={cardsRef} className="hx-cards" aria-label="Activities">
+                <ul ref={cardsRef} className="hx-cards lc-grid--b" aria-label="Activities" data-no-reveal>
+                  {/* data-no-reveal: the rail clips its overflow, so cards sliding up
+                      into view would sit cut off until the animation ends. */}
                   {happening.map((item) => (
                     <li key={`${item.kind}-${item.id}`}>
                       <ActivityCard item={item} onGo={navigate} />
@@ -1177,6 +1185,7 @@ export function Home() {
                   <Img k="hike" w={900} sizes="(max-width: 640px) 80vw, 31vw" />
                 </span>
                 <span className="hx-ocard-cap">
+                  <span className="hx-ocard-k">Adventures</span>
                   <strong>Mountain adventures</strong>
                   <small>Hikes, views and fresh air.</small>
                   <span className="hx-round" aria-hidden="true">
@@ -1189,8 +1198,13 @@ export function Home() {
               <a className="hx-ocard" href={featuredHref} onClick={go(featuredHref)}>
                 <span className="hx-img">{featuredExp ? <img src={getMediaUrl(featuredExp.imageUrl, "card")} alt="" loading="lazy" decoding="async" /> : <Img k="outside" w={900} sizes="(max-width: 640px) 80vw, 31vw" />}</span>
                 <span className="hx-ocard-cap">
+                  <span className="hx-ocard-k">{featuredExp ? `Featured ${featuredExp.kind === "adventure" ? "adventure" : "experience"}` : "Experiences"}</span>
                   <strong>{featuredExp ? featuredExp.title : "Coastal experiences"}</strong>
-                  <small>{featuredExp ? Array.from(new Set([featuredExp.area, featuredExp.county].filter(Boolean))).join(", ") : "Cliff walks and sea views."}</small>
+                  <small>
+                    {featuredExp
+                      ? [featuredExp.sessions[0] ? `Next ${bigDay(featuredExp.sessions[0].date)}` : null, Array.from(new Set([featuredExp.area, featuredExp.county].filter(Boolean))).join(", ")].filter(Boolean).join(" · ")
+                      : "Cliff walks and sea views."}
+                  </small>
                   <span className="hx-round" aria-hidden="true">
                     <ArrowRight size={14} />
                   </span>
@@ -1203,6 +1217,7 @@ export function Home() {
                   <Img k="surf" w={900} sizes="(max-width: 640px) 80vw, 31vw" />
                 </span>
                 <span className="hx-ocard-cap">
+                  <span className="hx-ocard-k">On the water</span>
                   <strong>Water activities</strong>
                   <small>Surfing, kayaking and more.</small>
                   <span className="hx-round" aria-hidden="true">
@@ -1214,6 +1229,14 @@ export function Home() {
           </ul>
         </div>
       </section>
+
+      {/* Featured sections, one per type, in the "Get outside" pattern
+          (owner 2026-10-27). Each hides itself without three real picks. */}
+      <div className="hx-wrap">
+        <FeaturedPicks kind="circles" />
+        <FeaturedPicks kind="experiences" />
+        <FeaturedPicks kind="programmes" />
+      </div>
 
       {/* 07 — Hosts & venues. No fee, payout or subscription wording. */}
       <section className="hx-host" aria-labelledby="hx-host-title">
@@ -1258,35 +1281,22 @@ export function Home() {
         </div>
       </section>
 
-      {/* 08 — Closing band; the global footer follows. */}
-      <section className="hx-close" aria-labelledby="hx-close-title">
-        <div className="hx-wrap hx-close-grid">
-          <span className="hx-close-vert" aria-hidden="true">
-            Together.
-          </span>
-          <h2 id="hx-close-title" className="hx-display hx-close-title">
-            <span>Let's make</span> <span>things</span> <span>happen.</span>
-          </h2>
-          <div className="hx-close-side">
-            <p>A community of people, places and possibilities across Ireland.</p>
-            {resident ? (
-              nextPlan ? (
-                <a className="hx-btn hx-btn--orange" href="/bookings" onClick={go("/bookings")}>
-                  See your plans <ArrowRight size={16} aria-hidden="true" />
-                </a>
-              ) : (
-                <a className="hx-btn hx-btn--orange" href="/explore" onClick={go("/explore")}>
-                  Find something to do <ArrowRight size={16} aria-hidden="true" />
-                </a>
-              )
-            ) : (
-              <a className="hx-btn hx-btn--orange" href="/signin/create" onClick={go("/signin/create")}>
-                Join HelloCircle <ArrowRight size={16} aria-hidden="true" />
-              </a>
-            )}
-          </div>
-        </div>
-      </section>
+      {/* 08 — Closing band; the global footer follows. The shared editorial
+          CtaBand (discovery variant), same as every other page. */}
+      <CtaBand
+        id="hx-close-title"
+        label="Together."
+        lines={["Let's make", "things", "happen."]}
+        text="A community of people, places and possibilities across Ireland."
+        action={
+          resident
+            ? nextPlan
+              ? { label: "See your plans", to: "/bookings" }
+              : { label: "Find something to do", to: "/explore" }
+            : { label: "Join HelloCircle", to: "/signin/create" }
+        }
+        secondary={resident && !nextPlan ? undefined : { label: "Explore what's on", to: "/explore" }}
+      />
     </div>
   );
 }
@@ -1382,30 +1392,66 @@ function kindLabel(item: DiscoverItem): string {
 function ActivityCard({ item, onGo }: { item: DiscoverItem; onGo: (to: string) => void }) {
   const f = itemFacts(item);
   const save = useCardSave(item);
+  // The shared photo card (CardGrid look, owner 2026-10-27): big date and its
+  // label on the photo, the category above the title, one muted line.
   return (
     <ListingCard
       href={item.href}
       title={item.title}
       image={item.imageUrl}
       ph={placeholderStripes.green}
+      fallbackKind={kindLabel(item)}
+      fallbackLine={f.when}
       tag={kindLabel(item)}
       status={f.places ? { label: f.places, tone: f.full ? "calm" : "hot" } : null}
+      dateOn={<CardDate date={item.date} time={item.time} label={discoverCardLabel(item)} href={item.href} onGo={onGo} />}
       save={save}
       details={[
-        f.where ? { icon: <MapPin size={13} aria-hidden="true" />, text: f.where } : null,
-        { icon: <CalendarDays size={13} aria-hidden="true" />, text: f.when },
+        { text: [f.where, item.joined ? `${item.joined} going` : null].filter(Boolean).join(" · ") },
+        { icon: <CalendarDays size={13} aria-hidden="true" />, text: f.when, kind: "date" },
       ]}
       facts={
         <>
-          <CardPrice>{f.price}</CardPrice>
-          {item.joined ? <span>{item.joined} going</span> : null}
+          <CardPrice cents={item.priceCents} unit={priceUnitFor(item.kind)} />
+          {item.spotsLeft !== null && item.spotsLeft !== undefined && <CardAvailability spotsLeft={item.spotsLeft} />}
         </>
       }
-      action={
-        <Button variant="dark" style={cardButtonStyle} onClick={() => onGo(item.href)}>
-          {f.action}
-        </Button>
-      }
+      action={<CardArrow label={`${f.action}: ${item.title}`} onClick={() => onGo(item.href)} />}
     />
+  );
+}
+
+/** Category system — "Popular right now": activity categories with live
+ * activities only (never an empty category), most listings first. Hidden
+ * when nothing qualifies. */
+function PopularCategories({ go }: { go: (to: string) => (e: React.MouseEvent) => void }) {
+  const [cats, setCats] = useState<PublicCategory[]>([]);
+  useEffect(() => {
+    fetchCategories("activity")
+      .then((c) => setCats([...c].sort((a, b) => b.count - a.count).slice(0, 8)))
+      .catch(() => setCats([]));
+  }, []);
+  if (cats.length === 0) return null;
+  return (
+    <section className="hx-popular" aria-labelledby="hx-popular-title" style={{ padding: "8px 0 40px" }}>
+      <div className="hx-wrap">
+        <h2 id="hx-popular-title" style={{ fontSize: 15, fontWeight: 700, margin: "0 0 12px" }}>
+          Popular right now
+        </h2>
+        <ul className="chips-scroll-mobile" style={{ display: "flex", flexWrap: "wrap", gap: 8, listStyle: "none", margin: 0, padding: 0 }}>
+          {cats.map((c) => {
+            const to = `/games?category=${c.slug}`;
+            return (
+              <li key={c.id}>
+                <a className="hc-related-chip" href={to} onClick={go(to)}>
+                  {c.name}
+                  <span style={{ marginLeft: 6, opacity: 0.6, fontWeight: 500 }}>{c.count}</span>
+                </a>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+    </section>
   );
 }

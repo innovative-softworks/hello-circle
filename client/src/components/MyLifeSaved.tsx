@@ -3,13 +3,15 @@ import { Photo } from "./Photo";
 import { Button, EmptyState } from "./ui";
 import { HeartIcon } from "./icons";
 import { favouriteDetailHref } from "../favouriteLink";
+import { dateLabel } from "../euro";
 import { colors, fonts, radius } from "../theme";
 import type { Favourite } from "../types";
 
 const LABEL: Record<Favourite["listingType"], string> = {
   centre: "Community centre",
   club: "Sports club",
-  game: "Session",
+  game: "Activity",
+  program: "Programme",
   program_session: "Program session",
   club_session: "Club session",
   experience: "Adventure / Experience",
@@ -47,7 +49,9 @@ export function MyLifeSaved({ favourites }: { favourites: Favourite[] }) {
         // showing it twice ("Community centre / Community centre") just
         // reads as broken, so the second line is dropped instead.
         const title = f.name ?? LABEL[f.listingType];
-        const subtitle = f.name ? (f.subtitle ?? LABEL[f.listingType]) : null;
+        // A dated subtitle arrives as "YYYY-MM-DD HH:MM"; show "Sat 7 Nov · 09:30".
+        const raw = f.name ? (f.subtitle ?? LABEL[f.listingType]) : null;
+        const subtitle = raw ? raw.replace(/^(\d{4}-\d{2}-\d{2})(?:[ T·]+(\d{2}:\d{2}))?/, (_m: string, d: string, t?: string) => `${dateLabel(d)}${t ? ` · ${t}` : ""}`) : null;
         return (
           <button
             key={`${f.listingType}:${f.listingId}`}

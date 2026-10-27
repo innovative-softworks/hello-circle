@@ -1,3 +1,4 @@
+import { ShieldCheck } from "lucide-react";
 import { useState } from "react";
 import { ApiError, changeStaffRole, removeStaffMember } from "../api";
 import { PLATFORM_ROLES, PLATFORM_ROLE_LABELS } from "../types";
@@ -5,8 +6,10 @@ import type { OrgProfile } from "../types";
 import { useToast } from "./Toast";
 import { Button, ConfirmDialog, inputStyle, labelStyle } from "./ui";
 import { RecordState, RecordView } from "./workspace/RecordView";
+import { ContextSection, DetailSection, DetailStats } from "./workspace/DetailParts";
+import { OverflowMenu } from "./admin/adminUi";
 import { formatDate } from "../vendorFormat";
-import { colors, fonts } from "../theme";
+import { colors } from "../theme";
 
 // D-08 — one team member as a page (?tab=org&section=staff&record=member:<id>).
 // The owner changes an accepted member's role or removes them. Each change
@@ -67,13 +70,45 @@ export function StaffMemberRecord({ member, onBack, onChanged }: { member: Membe
       onBack={onBack}
       statuses={
         <>
-          <span style={{ fontSize: 13, color: colors.mutedLight }}>Role:</span> <strong style={{ fontSize: 13 }}>{roleName(member.platformRole)}</strong>
+          <span className="adm-note">Role:</span> <span className="adm-badge" data-tone="outline">{roleName(member.platformRole)}</span>
         </>
       }
       actions={
-        <Button variant="ghost" onClick={() => setConfirm("remove")}>
-          Remove from team
-        </Button>
+        <>
+          <Button
+            variant="ghost"
+            onClick={() => {
+              const el = document.getElementById("staff-role");
+              el?.scrollIntoView({ block: "center", behavior: "smooth" });
+              el?.focus({ preventScroll: true });
+            }}
+          >
+            <ShieldCheck size={15} strokeWidth={2} aria-hidden="true" /> Edit role
+          </Button>
+          <OverflowMenu label={`More actions for ${member.name || member.email}`} actions={[{ label: "Remove from team…", danger: true, onSelect: () => setConfirm("remove") }]} />
+        </>
+      }
+      stats={
+        <DetailStats
+          items={[
+            { label: "Role", value: roleName(member.platformRole), sub: "Invited staff" },
+            { label: "Joined", value: formatDate(member.joinedAt), sub: "Accepted the invitation" },
+            { label: "Account", value: member.status === "approved" ? "Active" : member.status, sub: "Partner workspace" },
+          ]}
+        />
+      }
+      asideLabel="Contact and account"
+      aside={
+        <>
+          <ContextSection title="Contact">
+            <a className="wd-ctx-sub" href={`mailto:${member.email}`}>
+              Email {member.email}
+            </a>
+          </ContextSection>
+          <ContextSection title="What you can do here">
+            <p className="adm-note">Change their role below. Removing them from the team is under More actions; their listings and coupons move to you.</p>
+          </ContextSection>
+        </>
       }
     >
       {stale && (
@@ -85,36 +120,28 @@ export function StaffMemberRecord({ member, onBack, onChanged }: { member: Membe
           to see the current details, then try again.
         </p>
       )}
-      <dl style={{ display: "grid", gridTemplateColumns: "max-content 1fr", gap: "6px 16px", fontSize: 14, margin: "0 0 20px" }}>
-        <dt style={{ color: colors.mutedLight }}>Joined</dt>
-        <dd style={{ margin: 0 }}>{formatDate(member.joinedAt)}</dd>
-        <dt style={{ color: colors.mutedLight }}>Account</dt>
-        <dd style={{ margin: 0 }}>{member.status === "approved" ? "Active" : member.status}</dd>
-        <dt style={{ color: colors.mutedLight }}>Can do</dt>
-        <dd style={{ margin: 0 }}>{member.platformRole ? ROLE_DESCRIPTION[member.platformRole] : "—"}</dd>
-      </dl>
-
-      <h2 style={{ fontFamily: fonts.display, fontSize: 16, margin: "0 0 8px" }}>Change role</h2>
-      <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap", maxWidth: 520 }}>
-        <div style={{ flex: "1 1 240px" }}>
-          <label htmlFor="staff-role" style={labelStyle}>
-            New role
-          </label>
-          <select id="staff-role" value={role} onChange={(e) => setRole(e.target.value)} style={inputStyle} aria-describedby="staff-role-desc">
-            {PLATFORM_ROLES.map((r) => (
-              <option key={r} value={r}>
-                {PLATFORM_ROLE_LABELS[r]}
-              </option>
-            ))}
-          </select>
+      <DetailSection title="Role and permissions" note="Choose a role to see what it allows; the change applies after you confirm.">
+        <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap", maxWidth: 520 }}>
+          <div style={{ flex: "1 1 240px" }}>
+            <label htmlFor="staff-role" style={labelStyle}>
+              New role
+            </label>
+            <select id="staff-role" value={role} onChange={(e) => setRole(e.target.value)} style={inputStyle} aria-describedby="staff-role-desc">
+              {PLATFORM_ROLES.map((r) => (
+                <option key={r} value={r}>
+                  {PLATFORM_ROLE_LABELS[r]}
+                </option>
+              ))}
+            </select>
+          </div>
+          <Button onClick={() => setConfirm("role")} disabled={role === member.platformRole}>
+            Change role…
+          </Button>
         </div>
-        <Button onClick={() => setConfirm("role")} disabled={role === member.platformRole}>
-          Change role…
-        </Button>
-      </div>
-      <p id="staff-role-desc" style={{ fontSize: 13, color: colors.mutedLight, margin: "6px 0 0", maxWidth: 520 }}>
-        {ROLE_DESCRIPTION[role]}
-      </p>
+        <p id="staff-role-desc" style={{ fontSize: 13, color: colors.mutedLight, margin: "6px 0 0", maxWidth: 520 }}>
+          {ROLE_DESCRIPTION[role]}
+        </p>
+      </DetailSection>
 
       <ConfirmDialog
         open={confirm === "role"}

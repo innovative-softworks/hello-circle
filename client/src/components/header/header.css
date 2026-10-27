@@ -317,9 +317,9 @@
   justify-content: center;
   height: 40px;
   padding: 0 16px;
-  border-radius: 8px;
-  border: 1px solid var(--color-border-strong);
-  background: var(--color-surface);
+  border-radius: var(--radius-button);
+  border: 1.5px solid var(--color-text);
+  background: transparent;
   color: var(--color-text);
   font-size: 14px;
   font-weight: 700;
@@ -327,16 +327,22 @@
   white-space: nowrap;
   transition: background-color var(--hc-ease), border-color var(--hc-ease);
 }
+/* Header actions follow the public button system (2026-10-22): Sign up is
+   the orange main action (white text), Log in the outline secondary. */
 .hc-btn:hover {
-  background: var(--color-panel);
+  background: var(--color-text);
+  border-color: var(--color-text);
+  color: var(--color-bg);
 }
 .hc-btn--primary {
-  background: var(--color-dark);
-  border-color: var(--color-dark);
-  color: #fff;
+  background: var(--color-cta);
+  border-color: var(--color-cta);
+  color: var(--color-on-cta);
 }
 .hc-btn--primary:hover {
-  background: var(--color-dark-hover);
+  background: var(--color-cta-hover);
+  border-color: var(--color-cta-hover);
+  color: var(--color-on-cta);
 }
 
 /* ── Search ──────────────────────────────────────────────────────────── */
@@ -490,21 +496,48 @@
 
 /* Explore panel columns: things to do (2 sub-columns) · [places] · featured · photo.
    Below 1200px the decorative photo tile drops out so the links keep their room. */
+/* Navigation audit 2026-10-22: things to do (2 columns) · learn & give back
+   · places (when public) · one featured tile. No photo column. */
 .hc-mega-layout[data-places="0"] {
-  grid-template-columns: minmax(0, 2fr) 260px 280px;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) 280px;
 }
 .hc-mega-layout[data-places="1"] {
-  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) 240px 260px;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr) 260px;
 }
 @media (max-width: 1199px) {
   .hc-mega-photo-col {
     display: none !important;
   }
+  /* Narrower screens: one column per group, the featured tile on its own
+     row underneath (navigation audit 2026-10-22). */
   .hc-mega-layout[data-places="0"] {
-    grid-template-columns: minmax(0, 2fr) 260px;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
   }
   .hc-mega-layout[data-places="1"] {
-    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) 240px;
+    grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1fr);
+  }
+  /* "Things to do" keeps two columns, titles only (the labels say enough). */
+  .hc-mega-layout .hc-mega-grid .hc-mega-row > span:last-child > span:last-child {
+    display: none !important;
+  }
+  /* The featured tile becomes a slim row across the panel. */
+  .hc-mega-layout > :last-child {
+    grid-column: 1 / -1;
+    flex-direction: row !important;
+    align-items: center;
+  }
+  .hc-mega-layout > :last-child .hc-mega-label {
+    margin-bottom: 0 !important;
+  }
+  .hc-mega-layout > :last-child .hc-mega-tile {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 12px;
+    padding: 10px 14px;
+  }
+  .hc-mega-layout > :last-child .hc-mega-tile > span {
+    margin-top: 0 !important;
   }
 }
 
@@ -593,4 +626,225 @@
 }
 .hc-ws-collapse:hover {
   background: var(--color-panel);
+}
+
+/* ---------- Explore + Start dropdowns (navigation redesign 2026-10-22) ----------
+   Owner: "design the nav much better", "I don't need full width menu".
+   Compact panels under their buttons; one item style for both. */
+.hc-drop {
+  position: absolute;
+  top: calc(100% + 10px);
+  left: 0;
+  z-index: 60;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  box-shadow: 0 18px 40px rgba(23, 32, 25, 0.12), 0 2px 6px rgba(23, 32, 25, 0.05);
+  padding: 10px;
+}
+.hc-drop--explore { width: 600px; }
+.hc-drop--start { width: 360px; }
+.hc-drop-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  column-gap: 6px;
+}
+.hc-drop-group + .hc-drop-group { margin-top: 6px; }
+.hc-drop-label {
+  padding: 10px 10px 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-muted-light);
+}
+.hc-drop-row,
+.hc-drop-footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 52px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  color: var(--color-text);
+  text-decoration: none;
+  transition: background var(--hc-ease);
+}
+.hc-drop-row:hover,
+.hc-drop-row:focus-visible,
+.hc-drop-footer:hover,
+.hc-drop-footer:focus-visible {
+  background: var(--color-panel);
+}
+.hc-drop-row[aria-current="page"] { background: var(--color-orange-bg); }
+.hc-drop-row:focus-visible,
+.hc-drop-footer:focus-visible {
+  outline: 2px solid var(--color-green);
+  outline-offset: 1px;
+}
+.hc-drop-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: var(--color-panel);
+  color: var(--color-orange-dark);
+  transition: background var(--hc-ease), color var(--hc-ease);
+}
+.hc-drop-row:hover .hc-drop-icon,
+.hc-drop-row:focus-visible .hc-drop-icon {
+  background: var(--color-orange-bg);
+}
+.hc-drop-icon--accent {
+  background: var(--color-orange);
+  color: #fff;
+}
+.hc-drop-title {
+  display: block;
+  font-family: 'Bricolage Grotesque Variable', 'Bricolage Grotesque', system-ui, sans-serif;
+  font-size: 14.5px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+.hc-drop-desc {
+  display: block;
+  margin-top: 2px;
+  font-size: 12.5px;
+  line-height: 1.35;
+  color: var(--color-muted);
+}
+.hc-drop-footer {
+  margin-top: 8px;
+  border-top: 1px solid var(--color-border);
+  border-radius: 0 0 10px 10px;
+  padding-top: 12px;
+  color: var(--color-text);
+}
+@media (max-width: 1024px) {
+  .hc-drop--explore { width: min(560px, calc(100vw - 48px)); }
+}
+
+/* ---------- Explore mega menu (owner reference design, 2026-10-22) ----------
+   Page-width panel aligned to the logo: three link columns divided by thin
+   rules (icon · title · one line · chevron), a photo card, and a tinted
+   footer with Free Time Mode and the resident's area. */
+.hc-drop--editorial {
+  width: min(1512px, calc(100vw - 48px)); /* = the page container */
+  padding: 0;
+  border-radius: 16px;
+  overflow: hidden;
+}
+.hc-ed-body {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) 330px;
+  gap: 0;
+  padding: 28px 28px 26px;
+}
+.hc-ed-col { padding: 0 24px; min-width: 0; }
+.hc-ed-col:first-child { padding-left: 4px; }
+.hc-ed-col + .hc-ed-col { border-left: 1px solid var(--color-border); }
+.hc-ed-subgroup { margin-top: 14px; padding-top: 18px; border-top: 1px solid var(--color-border); }
+.hc-drop--editorial .hc-drop-label { padding: 0 0 10px; font-size: 12px; letter-spacing: 0.08em; color: var(--color-muted); }
+.hc-ed-link {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 10px;
+  margin: 0 -10px;
+  border-radius: 10px;
+  color: var(--color-text);
+  text-decoration: none;
+  transition: background var(--hc-ease);
+}
+.hc-ed-link:hover,
+.hc-ed-link:focus-visible { background: var(--color-panel); }
+.hc-ed-link:focus-visible { outline: 2px solid var(--color-green); outline-offset: 1px; }
+.hc-ed-icon { display: inline-flex; flex: none; align-self: flex-start; margin-top: 2px; color: var(--color-orange); }
+.hc-ed-title {
+  display: block;
+  font-family: 'Bricolage Grotesque Variable', 'Bricolage Grotesque', system-ui, sans-serif;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+.hc-ed-link:hover .hc-ed-title,
+.hc-ed-link[aria-current="page"] .hc-ed-title { color: var(--color-orange-dark); }
+.hc-ed-desc { display: block; margin-top: 3px; font-size: 14px; line-height: 1.35; color: var(--color-muted); }
+.hc-ed-chev { flex: none; color: var(--color-text-soft); opacity: 0.7; transition: transform var(--hc-ease); }
+.hc-ed-link:hover .hc-ed-chev { transform: translateX(2px); opacity: 1; }
+.hc-ed-photo {
+  position: relative;
+  display: block;
+  min-height: 300px;
+  margin-left: 24px;
+  border-radius: 14px;
+  overflow: hidden;
+  color: #fff;
+  text-decoration: none;
+}
+.hc-ed-photo img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.hc-ed-photo::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(23, 32, 25, 0) 20%, rgba(23, 32, 25, 0.88) 100%);
+}
+.hc-ed-photo-text { position: absolute; left: 22px; right: 22px; bottom: 22px; z-index: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.hc-ed-photo-kicker { font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+.hc-ed-photo-title { font-family: 'Bricolage Grotesque Variable', 'Bricolage Grotesque', system-ui, sans-serif; font-size: 28px; font-weight: 800; line-height: 1.05; }
+.hc-ed-photo-sub { font-size: 14.5px; line-height: 1.35; opacity: 0.92; }
+.hc-ed-photo-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 10px 20px;
+  border-radius: var(--radius-button);
+  background: var(--color-orange);
+  color: #fff;
+  font-size: 14.5px;
+  font-weight: 700;
+}
+.hc-ed-photo:hover .hc-ed-photo-cta { filter: brightness(0.95); }
+.hc-ed-photo:focus-visible { outline: 2px solid var(--color-green); outline-offset: 2px; }
+.hc-ed-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  padding: 16px 32px;
+  background: var(--color-panel);
+  border-top: 1px solid var(--color-border);
+  font-size: 14.5px;
+}
+.hc-ed-footer-link { display: inline-flex; align-items: center; gap: 12px; color: var(--color-text); text-decoration: none; min-height: 32px; }
+.hc-ed-footer-cta { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; color: var(--color-orange-dark); }
+.hc-ed-footer-link:hover .hc-ed-footer-cta,
+.hc-ed-footer-link:focus-visible .hc-ed-footer-cta { text-decoration: underline; }
+.hc-ed-footer-near { display: inline-flex; align-items: center; gap: 8px; color: var(--color-muted); }
+.hc-ed-footer-near strong { color: var(--color-text); }
+.hc-ed-footer-change { margin-left: 10px; color: var(--color-orange-dark); font-weight: 600; text-decoration: underline; }
+/* Narrower screens: drop the photo; then the descriptions. */
+@media (max-width: 1240px) {
+  .hc-drop--editorial { width: calc(100vw - 48px); }
+  .hc-ed-body { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .hc-ed-photo { display: none; }
+}
+@media (max-width: 1040px) {
+  .hc-ed-desc { display: none; }
+  .hc-ed-col { padding: 0 16px; }
+}
+.hc-ed-soon {
+  flex: none;
+  display: inline-block;
+  padding: 3px 9px;
+  border-radius: 6px;
+  background: var(--color-orange-bg);
+  color: var(--color-orange-dark);
+  font-size: 12.5px;
+  font-weight: 700;
 }

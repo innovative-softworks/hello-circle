@@ -51,6 +51,7 @@ export function FieldHelp({ helpKey, label: fallbackLabel }: { helpKey: string; 
         aria-expanded={open}
         aria-controls={id}
         aria-label={`What is ${name}?`}
+        className="field-help-btn"
         onClick={() => setOpen((o) => !o)}
         style={{
           border: `1px solid ${colors.border}`,

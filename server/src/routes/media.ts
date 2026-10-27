@@ -6,6 +6,7 @@ import { ORG_SUSPENDED_ERROR, REMOVED_STAFF_ERROR, orgSuspended, orgVendorIds, r
 import { db } from "../db/index.js";
 import { findMediaAssetByProviderKey, findMediaAssetsByGroup, markDeletedByProviderKey } from "../media/mediaAssets.js";
 import { isMember, isOrganiser } from "./circleHelpers.js";
+import { canUseCircleMemories, memoryImageFor } from "./circleExperience.js";
 import {
   authorizeUpload,
   deleteObject,
@@ -83,6 +84,11 @@ async function isUrlStillReferenced(entityType: MediaEntityType, entityId: strin
       const row = (await db.prepare(`SELECT image_url FROM circles WHERE id = ?`).get(entityId)) as { image_url: string } | undefined;
       return row?.image_url === url;
     }
+    case "circle-memory": {
+      // A removed memory keeps its record (and photo) as evidence.
+      const row = await db.prepare(`SELECT 1 FROM circle_memories WHERE circle_id = ? AND image_url = ? LIMIT 1`).get(entityId, url);
+      return !!row;
+    }
     case "centre-gallery": {
       const centre = (await db.prepare(`SELECT image_url FROM centres WHERE id = ?`).get(entityId)) as { image_url: string } | undefined;
       if (centre?.image_url === url) return true;
@@ -159,6 +165,10 @@ async function checkUploadPermission(
       if (!req.resident) return { status: 401, error: "Sign in required" };
       if (!(await isOrganiser(entityId, req.resident.id))) return { status: 403, error: "Only the organiser can manage this Circle's cover" };
       return null;
+    case "circle-memory":
+      if (!req.resident) return { status: 401, error: "Sign in required" };
+      if (!(await canUseCircleMemories(entityId, req.resident.id))) return { status: 403, error: "Only members of this Circle can add memories" };
+      return null;
     case "centre-gallery": {
       const vendorIds = await requireApprovedVendor(req);
       if (!Array.isArray(vendorIds)) return vendorIds;
@@ -217,6 +227,7 @@ const ENTITY_TYPES = new Set<MediaEntityType>([
   "resident-avatar",
   "activity-cover",
   "circle-cover",
+  "circle-memory",
   "centre-gallery",
   "club-gallery",
   "club-session-cover",
@@ -359,9 +370,10 @@ mediaRouter.post("/upload", localProcessingUpload, async (req, res) => {
   // Restricted media (Circle covers) is kept out of the public static path.
   if (!isR2Enabled()) {
     try {
-      const restricted = entityType === "circle-cover";
+      const restricted = entityType === "circle-cover" || entityType === "circle-memory";
       const name = saveLocalImage(req.file.buffer, req.file.mimetype, { private: restricted });
-      const url = restricted ? `/api/media/circles/${entityId}/cover?file=${name}` : `/uploads/${name}`;
+      const url =
+        entityType === "circle-memory" ? `/api/media/circles/${entityId}/memory-file?file=${name}` : restricted ? `/api/media/circles/${entityId}/cover?file=${name}` : `/uploads/${name}`;
       return res.status(201).json({ url, provider: "local" });
     } catch (e) {
       if (e instanceof LocalImageError) return res.status(400).json({ error: e.message });
@@ -431,6 +443,45 @@ mediaRouter.get("/circles/:id/cover", async (req, res) => {
 
   const signedUrl = await getRestrictedDeliveryUrl(objectKey);
   res.redirect(302, signedUrl);
+});
+
+// Circle Experience 2.0 — Circle Memories are members-only in every join
+// mode (owner decision D4), so a memory photo is never served from a public
+// path: members get the private local file, or a short-lived signed R2 GET.
+async function sendRestrictedImage(res: import("express").Response, storedUrl: string, localFile: string | null) {
+  if (localFile) {
+    const file = privateUploadPath(localFile);
+    if (!file || !fs.existsSync(file)) return res.status(404).json({ error: "No image" });
+    res.setHeader("Cache-Control", "private, no-store");
+    return res.sendFile(file);
+  }
+  if (!isR2Enabled()) return res.status(503).json({ error: "Cloud media storage is not configured" });
+  const objectKey = objectKeyFromUrl(storedUrl);
+  if (!objectKey) return res.status(404).json({ error: "No image" });
+  res.redirect(302, await getRestrictedDeliveryUrl(objectKey));
+}
+
+mediaRouter.get("/circles/:id/memories/:memoryId", async (req, res) => {
+  const stored = await memoryImageFor(req.params.id, req.params.memoryId, req.resident?.id ?? null);
+  if (!stored) return res.status(404).json({ error: "No image" });
+  const local = /[?&]file=([A-Za-z0-9._-]+)$/.exec(stored);
+  return sendRestrictedImage(res, stored, local && stored.startsWith("/api/media/") ? local[1] : null);
+});
+
+// The preview of a memory photo between upload and saving it (local storage
+// only; an R2 upload previews from its own unguessable object URL).
+mediaRouter.get("/circles/:id/memory-file", async (req, res) => {
+  if (!(await canUseCircleMemories(req.params.id, req.resident?.id ?? null))) return res.status(404).json({ error: "No image" });
+  const name = typeof req.query.file === "string" && /^[A-Za-z0-9._-]+$/.test(req.query.file) ? req.query.file : null;
+  if (!name) return res.status(404).json({ error: "No image" });
+  // Private files share one folder: never let this path reach a file that
+  // belongs to a different Circle's cover or memories.
+  const pattern = `%file=${name}`;
+  const elsewhere =
+    (await db.prepare(`SELECT 1 FROM circles WHERE image_url LIKE ? LIMIT 1`).get(pattern)) ||
+    (await db.prepare(`SELECT 1 FROM circle_memories WHERE image_url LIKE ? AND circle_id != ? LIMIT 1`).get(pattern, req.params.id));
+  if (elsewhere) return res.status(404).json({ error: "No image" });
+  return sendRestrictedImage(res, "", name);
 });
 
 mediaRouter.use((err: Error, _req: unknown, res: import("express").Response, _next: unknown) => {

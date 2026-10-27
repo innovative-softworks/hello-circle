@@ -1,3 +1,4 @@
+import { VendorCategoryEditor } from "./VendorCategoryEditor";
 import { useEffect, useRef, useState } from "react";
 import { Building2 } from "lucide-react";
 import { useInWorkspace } from "./workspace/inWorkspace";
@@ -157,6 +158,17 @@ export function CentreEditor({
       }
       fe.clear();
       onDirtyChange?.(false);
+    },
+    draft: {
+      key: `centre:${centreId}`,
+      get: currentSnapshot,
+      restore: (v) => {
+        const d = v as ReturnType<typeof currentSnapshot>;
+        setForm(d.form);
+        setAmenitiesText(d.amenitiesText);
+        setAccessibilityText(d.accessibilityText);
+        onDirtyChange?.(true);
+      },
     },
   };
   const inWorkspace = useInWorkspace();
@@ -324,6 +336,7 @@ export function CentreEditor({
       <SettingsSection title="Accessibility" summary={accessibilityList.length > 0 ? accessibilityList.join(" · ") : "None added"}>
         {accessibilityField}
       </SettingsSection>
+      <VendorCategoryEditor type="centre" id={centreId} />
       <SettingsSection title="Photos" summary={`${(form.images ?? []).length} photo${(form.images ?? []).length === 1 ? "" : "s"}`}>
         {photosField}
       </SettingsSection>
@@ -359,6 +372,7 @@ export function CentreEditor({
       <SettingsSection title="Accessibility" summary={accessibilityList.length > 0 ? accessibilityList.join(" · ") : "None added"}>
         {accessibilityField}
       </SettingsSection>
+      <VendorCategoryEditor type="centre" id={centreId} />
       <SettingsSection title="Photos" summary={`${(form.images ?? []).length} photo${(form.images ?? []).length === 1 ? "" : "s"}`}>
         {photosField}
       </SettingsSection>
@@ -579,7 +593,7 @@ export function AvailabilityBlocksManager({ centreId, centreName, rooms }: { cen
         open={confirmingBlockId !== null}
         title="Remove this closure?"
         message="That time becomes bookable again. Bookings cancelled when it was closed stay cancelled."
-        confirmLabel="Remove"
+        confirmLabel="Remove closure"
         onConfirm={() => confirmingBlockId !== null && removeBlock(confirmingBlockId)}
         onCancel={() => setConfirmingBlockId(null)}
       />

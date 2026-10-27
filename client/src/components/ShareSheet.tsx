@@ -83,12 +83,19 @@ function PreviewCard({ data }: { data: ShareData }) {
   );
 }
 
+/** Listings a Circle plan can point at (Circles 3.0). */
+const PLANNABLE: ShareEntityType[] = ["game", "experience", "adventure", "program", "centre", "club"];
+
 function ShareToCirclePane({ data, onDone, onBack }: { data: ShareData; onDone: () => void; onBack: () => void }) {
   const [circles, setCircles] = useState<Circle[] | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [message, setMessage] = useState("Anyone interested in this?");
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
+  // Circles 3.0 — opt-in: also add the listing to the Circle's plans.
+  const plannable = PLANNABLE.includes(data.entityType);
+  const [addAsPlan, setAddAsPlan] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchMyCircles().then(setCircles).catch(() => setCircles([]));
@@ -100,9 +107,11 @@ function ShareToCirclePane({ data, onDone, onBack }: { data: ShareData; onDone: 
     try {
       // shareToCircle's own endpoint already logs share_to_circle server-side
       // (with the circleId attached) — no duplicate client-side event here.
-      await shareToCircle(selected, data.entityType, data.entityId, message.trim() || undefined);
+      await shareToCircle(selected, data.entityType, data.entityId, message.trim() || undefined, plannable && addAsPlan);
       setDone(true);
       setTimeout(onDone, 900);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't share this. Try again.");
     } finally {
       setBusy(false);
     }
@@ -111,7 +120,7 @@ function ShareToCirclePane({ data, onDone, onBack }: { data: ShareData; onDone: 
   if (done) {
     return (
       <div style={{ display: "flex", alignItems: "center", gap: 8, color: colors.greenText, fontSize: 14, fontWeight: 700, padding: "20px 0" }}>
-        <CheckIcon size={16} /> Shared with your Circle
+        <CheckIcon size={16} /> {addAsPlan && plannable ? "Shared and added to the Circle's plans" : "Shared with your Circle"}
       </div>
     );
   }
@@ -154,6 +163,16 @@ function ShareToCirclePane({ data, onDone, onBack }: { data: ShareData; onDone: 
             placeholder="Add a message"
             style={{ width: "100%", border: `1px solid ${colors.border}`, borderRadius: radius.control, padding: "8px 10px", fontSize: 13.5, marginBottom: 12, resize: "vertical", boxSizing: "border-box" }}
           />
+          {plannable && (
+            <label style={{ display: "flex", alignItems: "flex-start", gap: 10, fontSize: 13.5, lineHeight: 1.45, marginBottom: 12, cursor: "pointer" }}>
+              <input type="checkbox" checked={addAsPlan} onChange={(e) => setAddAsPlan(e.target.checked)} style={{ width: 18, height: 18, margin: "1px 0 0", flex: "none" }} />
+              <span>
+                Also add it to the Circle's plans
+                <span style={{ display: "block", color: colors.mutedLight, fontSize: 12.5 }}>Members can say they're in. Nothing is booked.</span>
+              </span>
+            </label>
+          )}
+          {error && <p role="alert" style={{ margin: "0 0 10px", color: colors.danger, fontSize: 13 }}>{error}</p>}
           <Button full onClick={submit} disabled={!selected || busy}>
             {busy ? "Sharing…" : "Share to Circle"}
           </Button>

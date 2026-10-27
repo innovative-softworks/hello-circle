@@ -117,3 +117,99 @@ describe("cancel on behalf", () => {
     expect(audit).toMatchObject({ reason: "Venue double-booked by phone" });
   });
 });
+
+describe("Circle planning moderation (2026-10-24)", () => {
+  const cId = `test-ops-circle-${t}`;
+  const m1 = `test-ops-m1-${t}`;
+  const m2 = `test-ops-m2-${t}`;
+  const planId = `test-ops-plan-${t}`;
+  const pollId = `test-ops-poll-${t}`;
+  beforeAll(async () => {
+    for (const id of [m1, m2]) await db.prepare(`INSERT INTO residents (id, email, name) VALUES (?, ?, 'Ops Member')`).run(id, `${id}@example.test`);
+    await db.prepare(`INSERT INTO circles (id, name, activity_label, area, county, about, created_by_resident_id) VALUES (?, 'Ops Circle', 'Walking', 'Howth', 'Dublin', '', ?)`).run(cId, m1);
+    for (const id of [m1, m2]) await db.prepare(`INSERT INTO circle_members (circle_id, resident_id, role) VALUES (?, ?, 'member')`).run(cId, id);
+    for (const id of [m1, m2])
+      await db
+        .prepare(`INSERT INTO circle_pulses (id, circle_id, resident_id, interest, interest_key, week_start, slots, expires_at) VALUES (?, ?, ?, 'Sea swim', 'sea swim', '2099-01-05', '', '2099-01-12 00:00:00')`)
+        .run(`test-ops-pulse-${id}`, cId, id);
+    await db.prepare(`INSERT INTO circle_plans (id, circle_id, created_by_resident_id, title, note, status) VALUES (?, ?, ?, 'Ops walk', '', 'idea')`).run(planId, cId, m1);
+    await db.prepare(`INSERT INTO circle_polls (id, circle_id, question, created_by_resident_id) VALUES (?, ?, 'Which day?', ?)`).run(pollId, cId, m1);
+    await db.prepare(`INSERT INTO circle_poll_options (poll_id, date, sort_order) VALUES (?, '2099-01-06', 0)`).run(pollId);
+  });
+  afterAll(async () => {
+    await db.prepare(`DELETE FROM circle_pulses WHERE circle_id = ?`).run(cId);
+    await db.prepare(`DELETE FROM circle_plans WHERE circle_id = ?`).run(cId);
+    await db.prepare(`DELETE FROM circle_poll_options WHERE poll_id = ?`).run(pollId);
+    await db.prepare(`DELETE FROM circle_polls WHERE circle_id = ?`).run(cId);
+    await db.prepare(`DELETE FROM circle_members WHERE circle_id = ?`).run(cId);
+    await db.prepare(`DELETE FROM circles WHERE id = ?`).run(cId);
+    await db.prepare(`DELETE FROM audit_log WHERE object_id = ?`).run(cId);
+    for (const id of [m1, m2]) {
+      await db.prepare(`DELETE FROM notifications WHERE resident_id = ?`).run(id);
+      await db.prepare(`DELETE FROM residents WHERE id = ?`).run(id);
+    }
+  });
+
+  it("lists wishes as totals only, with plans and polls", async () => {
+    const r = await get(`/ops/circles/${cId}/planning`);
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { wishes: Record<string, unknown>[]; plans: { id: string }[]; polls: { id: string }[] };
+    expect(body.wishes).toEqual([{ interestKey: "sea swim", interest: "Sea swim", weekStart: "2099-01-05", count: 2 }]);
+    expect(body.plans.map((p) => p.id)).toContain(planId);
+    expect(body.polls.map((p) => p.id)).toContain(pollId);
+    expect((await get(`/ops/circles/${cId}/planning`, "finance")).status).toBe(403);
+  });
+
+  it("removals need reports.moderate and a reason, and happen once", async () => {
+    const wish = { weekStart: "2099-01-05", interestKey: "sea swim" };
+    expect((await post(`/ops/circles/${cId}/wishes/remove`, { ...wish, reason: "Not suitable for this Circle" }, "finance")).status).toBe(403);
+    expect((await post(`/ops/circles/${cId}/wishes/remove`, { ...wish, reason: "short" })).status).toBe(400);
+    expect((await post(`/ops/circles/${cId}/wishes/remove`, { ...wish, reason: "Not suitable for this Circle" })).status).toBe(200);
+    expect((await post(`/ops/circles/${cId}/wishes/remove`, { ...wish, reason: "Not suitable for this Circle" })).status).toBe(404);
+    expect((await post(`/ops/circles/${cId}/plans/${planId}/remove`, { reason: "Duplicate of another plan" })).status).toBe(200);
+    expect(((await db.prepare(`SELECT status FROM circle_plans WHERE id = ?`).get(planId)) as { status: string }).status).toBe("cancelled");
+    expect((await post(`/ops/circles/${cId}/plans/${planId}/remove`, { reason: "Duplicate of another plan" })).status).toBe(409);
+    expect((await post(`/ops/circles/${cId}/polls/${pollId}/delete`, { reason: "Spam poll from a test" })).status).toBe(200);
+    expect(await db.prepare(`SELECT 1 FROM circle_polls WHERE id = ?`).get(pollId)).toBeUndefined();
+    const actions = ((await db.prepare(`SELECT action FROM audit_log WHERE object_id = ?`).all(cId)) as { action: string }[]).map((a) => a.action).sort();
+    expect(actions).toEqual(["circle.plan_removed", "circle.poll_deleted", "circle.wish_removed"]);
+  });
+});
+
+describe("Circles 3.0 — HelloCircle closes and reopens a Circle", () => {
+  const cId = `test-ops-close-${t}`;
+  const org = `test-ops-org-${t}`;
+  beforeAll(async () => {
+    await db.prepare(`INSERT INTO residents (id, email, name) VALUES (?, ?, 'Ops Organiser')`).run(org, `${org}@example.test`);
+    await db.prepare(`INSERT INTO circles (id, name, activity_label, area, county, about, created_by_resident_id) VALUES (?, 'Ops Close Circle', 'Walking', 'Howth', 'Dublin', '', ?)`).run(cId, org);
+    await db.prepare(`INSERT INTO circle_members (circle_id, resident_id, role) VALUES (?, ?, 'organiser')`).run(cId, org);
+  });
+  afterAll(async () => {
+    await db.prepare(`DELETE FROM circle_members WHERE circle_id = ?`).run(cId);
+    await db.prepare(`DELETE FROM circles WHERE id = ?`).run(cId);
+    await db.prepare(`DELETE FROM audit_log WHERE object_id = ?`).run(cId);
+    await db.prepare(`DELETE FROM notifications WHERE resident_id = ?`).run(org);
+    await db.prepare(`DELETE FROM residents WHERE id = ?`).run(org);
+  });
+
+  it("needs reports.moderate and a reason; closes once, tells the organiser, and audits", async () => {
+    expect((await post(`/ops/circles/${cId}/close`, { reason: "Repeated spam plans in this Circle" }, "finance")).status).toBe(403);
+    expect((await post(`/ops/circles/${cId}/close`, { reason: "short" })).status).toBe(400);
+    expect((await post(`/ops/circles/${cId}/close`, { reason: "Repeated spam plans in this Circle" })).status).toBe(200);
+    expect((await post(`/ops/circles/${cId}/close`, { reason: "Repeated spam plans in this Circle" })).status).toBe(409);
+    const row = (await db.prepare(`SELECT status, closed_by as closedBy FROM circles WHERE id = ?`).get(cId)) as { status: string; closedBy: string };
+    expect(row).toEqual({ status: "closed", closedBy: "helloCircle" });
+    const notice = await db.prepare(`SELECT body FROM notifications WHERE resident_id = ? AND title LIKE 'Closed by HelloCircle%'`).get(org);
+    expect((notice as { body: string }).body).toContain("Repeated spam plans");
+    expect(await db.prepare(`SELECT 1 FROM audit_log WHERE object_id = ? AND action = 'circle.closed_by_helloCircle'`).get(cId)).toBeTruthy();
+    const planning = await (await get(`/ops/circles/${cId}/planning`)).json();
+    expect(planning.circle.closedBy).toBe("helloCircle");
+  });
+
+  it("reopens only its own closure", async () => {
+    expect((await post(`/ops/circles/${cId}/reopen`, { reason: "Organiser removed the spam, reviewed" })).status).toBe(200);
+    expect(((await db.prepare(`SELECT status FROM circles WHERE id = ?`).get(cId)) as { status: string }).status).toBe("active");
+    await db.prepare(`UPDATE circles SET status = 'closed', closed_by = 'organiser' WHERE id = ?`).run(cId);
+    expect((await post(`/ops/circles/${cId}/reopen`, { reason: "Trying to reopen an organiser closure" })).status).toBe(409);
+  });
+});

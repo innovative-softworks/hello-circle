@@ -2,7 +2,7 @@ import { useNavigate } from "react-router-dom";
 import type { Centre } from "../types";
 import { colors } from "../theme";
 import { BuildingIcon, PinIcon, StarIcon, UsersIcon } from "./icons";
-import { CardPrice, ListingCard, cardButtonStyle } from "./ListingCard";
+import { CardAction, CardArrow, CardPrice, ListingCard } from "./ListingCard";
 import { SaveButton, useSavedState } from "./SaveButton";
 import { Button } from "./ui";
 
@@ -15,6 +15,7 @@ export function CentreCard({ centre }: { centre: Centre }) {
   const open = () => navigate(href);
   return (
     <ListingCard
+      rowOnPhone
       href={href}
       title={centre.name}
       image={centre.image}
@@ -28,11 +29,13 @@ export function CentreCard({ centre }: { centre: Centre }) {
         { icon: <UsersIcon size={13} />, text: `Up to ${centre.capacity} people` },
         centre.reviews > 0 ? { icon: <StarIcon size={13} style={{ color: colors.gold }} />, text: `${centre.rating} (${centre.reviews} review${centre.reviews === 1 ? "" : "s"})` } : null,
       ]}
-      facts={<CardPrice>from €{centre.from}/hr</CardPrice>}
+      facts={<CardPrice cents={Math.round(centre.from * 100)} from unit="an hour" />}
       action={
-        <Button style={cardButtonStyle} variant={centre.isOpen === false ? "ghost" : "dark"} disabled={centre.isOpen === false} onClick={open}>
-          {centre.isOpen === false ? "Not taking bookings" : "Check availability"}
-        </Button>
+        centre.isOpen === false ? (
+          <CardAction look="booked">Not taking bookings</CardAction>
+        ) : (
+          <CardArrow label={`Check availability: ${centre.name}`} onClick={open} />
+        )
       }
     />
   );

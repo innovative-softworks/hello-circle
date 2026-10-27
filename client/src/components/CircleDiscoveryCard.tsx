@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AwardIcon, CalendarIcon, PinIcon, RepeatIcon, UsersIcon } from "./icons";
 import { Button, ConfirmDialog } from "./ui";
-import { ListingCard, cardButtonStyle } from "./ListingCard";
+import { CardAction, CardArrow, ListingCard } from "./ListingCard";
 import { SaveButton, useSavedState } from "./SaveButton";
 import { dateLabel } from "../euro";
 import { formatCircleAvailability } from "../formatters";
@@ -56,17 +56,15 @@ export function CircleDiscoveryCard({ circle, joined, onJoin, onLeave, busy }: {
         }
         action={
           joined ? (
-            <Button style={cardButtonStyle} variant="ghost" onClick={() => setLeaveConfirmOpen(true)} disabled={busy}>
+            <CardAction look="neutral" onClick={() => setLeaveConfirmOpen(true)} disabled={busy} ariaLabel={`You're in ${circle.name} — leave?`}>
               You're in
-            </Button>
+            </CardAction>
           ) : circle.joinMode === "invite" ? (
-            <Button style={cardButtonStyle} variant="ghost" onClick={() => navigate(href)}>
-              View Circle
-            </Button>
+            <CardArrow label={`View Circle: ${circle.name}`} onClick={() => navigate(href)} />
           ) : (
-            <Button style={cardButtonStyle} variant="dark" onClick={() => setJoinConfirmOpen(true)} disabled={busy}>
-              {circle.joinMode === "approval" ? "Request to join" : "Join Circle"}
-            </Button>
+            <CardAction look="outline" arrow busy={busy} busyLabel="Joining…" onClick={() => setJoinConfirmOpen(true)} ariaLabel={`${circle.joinMode === "approval" ? "Request to join" : "Join"} ${circle.name}`}>
+              {circle.joinMode === "approval" ? "Request to join" : "Join"}
+            </CardAction>
           )
         }
       />

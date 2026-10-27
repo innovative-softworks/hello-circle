@@ -1,3 +1,4 @@
+import { ListFilterBar, NoMatches, useListFilters } from "./ListFilters";
 import { useState } from "react";
 import { Tag } from "lucide-react";
 import { AdminButton, AdminModal, Box, FormField } from "../admin/adminUi";
@@ -162,8 +163,15 @@ export function OffersList({
   emptyHint: string;
 }) {
   const [, setCreate] = useCreateParam();
+  const filters = useListFilters<OfferRow>({
+    param: "oq",
+    search: (o) => [o.code, appliesTo(o)],
+    selects: [{ param: "ostatus", label: "Status", options: [{ value: "active", label: "Active" }, { value: "paused", label: "Paused" }], get: (o) => (o.active ? "active" : "paused") }],
+  });
+  const shown = filters.apply(offers);
   return (
     <Box flush>
+      {offers.length > 5 && <ListFilterBar state={filters} searchLabel="Search offers" placeholder="Code or listing" />}
       {offers.length === 0 ? (
         <EmptyState
           icon={<Tag size={20} />}
@@ -175,11 +183,13 @@ export function OffersList({
             </AdminButton>
           }
         />
+      ) : shown.length === 0 ? (
+        <NoMatches onClear={filters.clear} noun="offers" />
       ) : (
         <WsListTable
           caption="Your offers"
           columns={[{ label: "Code" }, { label: "Discount" }, { label: appliesToLabel }, { label: "Uses", num: true }, { label: "Status" }]}
-          rows={offers.map((o) => ({
+          rows={shown.map((o) => ({
             key: String(o.id),
             name: o.code,
             title: <span style={{ fontFamily: "var(--adm-mono, ui-monospace, monospace)", letterSpacing: "0.02em" }}>{o.code}</span>,

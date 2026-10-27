@@ -1,4 +1,6 @@
+import { taxonomyFields, taxonomyFilter } from "../taxonomy.js";
 import { customerPaymentCase } from "../payments/paymentReview.js";
+import { sweepSpotAlerts } from "../spotAlerts.js";
 import { Router } from "express";
 import { paymentUnderReview } from "../payments/checkoutAgreement.js";
 import { allocate } from "../commerce/money.js";
@@ -173,6 +175,9 @@ experiencesRouter.get("/", async (req, res) => {
     conditions.push(`e.county = ?`);
     params.push(county);
   }
+  const tax = await taxonomyFilter("experience", "e.id", req.query as Record<string, unknown>);
+  if (tax === "none") return res.json([]);
+  if (tax) { conditions.push(tax.sql); params.push(...tax.params); }
   const rows = (await db
     .prepare(
       `SELECT e.*, u.business_name as vendor_business_name, u.name as vendor_name, u.provider_tier as vendor_provider_tier
@@ -204,7 +209,7 @@ experiencesRouter.get("/:id", async (req, res) => {
   }
   await db.prepare(`UPDATE experiences SET views = views + 1 WHERE id = ?`).run(row.id);
   logView("activity_viewed", req, { kind: "experience", id: row.id });
-  res.json({ ...(await toExperienceJson(row)), participationAttributes: await getListingAttributes("experience", row.id), ...(await officialCircleSummary("experiences", row.id)) });
+  res.json({ ...(await toExperienceJson(row)), participationAttributes: await getListingAttributes("experience", row.id), ...(await officialCircleSummary("experiences", row.id)), ...(await taxonomyFields("experience", row.id)) });
 });
 
 interface BookBody {
@@ -615,7 +620,7 @@ experiencesRouter.post("/bookings/:ref/cancel", async (req, res) => {
     .prepare(
       `SELECT eb.ref, eb.status, eb.payment_status as paymentStatus, eb.participant_name as participantName, eb.email, eb.resident_id as residentId,
               eb.total_cents as totalCents, eb.stripe_session_id IS NOT NULL as paidOnline,
-              es.date, es.time,
+              es.date, es.time, es.id as sessionId,
               e.id as experienceId, e.title, e.vendor_id as vendorId
        FROM experience_bookings eb
        JOIN experience_sessions es ON es.id = eb.session_id
@@ -623,7 +628,7 @@ experiencesRouter.post("/bookings/:ref/cancel", async (req, res) => {
        WHERE eb.ref = ? AND (eb.client_id = ? OR (eb.resident_id IS NOT NULL AND eb.resident_id = ?))`
     )
     .get(req.params.ref, clientId, req.resident?.id ?? "")) as
-    | { ref: string; status: string; paymentStatus: string; participantName: string; email: string; residentId: string | null; totalCents: number; paidOnline: number; date: string; time: string; experienceId: string; title: string; vendorId: string }
+    | { ref: string; status: string; paymentStatus: string; participantName: string; email: string; residentId: string | null; totalCents: number; paidOnline: number; date: string; time: string; sessionId: string; experienceId: string; title: string; vendorId: string }
     | undefined;
   if (!row) return res.status(404).json({ error: "Booking not found" });
   const { cancellationHours } = await orgPoliciesForVendor(row.vendorId);
@@ -649,6 +654,8 @@ experiencesRouter.post("/bookings/:ref/cancel", async (req, res) => {
     residentId: row.residentId,
   }).catch((e) => console.error("[notifications] experience booking cancellation notify failed:", e));
 
+  // Experience 3.0 — a freed place may be someone's spot alert (no-op while off).
+  void sweepSpotAlerts(row.sessionId).catch((e) => console.error("[spot-alerts] sweep failed:", e));
   res.json({ ok: true, status: "cancelled", refundState: refundStateOf({ ...row, status: "cancelled" }) });
 });
 

@@ -236,7 +236,7 @@ export async function loadResidentProfile(residentId: string, homeCounty: string
   };
 }
 
-async function loadAttributes(activities: ScheduledActivity[]): Promise<Map<string, string[]>> {
+export async function loadAttributes(activities: ScheduledActivity[]): Promise<Map<string, string[]>> {
   const map = new Map<string, string[]>();
   const byType = new Map<string, Set<string>>();
   for (const a of activities) {

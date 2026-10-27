@@ -1,10 +1,14 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { CircleCreationBanner } from "../components/circle/CircleCreationBanner";
 import { fetchVendorExperience, publishVendorExperience } from "../api";
 import { useAuth } from "../AuthContext";
 import { BackLink } from "../components/BackLink";
 import { PartnerWorkspace } from "../components/workspace/PartnerWorkspace";
 import { ListingMeta } from "../components/workspace/ListingMeta";
+import { DetailStats } from "../components/workspace/DetailParts";
+import { irelandToday } from "../irelandDate";
+import { dateLabel } from "../euro";
 import { BookingsPanel, ExperienceEditor, SessionsManager } from "../components/VendorExperiences";
 import { ExperienceCreationWizard } from "../components/ExperienceCreationWizard";
 import { useUnsavedChangesGuard } from "../components/form";
@@ -56,7 +60,7 @@ export function VendorExperienceEditPage() {
   }, [experienceId]);
 
   const onSaved = (savedId: string) => {
-    if (experienceId === "new") navigate(`/vendor/experiences/${savedId}`, { replace: true });
+    if (experienceId === "new") navigate(`/vendor/experiences/${savedId}${window.location.search}`, { replace: true });
     else fetchVendorExperience(experienceId).then(setExperience);
   };
 
@@ -88,7 +92,7 @@ export function VendorExperienceEditPage() {
       subtitle={!wizardMode && experience ? <ListingMeta status={experience.status} kind={experience.kind === "adventure" ? "Adventure" : experience.kind === "volunteer" ? "Volunteer" : "Experience"} place={[experience.area, experience.county].filter(Boolean).join(", ")} /> : undefined}
     >
       <div>
-
+        <CircleCreationBanner type="experience" listingId={experienceId === "new" ? null : experienceId} />
         {wizardMode ? (
           <ExperienceCreationWizard
             initialExperienceId={experienceId}
@@ -109,6 +113,19 @@ export function VendorExperienceEditPage() {
                 setExperience(await fetchVendorExperience(experienceId));
               }}
             />
+            {experience && (
+              <DetailStats
+                items={[
+                  { label: "Price", value: experience.priceCents ? `€${(experience.priceCents / 100).toFixed(2)}` : "Free", sub: "per person" },
+                  { label: "Group size", value: `Up to ${experience.capacity}`, sub: experience.difficulty || undefined },
+                  { label: "Duration", value: `${Math.round(experience.durationMinutes / 6) / 10} h`, sub: experience.meetingPoint || undefined },
+                  (() => {
+                    const next = (experience.sessions ?? []).filter((x) => x.date >= irelandToday());
+                    return { label: "Upcoming dates", value: String(next.length), sub: next[0] ? `Next ${dateLabel(next[0].date)} · ${next[0].time}` : "None scheduled" };
+                  })(),
+                ]}
+              />
+            )}
             <div style={{ marginBottom: 22 }}>
               <Tabs
                 value={tab}

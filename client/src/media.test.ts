@@ -111,3 +111,18 @@ describe("resolveMediaUrl", () => {
     });
   });
 });
+
+describe("resolveMediaUrl — Unsplash (DP-23)", () => {
+  const config = { mediaPublicDomain: null, imageResizingEnabled: false, cloudinaryCloudName: null };
+  it("asks Unsplash for the variant's width, keeping the photo and its other params", () => {
+    const src = "https://images.unsplash.com/photo-1554068865-24cecd4e34b8?w=900&q=75&auto=format&fit=crop";
+    const hero = new URL(resolveMediaUrl(src, "hero", config));
+    expect(hero.pathname).toBe("/photo-1554068865-24cecd4e34b8");
+    expect(hero.searchParams.get("w")).toBe("1600");
+    expect(hero.searchParams.get("q")).toBe("75");
+    expect(new URL(resolveMediaUrl(src, "card", config)).searchParams.get("w")).toBe("800");
+  });
+  it("leaves other hosts untouched", () => {
+    expect(resolveMediaUrl("https://example.com/a.jpg?w=900", "hero", config)).toBe("https://example.com/a.jpg?w=900");
+  });
+});

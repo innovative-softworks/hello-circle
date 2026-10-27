@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from "express";
 import { assertPlatformRole } from "../auth.js";
 import { db } from "../db/index.js";
 import { getListingAttributes, setListingAttributes } from "../listingAttributes.js";
+import { familyOf, getListingTags, getListingTaxonomy, pickerOptions, setListingTags, setListingTaxonomy, TaxonomyValidationError, validateAssignment } from "../taxonomy.js";
 
 export const vendorParticipationRouter = Router();
 
@@ -102,4 +103,59 @@ vendorParticipationRouter.put("/participation/:type/:id", async (req, res) => {
       .run(...sent.map((f) => (b[f.key] as string).trim().slice(0, 2000) || null), req.params.id);
   }
   res.json({ attributes: await getListingAttributes(type, req.params.id), ...(await readFields(type, req.params.id)) });
+});
+
+// Category system (approved 2026-10-22) — a listing's category, subcategory
+// and discovery tags. Its own endpoint for the same reason as the editor
+// above: a save of the main listing form can never clobber it. Venues are
+// included here (programmes, experiences and clubs above). Ownership and
+// role gating mirror each type's own edit route. Vendors only choose from
+// active categories valid for the type; they never create one.
+type ClassifiableType = VendorListingType | "centre";
+
+async function authorizeClassification(req: Request, res: Response, type: ClassifiableType, id: string): Promise<{ kind: string | null } | null> {
+  if (type !== "centre") {
+    if (!(await authorize(req, res, type, id))) return null;
+    if (type !== "experience") return { kind: null };
+    const row = (await db.prepare(`SELECT kind FROM experiences WHERE id = ?`).get(id)) as { kind: string } | undefined;
+    return { kind: row?.kind ?? null };
+  }
+  const row = (await db.prepare(`SELECT vendor_id as vendorId FROM centres WHERE id = ?`).get(id)) as { vendorId: string } | undefined;
+  if (!row || !req.vendorIds!.includes(row.vendorId)) {
+    res.status(403).json({ error: "Not your listing" });
+    return null;
+  }
+  return assertPlatformRole(req, res, "centre_manager") ? { kind: null } : null;
+}
+
+function parseClassifiable(raw: string): ClassifiableType | null {
+  return raw === "centre" ? "centre" : parseType(raw);
+}
+
+vendorParticipationRouter.get("/classification/:type/:id", async (req, res) => {
+  const type = parseClassifiable(req.params.type);
+  if (!type) return res.status(400).json({ error: "type must be program, experience, club or centre" });
+  const auth = await authorizeClassification(req, res, type, req.params.id);
+  if (!auth) return;
+  const family = familyOf(type, auth.kind);
+  res.json({ family, taxonomy: await getListingTaxonomy(type, req.params.id), tags: await getListingTags(type, req.params.id), options: await pickerOptions(family) });
+});
+
+vendorParticipationRouter.put("/classification/:type/:id", async (req, res) => {
+  const type = parseClassifiable(req.params.type);
+  if (!type) return res.status(400).json({ error: "type must be program, experience, club or centre" });
+  const auth = await authorizeClassification(req, res, type, req.params.id);
+  if (!auth) return;
+  const b = req.body as { categoryId?: unknown; subcategoryId?: unknown; tags?: unknown };
+  const current = await getListingTaxonomy(type, req.params.id);
+  let value;
+  try {
+    value = await validateAssignment(familyOf(type, auth.kind), b.categoryId, b.subcategoryId, current);
+  } catch (e) {
+    if (e instanceof TaxonomyValidationError) return res.status(400).json({ error: e.message, field: "categoryId" });
+    throw e;
+  }
+  if (value !== undefined) await setListingTaxonomy(type, req.params.id, value, "vendor");
+  await setListingTags(type, req.params.id, b.tags);
+  res.json({ taxonomy: await getListingTaxonomy(type, req.params.id), tags: await getListingTags(type, req.params.id) });
 });

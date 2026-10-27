@@ -1,5 +1,9 @@
+import { ListFilterBar, NoMatches, useListFilters } from "./workspace/ListFilters";
+import { useToast } from "./Toast";
+import { emptyCategoryDraft, ListingCategoryFields, saveListingCategory } from "./categories/ListingCategoryFields";
 import { useEffect, useState, type SetStateAction } from "react";
 import { useSearchParams } from "react-router-dom";
+import { VendorCategoryEditor } from "./VendorCategoryEditor";
 import { VendorParticipationEditor } from "./VendorParticipationEditor";
 import {
   addProgramSession,
@@ -19,7 +23,7 @@ import {
 import { CalendarIcon, PlusIcon, TrashIcon, UsersIcon } from "./icons";
 import { SingleImageUpload } from "./SingleImageUpload";
 import { VendorCheckInScreen } from "./VendorCheckInScreen";
-import { FieldError, FieldLabel, FormErrorSummary, RequiredNote, useFormErrors } from "./form";
+import { DraftBanner, FieldError, FieldLabel, FormErrorSummary, RequiredNote, useFormDraft, useFormErrors } from "./form";
 import { MonthCalendar } from "./MonthCalendar";
 import { CalendarDays, GraduationCap, List, UsersRound } from "lucide-react";
 import { ActionMenu } from "./ActionMenu";
@@ -29,12 +33,13 @@ import { formatDate } from "../vendorFormat";
 import { AdminButton, AdminModal, Box, ErrorMessage, FormField, IconTabs, LoadingRows, Loaded, useAdminData } from "./admin/adminUi";
 import { SourceTypeBadge, StatusPill } from "./VendorOverviewCards";
 import { Button, ManageCard as Card, ConfirmDialog, EmptyState, inputStyle, labelStyle } from "./ui";
-import { ACTIVITY_CATEGORIES, ATTENDANCE_STATUSES, ATTENDANCE_STATUS_LABELS, PROGRAM_STATUSES, SKILL_LEVELS } from "../constants";
+import { ATTENDANCE_STATUSES, ATTENDANCE_STATUS_LABELS, PROGRAM_STATUSES, SKILL_LEVELS } from "../constants";
 import { formatScheduleCount, formatScheduleWhen, manageTargetFor, scheduleItemDateKey, todayDateKey, type VendorScheduleNavTarget } from "../vendorSchedule";
 import { colors, fonts, radius } from "../theme";
 import type { AttendanceStatus, Program, ProgramStatus, Room, VendorProgramSummary, VendorScheduleItem } from "../types";
 import { formatPrice } from "../formatters";
-import { occurrenceDates } from "../irelandDate";
+import { irelandToday, occurrenceDates } from "../irelandDate";
+import { DetailStats } from "./workspace/DetailParts";
 import { PaidClosedPriceNotice } from "./PaidClosedPriceNotice";
 
 const ATTENDANCE_STATUS_COLORS: Record<AttendanceStatus, { fg: string; bg: string }> = {
@@ -176,8 +181,18 @@ export function ProgramManager({ programId, onChanged }: { programId: string; on
   const sessionCount = repeat === "none" ? 1 : Math.max(1, Math.min(52, occurrences));
 
   // Option A (2026-10-16): sessions and enrolments as panels, status / cover /
-  // facts in the rail, adding sessions in a popup.
+  // facts in the rail, adding sessions in a popup. Key numbers above (2026-10-20).
+  const upcomingSessions = program.sessions.filter((x) => x.date >= irelandToday());
   return (
+    <>
+    <DetailStats
+      items={[
+        { label: "Enrolled", value: `${program.enrolled} / ${program.capacity}`, sub: `${program.spotsLeft} places left` },
+        { label: "Price", value: program.priceCents ? `€${(program.priceCents / 100).toFixed(2)}` : "Free", sub: "for the course" },
+        { label: "Sessions", value: String(program.sessions.length), sub: `${upcomingSessions.length} still to come` },
+        { label: "Next session", value: upcomingSessions[0] ? dateLabel(upcomingSessions[0].date) : "—", sub: upcomingSessions[0]?.time },
+      ]}
+    />
     <div className="ws-editor">
       <div style={{ display: "flex", flexDirection: "column", gap: 14, minWidth: 0 }}>
         {error && (
@@ -289,6 +304,8 @@ export function ProgramManager({ programId, onChanged }: { programId: string; on
           )}
         </Box>
 
+        <VendorCategoryEditor type="program" id={programId} />
+
         <VendorParticipationEditor type="program" id={programId} />
       </div>
 
@@ -327,25 +344,23 @@ export function ProgramManager({ programId, onChanged }: { programId: string; on
           />
         </div>
         <div className="adm-box ws-rail-card ws-facts">
-          <strong style={{ display: "block", marginBottom: 6 }}>At a glance</strong>
+          <strong style={{ display: "block", marginBottom: 6 }}>Who it's for</strong>
           <div>
-            <span>Price</span>
-            {program.priceCents > 0 ? `€${(program.priceCents / 100).toFixed(2)} for the course` : "Free"}
+            <span>Ages</span>
+            {program.ageRange || "Any age"}
           </div>
-          <div>
-            <span>Places</span>
-            {program.capacity ?? "Unlimited"}
-          </div>
-          {program.ageRange && (
+          {program.skillLevel && (
             <div>
-              <span>Ages</span>
-              {program.ageRange}
+              <span>Level</span>
+              {program.skillLevel}
             </div>
           )}
-          <div>
-            <span>Sessions</span>
-            {program.sessions.length}
-          </div>
+          {program.instructorName && (
+            <div>
+              <span>Instructor</span>
+              {program.instructorName}
+            </div>
+          )}
         </div>
       </aside>
 
@@ -421,12 +436,13 @@ export function ProgramManager({ programId, onChanged }: { programId: string; on
         open={confirmingSessionId !== null}
         title="Remove this session?"
         message="Anyone already enrolled in the program is unaffected — this only removes the one date/time from the schedule."
-        confirmLabel="Remove"
+        confirmLabel="Remove session"
         onConfirm={() => confirmingSessionId && removeSession(confirmingSessionId)}
         onCancel={() => setConfirmingSessionId(null)}
       />
       <VendorCheckInScreen programId={programId} session={checkingInSession} onClose={() => setCheckingInSession(null)} />
     </div>
+    </>
   );
 }
 
@@ -467,6 +483,7 @@ export function ProgramCreateForm({
   onDirtyChange?: (dirty: boolean) => void;
 }) {
   const [creating, setCreating] = useState(false);
+  const toast = useToast();
   const fe = useFormErrors();
   // Release 6 — "Create a program" from a Host Opportunity prefills the
   // activity; read once, not synced.
@@ -481,6 +498,8 @@ export function ProgramCreateForm({
     priceCents: "",
     capacity: "",
     category: searchParams.get("category") ?? "",
+    // Category system — kept in `form` so the saved draft restores it too.
+    taxonomy: emptyCategoryDraft(),
     skillLevel: "",
     instructorName: "",
     guardianRules: "",
@@ -489,16 +508,31 @@ export function ProgramCreateForm({
   // See HostGamePage.tsx's identical wrapper — clears a stale FormErrorSummary
   // the moment the user edits anything, instead of it lingering until the
   // next submit attempt re-validates.
+  const [touched, setTouched] = useState(false);
   const setForm = (updater: SetStateAction<typeof form>, fieldId?: string) => {
     setFormRaw(updater);
     if (fieldId) fe.clearField(fieldId);
+    setTouched(true);
     onDirtyChange?.(true);
   };
   const [equipmentText, setEquipmentTextRaw] = useState("");
   const setEquipmentText = (v: string) => {
     setEquipmentTextRaw(v);
+    setTouched(true);
     onDirtyChange?.(true);
   };
+  // What's typed survives a reload (this browser only) until it's created.
+  const draft = useFormDraft({
+    key: "program:new",
+    value: { form, equipmentText },
+    active: touched,
+    onRestore: (v) => {
+      // A draft saved before the category system has no `taxonomy`.
+      setFormRaw({ ...v.form, taxonomy: v.form.taxonomy ?? emptyCategoryDraft() });
+      setEquipmentTextRaw(v.equipmentText);
+      onDirtyChange?.(true);
+    },
+  });
 
   const options = form.listingType === "centre" ? listings.centres : listings.clubs;
 
@@ -522,14 +556,24 @@ export function ProgramCreateForm({
         ageRange: form.ageRange,
         priceCents: form.priceCents ? Math.round(parseFloat(form.priceCents) * 100) : 0,
         capacity: form.capacity ? Number(form.capacity) : null,
-        category: form.category,
+        // The legacy free-text category keeps the picked category's name for older readers.
+        category: form.taxonomy.categoryName ?? form.category,
         skillLevel: form.skillLevel,
         equipment: equipmentText.split("\n").map((s) => s.trim()).filter(Boolean),
         instructorName: form.instructorName,
         guardianRules: form.guardianRules,
         safeguardingInfo: form.safeguardingInfo,
       });
+      // The programme exists now — never stay on this form (a second click
+      // would create a duplicate). A failed category save is reported and
+      // can be fixed in the programme's Category section.
+      try {
+        await saveListingCategory("program", created.id, form.taxonomy);
+      } catch (e) {
+        toast.error(`Programme created, but its category wasn't saved: ${e instanceof Error ? e.message : "set it in the Category section"}`);
+      }
       onDirtyChange?.(false);
+      draft.clear();
       onCreated(created.id);
     } catch (e) {
       // Everything typed stays in the form; the reason goes in the summary.
@@ -547,6 +591,7 @@ export function ProgramCreateForm({
   return (
     <div className="ws-editor">
       <div style={{ display: "flex", flexDirection: "column", gap: 14, minWidth: 0 }}>
+        {draft.pending && <DraftBanner savedAt={draft.pending.savedAt} onRestore={draft.restore} onDiscard={draft.clear} />}
         <RequiredNote />
         <FormPanel n={1} title="What it is" note="Where it runs and what people will do.">
           <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
@@ -580,14 +625,8 @@ export function ProgramCreateForm({
               </select>
               <FieldError fieldId="program-listing" message={fe.messageFor("program-listing")} />
             </div>
-            <div>
-              <FieldLabel htmlFor="program-category" optional>Category</FieldLabel>
-              <select id="program-category" value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} style={inputStyle}>
-                <option value="">None</option>
-                {ACTIVITY_CATEGORIES.map((c) => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
-              </select>
+            <div style={{ gridColumn: "1 / -1" }}>
+              <ListingCategoryFields family="programme" value={form.taxonomy} onChange={(taxonomy) => setForm((f) => ({ ...f, taxonomy }))} />
             </div>
             <div style={{ gridColumn: "1 / -1" }}>
               <FieldLabel htmlFor="program-title" required>Title</FieldLabel>
@@ -693,6 +732,10 @@ export function VendorProgramsTab({ onOpenProgram }: { onOpenProgram: (id: strin
   const state = useAdminData<VendorProgramSummary[]>(() => fetchVendorPrograms());
   const [error, setError] = useState<string | null>(null);
   const [confirmingProgramId, setConfirmingProgramId] = useState<string | null>(null);
+  const filters = useListFilters<VendorProgramSummary>({
+    search: (p) => [p.title],
+    selects: [{ param: "status", label: "Status", options: PROGRAM_STATUSES.map((s) => ({ value: s, label: s[0].toUpperCase() + s.slice(1) })), get: (p) => p.status }],
+  });
 
   const remove = async (id: string) => {
     setError(null);
@@ -718,10 +761,15 @@ export function VendorProgramsTab({ onOpenProgram }: { onOpenProgram: (id: strin
           {(programs) => programs.length === 0 ? (
             <EmptyState icon={<GraduationCap size={20} />} title="No programmes yet" subtitle="A programme is a multi-week course people enrol on once. Use Add programme to create one." />
           ) : (
+            <>
+            {programs.length > 4 && <ListFilterBar state={filters} searchLabel="Search programmes" placeholder="Programme title" />}
+            {filters.apply(programs).length === 0 ? (
+              <NoMatches onClear={filters.clear} noun="programmes" />
+            ) : (
             <WsListTable
               caption="Your programmes"
               columns={[{ label: "Programme" }, { label: "Status" }, { label: "Price", num: true }, { label: "Places", num: true }, { label: "Created" }]}
-              rows={programs.map((p) => ({
+              rows={filters.apply(programs).map((p) => ({
                 key: p.id,
                 name: p.title,
                 title: p.title,
@@ -736,15 +784,17 @@ export function VendorProgramsTab({ onOpenProgram }: { onOpenProgram: (id: strin
                 menu: [{ label: "Delete programme…", danger: true, onSelect: () => setConfirmingProgramId(p.id) }],
               }))}
             />
+            )}
+            </>
           )}
         </Loaded>
       </Box>
 
       <ConfirmDialog
         open={confirmingProgramId !== null}
-        title="Delete this program?"
+        title="Delete this programme?"
         message="This archives it — it disappears from public view and your active list, but existing enrollments/attendance records are kept."
-        confirmLabel="Delete"
+        confirmLabel="Delete programme"
         onConfirm={() => confirmingProgramId && remove(confirmingProgramId)}
         onCancel={() => setConfirmingProgramId(null)}
       />

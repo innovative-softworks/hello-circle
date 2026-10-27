@@ -26,7 +26,7 @@ export function VendorFinalCTA({ onPrimaryCta }: { onPrimaryCta: () => void }) {
             </p>
           </div>
           <div className="stack-mobile" style={{ display: "flex", gap: 12 }}>
-            <Button variant="orange" onClick={onPrimaryCta} style={{ padding: "13px 24px", fontSize: 15, background: FV_ACCENT }}>
+            <Button variant="orange" onClick={onPrimaryCta} style={{ padding: "13px 24px", fontSize: 15 }}>
               List your venue
             </Button>
             <a

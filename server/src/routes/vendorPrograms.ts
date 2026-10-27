@@ -15,6 +15,7 @@ import { irelandTodayIso } from "../irelandTime.js";
 import { ROSTER_ROLES, inClause, ownsListing } from "./vendorHelpers.js";
 import { notifyCentreFollowers, notifyVendorFollowers } from "./follows.js";
 import { toProgramJson, type ProgramRow } from "./programs.js";
+import { noticeListingCancelled } from "../circlePlanNotices.js";
 
 // Programs, sessions, attendance (Phase B) — split out of the original
 // single vendor.ts (see CLAUDE.md). See server/src/db/index.ts's
@@ -171,7 +172,11 @@ vendorProgramsRouter.delete("/programs/:id", async (req, res) => {
   const { owns, requiredRole } = await programOwnership(req.vendorIds!, req.params.id);
   if (!owns) return res.status(403).json({ error: "Not your program" });
   if (!assertPlatformRole(req, res, requiredRole!)) return;
-  await db.prepare(`UPDATE programs SET status = 'archived' WHERE id = ?`).run(req.params.id);
+  const archived = await db.prepare(`UPDATE programs SET status = 'archived' WHERE id = ? AND status != 'archived'`).run(req.params.id);
+  if (archived.changes === 1) {
+    const p = (await db.prepare(`SELECT title FROM programs WHERE id = ?`).get(req.params.id)) as { title: string } | undefined;
+    await noticeListingCancelled("program", req.params.id, { title: p?.title ?? "A programme", what: "this programme" });
+  }
   res.json({ ok: true });
 });
 
@@ -230,7 +235,12 @@ vendorProgramsRouter.delete("/programs/:programId/sessions/:sessionId", async (r
   const result = await db
     .prepare(`UPDATE program_sessions SET status = 'cancelled' WHERE id = ? AND program_id = ? AND status != 'cancelled'`)
     .run(req.params.sessionId, req.params.programId);
-  if (result.changes === 1) await notifySessionCancelled(req.params.programId, req.params.sessionId);
+  if (result.changes === 1) {
+    await notifySessionCancelled(req.params.programId, req.params.sessionId);
+    // Circles 3.0 — only plans for this session (whole-programme plans still stand).
+    const p = (await db.prepare(`SELECT title FROM programs WHERE id = ?`).get(req.params.programId)) as { title: string } | undefined;
+    await noticeListingCancelled("program", req.params.programId, { sessionId: req.params.sessionId, title: p?.title ?? "A programme session", what: "this session" });
+  }
   res.json({ ok: true });
 });
 

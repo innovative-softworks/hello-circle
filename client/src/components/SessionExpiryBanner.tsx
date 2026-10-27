@@ -23,17 +23,24 @@ function isOnAuthPage(pathname: string): boolean {
 export function SessionExpiryBanner() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { refresh: refreshAuth } = useAuth();
-  const { refresh: refreshGuest } = useGuest();
+  const { user, refresh: refreshAuth } = useAuth();
+  const { email, resident, refresh: refreshGuest } = useGuest();
   const [expiredKind, setExpiredKind] = useState<SessionKind | null>(null);
   // Two or more requests can fail with 401 within the same tick (e.g. a
   // dashboard firing several fetches on mount) — this collapses that burst
   // into a single recovery banner instead of one per failed request.
   const handledRef = useRef(false);
+  // PUB-05 — a 401 only means "your session expired" when this page currently
+  // knows a session of that kind. A visitor who never signed in (or has just
+  // signed out) gets 401s from resident-only sources by design, e.g. My Life
+  // loading for a guest; they must never see an expiry alert.
+  const knownSessionRef = useRef<Record<SessionKind, boolean>>({ vendor: false, resident: false });
+  knownSessionRef.current = { vendor: !!user, resident: !!(email || resident) };
 
   useEffect(() => {
     setSessionExpiredHandler((kind) => {
       if (isOnAuthPage(location.pathname) || handledRef.current) return;
+      if (!knownSessionRef.current[kind]) return;
       handledRef.current = true;
       // Clears the stale signed-in UI (avatar menu, dashboard nav, etc.)
       // immediately rather than waiting for whatever next re-fetches it —

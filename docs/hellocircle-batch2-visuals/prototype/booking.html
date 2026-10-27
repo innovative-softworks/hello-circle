@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Booking — proposed (new page)</title>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=Figtree:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="proto.css">
+<style>
+  .bk { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 3fr); gap: var(--s7); align-items: start; }
+  .bk-h { display: flex; gap: var(--s5); align-items: center; padding-bottom: var(--s5); }
+  .bk-h img { width: 120px; height: 90px; border-radius: 12px; object-fit: cover; flex: none; }
+  .bk-h h1 { font-size: clamp(28px, 3vw, 40px); }
+  .tl { list-style: none; margin: 0; padding: 0; }
+  .tl li { display: grid; grid-template-columns: 18px 1fr auto; gap: 12px; padding: 8px 0; font-size: 15px; }
+  .tl li i { width: 10px; height: 10px; border-radius: 50%; background: var(--green); margin-top: 6px; }
+  .tl li.future i { background: var(--border-strong); }
+  .money { width: 100%; border-collapse: collapse; font-size: 15px; }
+  .money td { padding: 6px 0; } .money td:last-child { text-align: right; } .money tr.total td { border-top: 1px solid var(--border); padding-top: 10px; font-weight: 800; }
+  .status { display: flex; flex-direction: column; gap: 12px; }
+  .status .big { font: 800 24px/1.1 var(--display); display: flex; align-items: center; gap: 10px; }
+  .status .dot { width: 12px; height: 12px; border-radius: 50%; background: var(--green); }
+  .linkrow { display: flex; align-items: center; justify-content: space-between; padding: 12px 0; border-top: 1px solid var(--border); font-weight: 600; font-size: 15px; text-decoration: none; }
+  .linkrow span { display: flex; gap: 10px; align-items: center; }
+  @media (max-width: 980px) { .bk { grid-template-columns: 1fr; gap: 0; } .bk aside { order: -1; margin-bottom: var(--s5); } }
+  @media (max-width: 560px) { .bk-h img { width: 72px; height: 72px; } .bk-h { gap: 14px; padding-bottom: var(--s4); } .bk-h h1 { font-size: 24px; } }
+</style></head>
+<body data-page="mylife" data-signedin="1">
+<main class="wrap">
+  <nav class="crumbs" aria-label="Breadcrumb"><span data-ic="back"></span>My Life <span style="color:var(--border-strong)">/</span> Bookings</nav>
+  <header class="bk-h">
+    <img src="https://images.unsplash.com/photo-1551632811-561732d1e306?w=300&q=70&auto=format&fit=crop" alt="">
+    <div><span class="eyebrow">Adventure booking · Ref EX-7Q4K2</span><h1 style="margin-top:6px">Wicklow Way Guided Hike</h1>
+      <div class="facts"><span data-ic="cal">Sat 24 Oct · 09:00 – 15:00</span><span data-ic="pin">Roundwood, Wicklow</span><span data-ic="users">2 people</span></div></div>
+  </header>
+  <div class="bk">
+    <div class="main">
+      <section class="section">
+        <h2>Details</h2>
+        <dl class="kv"><dt>Departure</dt><dd>Saturday 24 October 2026, 09:00 (6 hours)</dd><dt>Meeting point</dt><dd>Roundwood village car park, Co. Wicklow — opposite the church</dd><dt>Participants</dt><dd>Conor Ryan, Siobhán Ryan</dd><dt>Bring</dt><dd>Walking boots, rain jacket, lunch and 1L of water</dd><dt>Organiser</dt><dd>Wild Atlantic Adventures</dd></dl>
+      </section>
+      <section class="section">
+        <h2>Payment</h2>
+        <table class="money"><tr><td>2 × Wicklow Way Guided Hike</td><td>€70.00</td></tr><tr><td class="support">Booking fee</td><td class="support">€3.50</td></tr><tr class="total"><td>Paid by card · 18 Oct</td><td>€73.50</td></tr></table>
+        <p class="caption" style="margin-top:8px">Amounts as charged at checkout. VAT is shown on your receipt.</p>
+      </section>
+      <section class="section">
+        <h2>Cancellation</h2>
+        <div class="alert ok"><span data-ic="check"></span><div><b>Free cancellation until Thu 22 Oct, 09:00.</b> After that, contact the organiser to change this booking.</div></div>
+        <div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap"><span class="btn danger">Cancel booking</span><a class="btn quiet" href="#">Cancellation &amp; refund policy</a></div>
+      </section>
+      <section class="section">
+        <h2>Timeline</h2>
+        <ul class="tl"><li><i></i><span>Booked and paid</span><span class="caption">Sun 18 Oct, 14:12</span></li><li><i></i><span>Confirmation emailed</span><span class="caption">Sun 18 Oct, 14:12</span></li><li class="future"><i></i><span>Free cancellation ends</span><span class="caption">Thu 22 Oct, 09:00</span></li><li class="future"><i></i><span>Departure</span><span class="caption">Sat 24 Oct, 09:00</span></li></ul>
+      </section>
+    </div>
+    <aside class="rail" aria-label="Booking status and actions">
+      <section class="panel status">
+        <span class="caption">Status</span>
+        <span class="big"><i class="dot"></i>Confirmed</span>
+        <p class="support">You're booked. We'll remind you the day before.</p>
+        <span class="btn primary full">Add to calendar</span>
+        <div>
+          <a class="linkrow" href="#"><span data-ic="dir">Get directions</span><span data-ic="chev"></span></a>
+          <a class="linkrow" href="#"><span data-ic="receipt">View receipt</span><span data-ic="chev"></span></a>
+          <a class="linkrow" href="#"><span data-ic="chat">Group chat with the organiser</span><span data-ic="chev"></span></a>
+          <a class="linkrow" href="#"><span data-ic="ticket">View the adventure</span><span data-ic="chev"></span></a>
+        </div>
+      </section>
+      <section class="panel"><h3 style="margin-bottom:6px">Need help?</h3><p class="support">Quote <b>EX-7Q4K2</b> when you contact us.</p><a class="btn quiet" href="#" style="margin-top:6px">Contact support</a></section>
+    </aside>
+  </div>
+</main>
+<script src="proto.js"></script>
+</body></html>

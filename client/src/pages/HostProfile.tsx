@@ -1,13 +1,14 @@
 import { usePageTitle } from "../pageTitle";
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { fetchHostProfile } from "../api";
+import { fetchHostProfile, isNotFound } from "../api";
 import { AwardIcon, CalendarIcon, RepeatIcon, StarIcon } from "../components/icons";
 import { FollowButton } from "../components/FollowButton";
 import { PageTitle } from "../components/PageTitle";
 import { Reviews } from "../components/Reviews";
 import { ShareButton } from "../components/ShareButton";
-import { Avatar, Card, EmptyState, PageSpinner } from "../components/ui";
+import { ReportContentButton } from "../components/ReportContentButton";
+import { Avatar, Button, Card, EmptyState, PageSpinner } from "../components/ui";
 import { colors, fonts, radius } from "../theme";
 import type { HostProfile } from "../types";
 
@@ -26,17 +27,31 @@ export function HostProfilePage() {
   const [profile, setProfile] = useState<HostProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  // PUB-14: only a 404 means "not available"; other failures can be retried.
+  const [loadError, setLoadError] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
   usePageTitle(notFound ? "Host not found" : profile?.name);
 
   useEffect(() => {
     if (!id) return;
+    setLoading(true);
+    setLoadError(false);
     fetchHostProfile(id)
       .then(setProfile)
-      .catch(() => setNotFound(true))
+      .catch((e) => (isNotFound(e) ? setNotFound(true) : setLoadError(true)))
       .finally(() => setLoading(false));
-  }, [id]);
+  }, [id, reloadKey]);
 
   if (loading) return <PageSpinner />;
+  if (loadError) {
+    return (
+      <section className="section-pad" style={{ maxWidth: 560, margin: "0 auto", padding: "80px 24px", textAlign: "center" }}>
+        <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(24px, 2.4vw, 30px)", margin: "0 0 10px" }}>We couldn't load this host profile.</h1>
+        <p style={{ color: colors.mutedLight, margin: "0 0 16px" }}>Check your connection and try again.</p>
+        <Button onClick={() => setReloadKey((k) => k + 1)}>Try again</Button>
+      </section>
+    );
+  }
   if (notFound || !profile) {
     return (
       <section className="section-pad" style={{ maxWidth: 640, margin: "0 auto", padding: "60px 24px", textAlign: "center" }}>
@@ -47,7 +62,7 @@ export function HostProfilePage() {
   }
 
   return (
-    <div style={{ animation: "fadeUp .3s ease backwards" }}>
+    <div className="fade-panel">
       <section className="section-pad" style={{ maxWidth: 640, margin: "0 auto", padding: "36px 24px 80px" }}>
         <Card style={{ marginBottom: 24 }}>
           <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 14 }}>
@@ -72,15 +87,16 @@ export function HostProfilePage() {
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <ShareButton entityType="host" entityId={profile.id} />
+              <ReportContentButton targetType="host" targetId={profile.id} what="this host" />
               <FollowButton followedType="host" followedId={profile.id} initialFollowing={profile.isFollowing} initialLevel={profile.followNotificationLevel} followerCount={profile.followerCount} />
             </div>
           </div>
           {profile.bio && <p style={{ margin: "16px 0 0", color: colors.textSoft, fontSize: 15, lineHeight: 1.55 }}>{profile.bio}</p>}
         </Card>
 
-        <h4 style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 12px" }}>
+        <h2 style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 12px" }}>
           <CalendarIcon size={14} /> Upcoming sessions
-        </h4>
+        </h2>
         {profile.upcomingGames.length === 0 ? (
           <EmptyState icon={<CalendarIcon size={20} />} title="Nothing scheduled right now" />
         ) : (
@@ -100,9 +116,9 @@ export function HostProfilePage() {
 
         {profile.circles.length > 0 && (
           <>
-            <h4 style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 12px" }}>
+            <h2 style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 12px" }}>
               <RepeatIcon size={14} /> Circles started
-            </h4>
+            </h2>
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {profile.circles.map((c) => (
                 <button
@@ -118,10 +134,8 @@ export function HostProfilePage() {
           </>
         )}
 
+        {/* Reviews renders its own "Reviews" heading (audit DP-28). */}
         <div style={{ marginTop: 24 }}>
-          <h4 style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 12px" }}>
-            <StarIcon size={14} /> Reviews
-          </h4>
           <Reviews listingType="host" listingId={profile.id} accent="green" />
         </div>
       </section>

@@ -20,6 +20,9 @@ export type MediaEntityType =
   | "resident-avatar"
   | "activity-cover"
   | "circle-cover"
+  // Circle Experience 2.0 — member photos from a past Circle activity.
+  // entityId is the Circle; delivery is always members-only (media.ts).
+  | "circle-memory"
   | "centre-gallery"
   | "club-gallery"
   | "club-session-cover"
@@ -86,6 +89,7 @@ const ENTITY_PREFIX: Record<MediaEntityType, string> = {
   "resident-avatar": "residents",
   "activity-cover": "activities",
   "circle-cover": "circles",
+  "circle-memory": "circle-memories",
   "centre-gallery": "centres",
   "club-gallery": "clubs",
   "club-session-cover": "club-sessions",
@@ -100,6 +104,7 @@ const ENTITY_PURPOSE: Record<MediaEntityType, string> = {
   "resident-avatar": "avatar",
   "activity-cover": "cover",
   "circle-cover": "cover",
+  "circle-memory": "memory",
   "centre-gallery": "gallery",
   "club-gallery": "gallery",
   "club-session-cover": "cover",

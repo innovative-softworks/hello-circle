@@ -5,6 +5,7 @@ import { SectionSaveContext, type SectionSave } from "./workspace/sectionSave";
 import { ReadinessRail } from "./workspace/SectionCard";
 import { getMediaUrl } from "../media";
 import { useConfirm } from "./ConfirmProvider";
+import { VendorCategoryEditor } from "./VendorCategoryEditor";
 import { VendorParticipationEditor } from "./VendorParticipationEditor";
 import {
   createClubSession,
@@ -23,7 +24,6 @@ import { FieldError, FieldLabel, FormErrorSummary, RequiredNote, SettingsSection
 import { Button, ConfirmDialog, EmptyState, LoadErrorState, inputStyle, labelStyle } from "./ui";
 import { MultiImageUpload } from "./VendorImageUpload";
 import { SingleImageUpload } from "./SingleImageUpload";
-import { ACTIVITY_CATEGORIES } from "../constants";
 import { colors, fonts, radius } from "../theme";
 import type { Club, ClubSession, WaitlistEntry } from "../types";
 import { PaidClosedPriceNotice } from "./PaidClosedPriceNotice";
@@ -145,6 +145,17 @@ export function ClubEditor({
       fe.clear();
       onDirtyChange?.(false);
     },
+    draft: {
+      key: `club:${clubId}`,
+      get: currentSnapshot,
+      restore: (v) => {
+        const d = v as ReturnType<typeof currentSnapshot>;
+        setForm(d.form);
+        setIncludesText(d.includesText);
+        setAccessibilityText(d.accessibilityText);
+        onDirtyChange?.(true);
+      },
+    },
   };
   const inWorkspace = useInWorkspace();
 
@@ -163,15 +174,8 @@ export function ClubEditor({
           <input {...fe.control("club-sport")} required value={form.sport} onChange={(e) => set("sport", e.target.value)} style={inputStyle} />
           <FieldError fieldId="club-sport" message={fe.messageFor("club-sport")} />
         </div>
-        <div>
-          <FieldLabel htmlFor="club-category" optional>Category</FieldLabel>
-          <select id="club-category" value={form.category ?? ""} onChange={(e) => set("category", e.target.value)} style={inputStyle}>
-            <option value="">— none —</option>
-            {ACTIVITY_CATEGORIES.map((c) => (
-              <option key={c} value={c}>{c}</option>
-            ))}
-          </select>
-        </div>
+        {/* The old fixed "Category" list is replaced by the Category section
+            below (category system); clubs.category round-trips unchanged. */}
       </div>
       <FieldLabel htmlFor="club-blurb" required>Description</FieldLabel>
       <p id="club-blurb-helper" style={{ fontSize: 12, color: colors.mutedLight, margin: "-4px 0 8px" }}>
@@ -351,6 +355,7 @@ export function ClubEditor({
       <SettingsSection title="Accessibility" summary={accessibilityList.length > 0 ? accessibilityList.join(" · ") : "None added"}>
         {accessibilityField}
       </SettingsSection>
+      <VendorCategoryEditor type="club" id={clubId} />
       <VendorParticipationEditor type="club" id={clubId} />
       <SettingsSection title="Photos" summary={`${(form.images ?? []).length} photo${(form.images ?? []).length === 1 ? "" : "s"}`}>
         {photosField}
@@ -387,6 +392,7 @@ export function ClubEditor({
       <SettingsSection title="Accessibility" summary={accessibilityList.length > 0 ? accessibilityList.join(" · ") : "None added"}>
         {accessibilityField}
       </SettingsSection>
+      <VendorCategoryEditor type="club" id={clubId} />
       <VendorParticipationEditor type="club" id={clubId} />
       <SettingsSection title="Photos" summary={`${(form.images ?? []).length} photo${(form.images ?? []).length === 1 ? "" : "s"}`}>
         {photosField}
@@ -531,7 +537,7 @@ export function ClubSessionsManager({ clubId }: { clubId: string }) {
         open={!!confirmingId}
         title="Remove this session?"
         message="This permanently deletes the recurring session — it can't be undone."
-        confirmLabel="Remove"
+        confirmLabel="Remove session"
         onConfirm={() => confirmingId && remove(confirmingId)}
         onCancel={() => setConfirmingId(null)}
       />

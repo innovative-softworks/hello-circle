@@ -105,12 +105,7 @@ export function AdminOrganisationsPage({ onOpenVendor }: { onOpenVendor: (vendor
         onBack={closeRecord}
         onOpenVendor={onOpenVendor}
         onChanged={orgs.reload}
-        flags={
-          <>
-            <SectionLabel>Feature flags</SectionLabel>
-            <OrgFlags orgId={openOrg} orgName={name} />
-          </>
-        }
+        flags={<OrgFlags orgId={openOrg} orgName={name} />}
       />
     );
   }

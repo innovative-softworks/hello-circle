@@ -20,6 +20,9 @@ export interface SectionSave {
   /** A section title, or "field:<id>" to open whichever section holds that field. */
   openKey?: string | null;
   setOpenKey?: (key: string | null) => void;
+  /** Keeps a popup's unsaved edits as a draft in this browser (`key` names the
+   * listing, e.g. "centre:12"); `get` reads the editor's values, `restore` puts them back. */
+  draft?: { key: string; get: () => unknown; restore: (value: unknown) => void };
 }
 
 export const SectionSaveContext = createContext<SectionSave | null>(null);

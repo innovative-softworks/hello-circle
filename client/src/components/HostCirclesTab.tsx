@@ -1,3 +1,4 @@
+import { ListFilterBar, NoMatches, useListFilters } from "./workspace/ListFilters";
 import { useNavigate } from "react-router-dom";
 import { fetchMyCircles } from "../api";
 import { Users } from "lucide-react";
@@ -29,6 +30,11 @@ function CirclesList({ circles }: { circles: Circle[] }) {
   const navigate = useNavigate();
   const organising = circles.filter((c) => c.myRole === "organiser");
   const open = (c: Circle) => navigate(`/manage/circles/${c.slug ?? c.id}`);
+  const filters = useListFilters<Circle>({
+    search: (c) => [c.name, c.activityLabel, c.area, c.county],
+    selects: [{ param: "status", label: "Status", options: [{ value: "active", label: "Active" }, { value: "closed", label: "Closed" }], get: (c) => (c.status === "closed" ? "closed" : "active") }],
+  });
+  const shown = filters.apply(organising);
 
   return (
     <Box flush>
@@ -44,10 +50,15 @@ function CirclesList({ circles }: { circles: Circle[] }) {
           }
         />
       ) : (
+        <>
+        {organising.length > 4 && <ListFilterBar state={filters} searchLabel="Search your Circles" placeholder="Name, activity or area" />}
+        {shown.length === 0 ? (
+          <NoMatches onClear={filters.clear} noun="Circles" />
+        ) : (
         <WsListTable
           caption="Circles you organise"
           columns={[{ label: "Circle" }, { label: "Status" }, { label: "Members", num: true }, { label: "Plans this month", num: true }]}
-          rows={organising.map((c) => ({
+          rows={shown.map((c) => ({
             key: c.id,
             name: c.name,
             title: c.name,
@@ -69,6 +80,8 @@ function CirclesList({ circles }: { circles: Circle[] }) {
             menu: [{ label: "View public page", onSelect: () => navigate(`/circles/${c.slug ?? c.id}`) }],
           }))}
         />
+        )}
+        </>
       )}
     </Box>
   );

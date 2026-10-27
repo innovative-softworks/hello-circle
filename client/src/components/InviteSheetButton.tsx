@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import type { InvitableEntityType } from "../api/invitations";
 import { UsersIcon } from "./icons";
 import { InviteSheet } from "./InviteSheet";
@@ -8,13 +8,17 @@ import { Button } from "./ui";
 // named distinctly from the pre-existing InviteButton.tsx (which is the
 // untracked, fire-and-forget "share a link with a ?ref=" mechanism, kept
 // as-is and reused inside InviteSheet's own "Other ways to invite" panel).
-export function InviteSheetButton({ entityType, entityId, title }: { entityType: InvitableEntityType; entityId: string; title: string }) {
+export function InviteSheetButton({ entityType, entityId, title, render }: { entityType: InvitableEntityType; entityId: string; title: string; render?: (onClick: () => void) => ReactNode }) {
   const [open, setOpen] = useState(false);
   return (
     <>
-      <Button variant="ghost" onClick={() => setOpen(true)}>
-        <UsersIcon size={15} /> Invite
-      </Button>
+      {render ? (
+        render(() => setOpen(true))
+      ) : (
+        <Button variant="ghost" onClick={() => setOpen(true)}>
+          <UsersIcon size={15} /> Invite
+        </Button>
+      )}
       <InviteSheet open={open} onClose={() => setOpen(false)} entityType={entityType} entityId={entityId} title={title} />
     </>
   );

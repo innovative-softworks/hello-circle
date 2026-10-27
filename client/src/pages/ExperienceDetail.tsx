@@ -1,36 +1,47 @@
+import { Euro } from "lucide-react";
+import { SpotAlertButton } from "../components/experience/SpotAlertButton";
+import { BookingActions, BookingFacts, BookingGlance, BookingPrice, directionsHref, IconAction, QuietAction, startsIn, type GlanceItem } from "../components/BookingFacts";
+import { formatDuration } from "../formatters";
+import { Pass, passDate, passTime } from "../components/pass/Pass";
+import { PlanWithCircle } from "../components/circle/PlanWithCircle";
+import { ExploreWithOthers } from "../components/circle/ExploreWithOthers";
+import { UsersRound } from "lucide-react";
+import { CategoryBreadcrumb } from "../components/categories/CategoryChips";
 import { UnavailableListing, isUnavailable, type Unavailable } from "../components/UnavailableListing";
-import { ReportContentButton } from "../components/ReportContentButton";
 import { usePageTitle } from "../pageTitle";
 import { PAID_CLOSED_MESSAGE, usePaidCheckoutOpen } from "../paidCheckout";
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { TraderInfo } from "../components/TraderInfo";
 import { OfficialCircleLink } from "../components/OfficialCircleLink";
 import { ParticipationBlock } from "../components/ParticipationBlock";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { CheckoutBreakdown } from "../components/CheckoutBreakdown";
 import { AnalyticsEvent, trackTypedEvent } from "../analyticsEvents";
-import { ApiError, addFavourite, bookExperienceSession, fetchMyCredits, downloadExperienceBookingIcs, fetchExperience, fetchExperiences, fetchFavourites, quoteExperienceSession, removeFavourite, type BookingQuote } from "../api";
+import { ApiError, isNotFound, bookExperienceSession, fetchMyCredits, downloadExperienceBookingIcs, fetchExperience, fetchExperiences, quoteExperienceSession, type BookingQuote } from "../api";
 import { openCheckout } from "../native";
 import { ListingChatButton } from "../components/ListingChats";
-import { BackLink } from "../components/BackLink";
 import { ExperienceCard } from "../components/ExperienceCard";
-import { NumberStepper } from "../components/form";
-import { AwardIcon, CalendarIcon, CheckIcon, ClockIcon, HeartIcon, PinIcon, TreeIconSmall, TrendUpIcon, UsersIcon } from "../components/icons";
+import { FieldError, FormErrorSummary, NumberStepper, useFormErrors, type FormError } from "../components/form";
+import { CalendarIcon, CheckIcon, ClockIcon, PinIcon, ShareIcon, ShieldIcon, TreeIconSmall, TrendUpIcon, UsersIcon, PersonIcon, HeartIcon } from "../components/icons";
 import { IntentCaptureForm } from "../components/IntentCaptureForm";
 import { InviteSheetButton } from "../components/InviteSheetButton";
-import { Photo } from "../components/Photo";
-import { Reviews } from "../components/Reviews";
 import { ShareButton } from "../components/ShareButton";
-import { SinglePinMap } from "../components/SinglePinMap";
+import { Photo } from "../components/Photo";
+import { PhotoGallery } from "../components/PhotoGallery";
+import { Reviews } from "../components/Reviews";
 import { Button, Card, Modal, PageSpinner, inputStyle, labelStyle } from "../components/ui";
-import { isFavorite, toggleFavorite } from "../favorites";
 import { useGuest } from "../GuestContext";
 import { dateLabel } from "../euro";
-import { cardImageRatio, colors, fonts, photoOverlay, radius } from "../theme";
+import { cardImageRatio, colors, fonts, maxWidth, photoOverlay, radius } from "../theme";
 import { isValidEmail } from "../validate";
 import type { Experience, ExperienceSessionSlot } from "../types";
 import { formatPrice } from "../formatters";
 import { CtaBand } from "../components/CtaBand";
+import { DetailSection, HostRow, LocationBlock } from "../components/detail/DetailSections";
+import { KeyFacts, PAID_PRICE_NOTE, Requirements } from "../components/detail/KeyFacts";
+import { DetailTopBar, detailActionStyle } from "../components/detail/DetailTopBar";
+import { DetailUnavailable } from "../components/detail/DetailUnavailable";
+import { scrollToInterest } from "../components/detail/scrollToInterest";
 
 // Adventures & Experiences detail page — this pass rebuilds it to use
 // GameDetail.tsx as the literal visual/layout source of truth (badge-
@@ -49,19 +60,6 @@ import { CtaBand } from "../components/CtaBand";
 // session-picker + form instead of a single button, even though its
 // headline/social-proof/divider rhythm otherwise matches GameJoinCard.
 
-const outlineButtonStyle: React.CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  gap: 6,
-  background: colors.surface,
-  border: `1px solid ${colors.borderStrong}`,
-  borderRadius: radius.control,
-  padding: "9px 16px",
-  fontSize: 13.5,
-  fontWeight: 600,
-  color: colors.text,
-  cursor: "pointer",
-};
 
 const factLabelStyle: React.CSSProperties = { fontSize: 11.5, color: colors.mutedLight, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0 };
 const sectionDividerStyle: React.CSSProperties = { height: 1, background: colors.border, margin: "28px 0" };
@@ -74,12 +72,6 @@ function nextSession(e: Experience): ExperienceSessionSlot | null {
   return e.sessions[0] ?? null;
 }
 
-function formatDuration(minutes: number): string {
-  if (!minutes) return "";
-  if (minutes % 60 === 0 && minutes >= 60) return `${minutes / 60}h`;
-  if (minutes > 60) return `${(minutes / 60).toFixed(1)}h`;
-  return `${minutes} min`;
-}
 
 function SectionHeading({ title }: { title: string }) {
   return <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 18, margin: "0 0 14px" }}>{title}</h2>;
@@ -96,44 +88,6 @@ function InfoBlock({ heading, body }: { heading: string; body: string }) {
     </div>
   );
 }
-
-// Right-rail facts card — mirrors GameDetail's GoodToKnow card exactly.
-function GoodToKnow({ e }: { e: Experience }) {
-  const fields: { label: string; value: string }[] = [];
-  if (e.durationMinutes) fields.push({ label: "Duration", value: formatDuration(e.durationMinutes) });
-  fields.push({ label: "Group size", value: `Up to ${e.capacity}` });
-  if (e.difficulty) fields.push({ label: "Difficulty", value: capitalize(e.difficulty) });
-  if (e.terrainType) fields.push({ label: "Terrain", value: e.terrainType });
-  fields.push({ label: "Payment", value: e.paymentMethod === "cash" ? "Cash on the day" : "Pay online" });
-
-  return (
-    <Card style={{ marginTop: 16 }}>
-      <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 12px" }}>Good to know</h3>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-        {fields.map((f) => (
-          <div key={f.label}>
-            <div style={factLabelStyle}>{f.label}</div>
-            <div style={{ fontSize: 13.5, fontWeight: 700, marginTop: 3, lineHeight: 1.4 }}>{f.value}</div>
-          </div>
-        ))}
-      </div>
-    </Card>
-  );
-}
-
-// Subtle supporting card — mirrors GameDetail's CancellationCard exactly
-// (panel background, no border).
-function CancellationCard({ e }: { e: Experience }) {
-  return (
-    <Card style={{ marginTop: 16, background: colors.panel, border: "none" }}>
-      <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 14, margin: "0 0 6px" }}>Cancellation & updates</h3>
-      <p style={{ margin: 0, fontSize: 13, color: colors.mutedLight, lineHeight: 1.5 }}>
-        {e.cancellationTerms || "Plans can change. Check back here for updates before you go."}
-      </p>
-    </Card>
-  );
-}
-
 
 // Booking UX Phase 4 — acknowledgement rows (44px target, label wraps the box).
 const ackRow: React.CSSProperties = { display: "flex", gap: 10, alignItems: "flex-start", fontSize: 14, lineHeight: 1.45, minHeight: 44, cursor: "pointer" };
@@ -154,9 +108,7 @@ export function ExperienceDetail() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [similar, setSimilar] = useState<Experience[]>([]);
-  const [activePhoto, setActivePhoto] = useState(0);
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
-  const [saved, setSaved] = useState(false);
   const [bookingOpen, setBookingOpen] = useState(false);
   const [selectedSession, setSelectedSession] = useState<ExperienceSessionSlot | null>(null);
   // HC-QA-042 — the amount shown before confirming is the server's own quote
@@ -180,16 +132,19 @@ export function ExperienceDetail() {
   const [acks, setAcks] = useState({ minAge: false, safety: false, terms: false });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // DP-41 — the site's form-error pattern: each problem under its field, plus
+  // a linked summary that takes focus on a failed submit.
+  const fe = useFormErrors();
   const [confirmed, setConfirmed] = useState<{ ref: string } | null>(null);
 
   const load = () => {
     if (!idOrSlug) return;
     setLoadError(false);
-    setActivePhoto(0);
     setDescriptionExpanded(false);
     fetchExperience(idOrSlug)
       .then((x) => (isUnavailable(x) ? setUnavailable(x) : setExperience(x)))
-      .catch(() => setLoadError(true))
+      // PUB-14: a removed listing shows "no longer available", not a retry.
+      .catch((e) => (isNotFound(e) ? setExperience(null) : setLoadError(true)))
       .finally(() => setLoading(false));
   };
 
@@ -198,17 +153,6 @@ export function ExperienceDetail() {
   useEffect(() => {
     if (resident?.email) setForm((f) => ({ ...f, email: resident.email }));
   }, [resident]);
-
-  useEffect(() => {
-    if (!experience) return;
-    if (resident) {
-      // Server-side favourite for a signed-in resident — same pattern
-      // DiscoverCard.tsx already uses for games/program/club sessions.
-      fetchFavourites().then((rows) => setSaved(rows.some((r) => r.listingType === "experience" && r.listingId === experience.id)));
-    } else {
-      setSaved(isFavorite("experience", experience.id));
-    }
-  }, [resident, experience]);
 
   useEffect(() => {
     if (!experience) return;
@@ -279,30 +223,26 @@ export function ExperienceDetail() {
       });
   }, [resident, creditAttempt]);
 
-  const handleToggleSave = async () => {
-    if (!experience) return;
-    if (resident) {
-      const next = !saved;
-      setSaved(next);
-      if (next) await addFavourite("experience", experience.id);
-      else await removeFavourite("experience", experience.id);
-    } else {
-      setSaved(toggleFavorite("experience", experience.id));
-    }
-  };
-
   const photos = useMemo(() => (experience ? [experience.imageUrl, ...experience.images].filter(Boolean) : []), [experience]);
 
   const submit = async () => {
-    if (!experience || !selectedSession || !form.participantName || !isValidEmail(form.email)) {
-      setError("A participant name, a valid email and a departure are required");
+    if (!experience || !selectedSession) return;
+    const extraNames = Array.from({ length: form.partySize - 1 }, (_, i) => (others[i] ?? "").trim());
+    const problems: FormError[] = [];
+    if (!form.participantName.trim()) problems.push({ field: "name", fieldId: "exp-name", message: isVolunteer ? "Enter your name" : "Enter a name for the booking" });
+    extraNames.forEach((n, i) => {
+      if (!n) problems.push({ field: `person-${i + 2}`, fieldId: `exp-person-${i + 2}`, message: `Enter a name for person ${i + 2}` });
+    });
+    if (!isValidEmail(form.email)) problems.push({ field: "email", fieldId: "exp-email", message: "Enter an email address like name@example.ie" });
+    if (experience.minAge && !acks.minAge) problems.push({ field: "minAge", fieldId: "exp-ack-minage", message: `Confirm everyone taking part is at least ${experience.minAge}` });
+    if (experience.safetyInfo.trim() && !acks.safety) problems.push({ field: "safety", fieldId: "exp-ack-safety", message: "Confirm you've read the safety information" });
+    if (!acks.terms) problems.push({ field: "terms", fieldId: "exp-ack-terms", message: "Tick the box to agree to the booking terms" });
+    if (problems.length) {
+      setError(null);
+      fe.fail(problems);
       return;
     }
-    const extraNames = Array.from({ length: form.partySize - 1 }, (_, i) => (others[i] ?? "").trim());
-    if (extraNames.some((n) => !n)) return setError("Add a name for each person in the party");
-    if (experience.minAge && !acks.minAge) return setError(`Confirm everyone taking part is at least ${experience.minAge}`);
-    if (experience.safetyInfo.trim() && !acks.safety) return setError("Confirm you've read the safety information");
-    if (!acks.terms) return setError("Tick the box to agree to the booking terms");
+    fe.clear();
     setError(null);
     setSubmitting(true);
     try {
@@ -366,26 +306,38 @@ export function ExperienceDetail() {
   }
 
   if (unavailable) return <UnavailableListing item={unavailable} />;
-  if (!experience) {
-    return (
-      <section className="section-pad" style={{ maxWidth: 560, margin: "0 auto", padding: "80px 24px", textAlign: "center" }}>
-        <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(24px, 2.4vw, 30px)", margin: "0 0 10px" }}>This {kindNoun} is no longer available.</h1>
-        <p style={{ color: colors.mutedLight, marginBottom: 20 }}>It may have been removed by its host.</p>
-        <Button onClick={() => navigate(browsePath)}>Find something similar</Button>
-      </section>
-    );
-  }
+  if (!experience) return <DetailUnavailable noun={kindNoun} listPath={browsePath} listLabel={`Browse ${kindNoun}s`} />;
 
   if (confirmed) {
     return (
-      <section className="section-pad" style={{ maxWidth: 560, margin: "0 auto", padding: "64px 24px", textAlign: "center" }}>
-        <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: "clamp(32px, 3.8vw, 52px)", margin: "0 0 10px" }}>You're booked.</h1>
-        <p style={{ color: colors.mutedLight, marginBottom: 20 }}>{experience.title} · Reference {confirmed.ref}</p>
-        <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
-          <Button variant="ghost" onClick={() => downloadExperienceBookingIcs(confirmed.ref)}>Add to calendar</Button>
-          <InviteSheetButton entityType={experience.kind === "adventure" ? "adventure" : "experience"} entityId={experience.id} title={experience.title} />
-          <Button onClick={() => navigate("/bookings")}>View my bookings</Button>
-        </div>
+      <section className="section-pad" style={{ maxWidth: 560, margin: "0 auto", padding: "56px 24px 64px", display: "grid", gap: 20 }}>
+        <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: "clamp(32px, 3.8vw, 52px)", margin: 0, textAlign: "center" }}>{experience.kind === "volunteer" ? "You're signed up." : "You're booked."}</h1>
+        {/* The pass (owner 2026-10-27): a ticket; volunteering gets the
+            lanyard look. Then the icons, then one main action. */}
+        <Pass
+          look={experience.kind === "volunteer" ? "lanyard" : "ticket"}
+          kind={experience.kind === "adventure" ? "adventure" : experience.kind === "volunteer" ? "volunteer" : "experience"}
+          tone="ok"
+          status={experience.kind === "volunteer" ? "Signed up" : experience.priceCents && experience.paymentMethod === "cash" ? "Booked · pay on the day" : "Booked"}
+          title={experience.title}
+          who={form.participantName.trim() || null}
+          date={selectedSession ? passDate(selectedSession.date) : null}
+          time={selectedSession ? passTime(selectedSession.time, experience.durationMinutes) : null}
+          where={experience.meetingPoint || [experience.area, experience.county].filter(Boolean).join(", ")}
+          fields={[
+            ["People", String(form.partySize)],
+            ...(experience.priceCents && experience.paymentMethod === "cash" ? ([["Pay", `${formatPrice(experience.priceCents * form.partySize)} cash`]] as [string, string][]) : []),
+            ...(experience.equipmentRequired ? ([["Bring", experience.equipmentRequired]] as [string, string][]) : []),
+          ].slice(0, 4) as [string, string][]}
+          reference={confirmed.ref}
+        >
+          <BookingActions>
+            <IconAction label="Add to calendar" short="Calendar" onClick={() => downloadExperienceBookingIcs(confirmed.ref)}><CalendarIcon size={18} /></IconAction>
+            <InviteSheetButton entityType={experience.kind === "adventure" ? "adventure" : "experience"} entityId={experience.id} title={experience.title} render={(open) => <IconAction label="Invite someone" short="Invite" onClick={open}><UsersIcon size={18} /></IconAction>} />
+            <IconAction label="Directions" href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${experience.meetingPoint || experience.title}, ${experience.area}, ${experience.county}`)}`}><PinIcon size={18} /></IconAction>
+          </BookingActions>
+        </Pass>
+        <Button full onClick={() => navigate("/bookings")}>View my bookings</Button>
       </section>
     );
   }
@@ -401,27 +353,19 @@ export function ExperienceDetail() {
   const kindAccent = experience.kind === "adventure" ? colors.green : colors.orange;
   const directionsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${experience.meetingPoint || experience.title}, ${experience.area}, ${experience.county}`)}`;
 
-  const detailFields: { label: string; value: string }[] = [
-    { label: "Date & time", value: session ? `${dateLabel(session.date)} · ${session.time}` : "No upcoming departures" },
-    { label: "Location", value: `${experience.area}${experience.area && experience.county ? ", " : ""}${experience.county}` },
-    ...(experience.durationMinutes ? [{ label: "Duration", value: formatDuration(experience.durationMinutes) }] : []),
-    ...(experience.distanceKm !== null ? [{ label: "Distance", value: `${experience.distanceKm} km` }] : []),
-    ...(experience.elevationGainM !== null ? [{ label: "Elevation gain", value: `${experience.elevationGainM} m` }] : []),
-    ...(experience.difficulty ? [{ label: "Difficulty", value: capitalize(experience.difficulty) }] : []),
-    ...(isVolunteer
-      ? [
-          { label: "Volunteers needed", value: String(experience.capacity) },
-          ...(experience.cause ? [{ label: "Cause", value: experience.cause }] : []),
-          ...(experience.minAge ? [{ label: "Minimum age", value: `${experience.minAge}+` }] : []),
-          ...(experience.skillsRequired ? [{ label: "Skills needed", value: experience.skillsRequired }] : []),
-        ]
-      : [
-          { label: "Group size", value: `Up to ${experience.capacity}` },
-          { label: "Price", value: formatPrice(experience.priceCents, { each: true }) },
-        ]),
-    ...(experience.terrainType ? [{ label: "Terrain", value: experience.terrainType }] : []),
-    ...(experience.eligibility ? [{ label: "Requirements", value: experience.eligibility }] : []),
-  ];
+  const similarPath = experience.taxonomy ? `${browsePath}?category=${experience.taxonomy.categorySlug}${experience.taxonomy.subcategorySlug ? `&sub=${experience.taxonomy.subcategorySlug}` : ""}` : browsePath;
+  // At a glance (owner 2026-10-27): only what the provider filled in.
+  const glance: GlanceItem[] = [];
+  if (experience.durationMinutes || experience.difficulty)
+    glance.push({
+      key: "length",
+      icon: <ClockIcon size={16} />,
+      value: experience.durationMinutes ? formatDuration(experience.durationMinutes) : experience.difficulty,
+      sub: experience.durationMinutes ? experience.difficulty || undefined : undefined,
+    });
+  if (experience.equipmentRequired) glance.push({ key: "bring", icon: <ShieldIcon size={16} />, value: "Bring", sub: experience.equipmentRequired });
+  else if (experience.equipmentProvided) glance.push({ key: "provided", icon: <ShieldIcon size={16} />, value: "Provided", sub: experience.equipmentProvided });
+  if (experience.sessions.length > 0) glance.push({ key: "cancel", icon: <CalendarIcon size={16} />, value: "Cancellation", sub: experience.cancellationTerms || "plans can change, check here before you go" });
 
   const safetyLines = experience.safetyInfo.split(/\n+/).map((l) => l.trim()).filter(Boolean);
 
@@ -467,8 +411,8 @@ export function ExperienceDetail() {
       {experience.sessions.map((s) => {
         const sFull = s.spotsLeft === 0;
         return (
+          <Fragment key={s.id}>
           <button
-            key={s.id}
             onClick={() => !sFull && setSelectedSession(s)}
             disabled={sFull}
             style={{
@@ -495,6 +439,12 @@ export function ExperienceDetail() {
               {sFull ? "Full" : `${s.spotsLeft} left`}
             </span>
           </button>
+          {sFull && (
+            <div style={{ margin: "-2px 0 6px 4px" }}>
+              <SpotAlertButton experienceId={experience.id} sessionId={s.id} />
+            </div>
+          )}
+          </Fragment>
         );
       })}
       {experience.sessions.length === 0 && <p style={{ color: colors.faint, fontSize: 13.5, margin: 0 }}>No upcoming departures scheduled yet.</p>}
@@ -509,10 +459,12 @@ export function ExperienceDetail() {
           ← Choose a different date
         </button>
       )}
+      <FormErrorSummary errors={fe.errors} focusKey={fe.focusKey} />
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <div>
-          <label style={labelStyle}>{isVolunteer ? "Your name" : "Name for the booking"}</label>
-          <input autoComplete="name" value={form.participantName} onChange={(e) => setForm((f) => ({ ...f, participantName: e.target.value }))} style={inputStyle} />
+          <label htmlFor="exp-name" style={labelStyle}>{isVolunteer ? "Your name" : "Name for the booking"}</label>
+          <input {...fe.control("exp-name")} autoComplete="name" value={form.participantName} onChange={(e) => setForm((f) => ({ ...f, participantName: e.target.value }))} style={inputStyle} />
+          <FieldError fieldId="exp-name" message={fe.messageFor("exp-name")} />
         </div>
         <NumberStepper
           label={isVolunteer ? "How many volunteers" : "Party size"}
@@ -528,22 +480,24 @@ export function ExperienceDetail() {
                 Name for person {i + 2}
               </label>
               <input
-                id={`exp-person-${i + 2}`}
+                {...fe.control(`exp-person-${i + 2}`)}
                 autoComplete="off"
                 value={others[i] ?? ""}
                 onChange={(e) => setOthers((o) => Object.assign([...o], { [i]: e.target.value }))}
                 style={inputStyle}
               />
+              <FieldError fieldId={`exp-person-${i + 2}`} message={fe.messageFor(`exp-person-${i + 2}`)} />
             </div>
           ))}
         <div>
-          <label style={labelStyle}>Email</label>
-          <input type="email" autoComplete="email" inputMode="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} style={inputStyle} />
+          <label htmlFor="exp-email" style={labelStyle}>Email</label>
+          <input {...fe.control("exp-email")} type="email" autoComplete="email" inputMode="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} style={inputStyle} />
+          <FieldError fieldId="exp-email" message={fe.messageFor("exp-email")} />
           <div style={{ fontSize: 12, color: colors.faint, marginTop: 4 }}>We'll send your confirmation here.</div>
         </div>
         <div>
-          <label style={labelStyle}>Phone (optional)</label>
-          <input type="tel" autoComplete="tel" inputMode="tel" value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} style={inputStyle} />
+          <label htmlFor="exp-phone" style={labelStyle}>Phone (optional)</label>
+          <input id="exp-phone" type="tel" autoComplete="tel" inputMode="tel" value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} style={inputStyle} />
         </div>
       </div>
       {!!experience?.priceCents && (
@@ -592,23 +546,30 @@ export function ExperienceDetail() {
       <fieldset style={{ border: "none", margin: "16px 0 0", padding: 0, display: "flex", flexDirection: "column", gap: 10 }}>
         <legend style={{ ...labelStyle, padding: 0 }}>Before you book</legend>
         {!!experience.minAge && (
+          <>
           <label style={ackRow}>
-            <input type="checkbox" checked={acks.minAge} onChange={(e) => setAcks((a) => ({ ...a, minAge: e.target.checked }))} style={ackBox} />
+            <input type="checkbox" id="exp-ack-minage" aria-invalid={fe.messageFor("exp-ack-minage") ? true : undefined} aria-describedby={fe.messageFor("exp-ack-minage") ? "exp-ack-minage-error" : undefined} checked={acks.minAge} onChange={(e) => { setAcks((a) => ({ ...a, minAge: e.target.checked })); fe.clearField("exp-ack-minage"); }} style={ackBox} />
             <span>Everyone taking part is at least {experience.minAge}</span>
           </label>
+          <FieldError fieldId="exp-ack-minage" message={fe.messageFor("exp-ack-minage")} />
+          </>
         )}
         {!!experience.safetyInfo.trim() && (
+          <>
           <label style={ackRow}>
-            <input type="checkbox" checked={acks.safety} onChange={(e) => setAcks((a) => ({ ...a, safety: e.target.checked }))} style={ackBox} />
+            <input type="checkbox" id="exp-ack-safety" aria-invalid={fe.messageFor("exp-ack-safety") ? true : undefined} aria-describedby={fe.messageFor("exp-ack-safety") ? "exp-ack-safety-error" : undefined} checked={acks.safety} onChange={(e) => { setAcks((a) => ({ ...a, safety: e.target.checked })); fe.clearField("exp-ack-safety"); }} style={ackBox} />
             <span>I've read the safety information for this {isVolunteer ? "opportunity" : "trip"} and will share it with my group</span>
           </label>
+          <FieldError fieldId="exp-ack-safety" message={fe.messageFor("exp-ack-safety")} />
+          </>
         )}
         <label style={ackRow}>
-          <input type="checkbox" checked={acks.terms} onChange={(e) => setAcks((a) => ({ ...a, terms: e.target.checked }))} style={ackBox} />
+          <input type="checkbox" id="exp-ack-terms" aria-invalid={fe.messageFor("exp-ack-terms") ? true : undefined} aria-describedby={fe.messageFor("exp-ack-terms") ? "exp-ack-terms-error" : undefined} checked={acks.terms} onChange={(e) => { setAcks((a) => ({ ...a, terms: e.target.checked })); fe.clearField("exp-ack-terms"); }} style={ackBox} />
           <span>
             I agree to the <Link to="/policies/customer-booking-terms" target="_blank">booking terms</Link> and this listing's cancellation terms
           </span>
         </label>
+        <FieldError fieldId="exp-ack-terms" message={fe.messageFor("exp-ack-terms")} />
       </fieldset>
       {error && (
         <p role="alert" style={{ color: colors.danger, fontSize: 13, margin: "14px 0 0" }}>
@@ -641,70 +602,58 @@ export function ExperienceDetail() {
   ) : undefined;
 
   return (
-    <div className="experience-detail-mobile-pad" style={{ animation: "fadeUp .3s ease backwards" }}>
-      <section className="section-pad" style={{ maxWidth: 1280, margin: "0 auto", padding: "26px 24px 90px" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18, flexWrap: "wrap", gap: 12 }}>
-          <BackLink onClick={() => navigate(browsePath)} marginBottom={0}>{browseLabel}</BackLink>
-          <div style={{ display: "flex", gap: 10 }}>
-            <ListingChatButton scopeType="experience_session" listingId={experience.id} style={outlineButtonStyle} />
-            <ShareButton entityType={experience.kind === "adventure" ? "adventure" : "experience"} entityId={experience.id} render={(onClick) => <button onClick={onClick} style={outlineButtonStyle}>Share</button>} />
-            <button onClick={handleToggleSave} style={{ ...outlineButtonStyle, color: saved ? colors.orange : colors.text }}>
-              <HeartIcon size={14} filled={saved} /> {saved ? "Saved" : "Save"}
-            </button>
-            <ReportContentButton targetType="experience" targetId={experience.id} what="this listing" render={(onClick, done) => <button onClick={onClick} disabled={done} style={outlineButtonStyle}>{done ? "Reported" : "Report"}</button>} />
-          </div>
-        </div>
+    <div className="experience-detail-mobile-pad fade-panel">
+      <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "26px 24px 90px" }}>
+        <DetailTopBar
+          backTo={browsePath}
+          backLabel={browseLabel}
+          extra={<ListingChatButton scopeType="experience_session" listingId={experience.id} style={detailActionStyle} />}
+          share={{ entityType: experience.kind === "adventure" ? "adventure" : "experience", entityId: experience.id }}
+          save={{ kind: "experience", id: experience.id }}
+          report={{ type: "experience", id: experience.id, what: "this listing" }}
+        />
 
-        <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 380px", gap: 32, alignItems: "start" }}>
-          {/* LEFT COLUMN */}
-          <div>
+        {/* Detail-page redesign: 70/30 — head and body left, booking column right;
+            on phones the booking column follows the head. */}
+        <div className="detail-grid">
+          <div className="detail-head">
             {/* HERO — same badge-overlaid Photo treatment as GameDetail's own
                 hero: date/time pill top-left, spots-left pill top-right,
                 height 340 / radius 20. A small dot selector below (not a
                 thumbnail grid) is the one addition, since unlike a Game an
                 Experience/Adventure can carry several real photos. */}
-            <Photo
-              src={photos[activePhoto] || undefined}
+            {/* Batch 2 — the shared cover: several photos slide in the same frame
+                (swipe, arrows, dots, counter, full-screen viewer). */}
+            <PhotoGallery
+              images={photos}
               alt={experience.title}
               ph={experience.kind === "adventure" ? colors.greenBg : colors.orangeBg}
               icon={<TreeIconSmall size={40} />}
               iconColor={kindAccent}
-              variant="hero"
-              eager
-              sharedHero
-              style={{ aspectRatio: cardImageRatio.hero, borderRadius: radius.card, marginBottom: photos.length > 1 ? 10 : 24 }}
-              contentStyle={{ padding: 16, display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}
-            >
+              style={{ marginBottom: 24 }}
+              overlay={<>
               {session ? (
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 6, background: photoOverlay.whiteBg, color: colors.text, borderRadius: radius.pill, padding: "6px 12px", fontSize: 13, fontWeight: 700 }}>
                   <CalendarIcon size={13} /> {dateLabel(session.date)} · {session.time}
                 </span>
               ) : <span />}
-              {session && (
-                <span
-                  style={{
-                    display: "inline-flex", alignItems: "center", gap: 6, borderRadius: radius.pill, padding: "6px 12px", fontSize: 13, fontWeight: 700,
-                    background: full ? photoOverlay.whiteBg : photoOverlay.goldBg,
-                    color: full ? colors.muted : photoOverlay.goldText,
-                  }}
-                >
-                  {full ? "Full" : `${session.spotsLeft} spot${session.spotsLeft === 1 ? "" : "s"} left`}
+              {/* Availability lives in the booking panel; the cover only flags "Full". */}
+              {session && full && (
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 6, borderRadius: radius.pill, padding: "6px 12px", fontSize: 13, fontWeight: 700, background: photoOverlay.whiteBg, color: colors.muted }}>
+                  Full
                 </span>
               )}
-            </Photo>
-            {photos.length > 1 && (
-              <div style={{ display: "flex", gap: 6, marginBottom: 24 }}>
-                {photos.map((p, i) => (
-                  <button
-                    key={p}
-                    onClick={() => setActivePhoto(i)}
-                    aria-label={`Photo ${i + 1}`}
-                    style={{ width: 8, height: 8, borderRadius: "50%", border: "none", padding: 0, cursor: "pointer", background: i === activePhoto ? colors.dark : colors.borderStrong }}
-                  />
-                ))}
-              </div>
-            )}
+              </>}
+            />
 
+            <div style={{ marginBottom: 8 }}>
+              <CategoryBreadcrumb
+                taxonomy={experience.taxonomy}
+                tags={experience.tags}
+                basePath={experience.kind === "adventure" ? "/adventures" : experience.kind === "volunteer" ? "/volunteer" : "/experiences"}
+                typeLabel={experience.kind === "adventure" ? "Adventures" : experience.kind === "volunteer" ? "Volunteering" : "Experiences"}
+              />
+            </div>
             {/* Eyebrow (kind) + title + price row — same position/weight as
                 GameDetail's own eyebrow/title/price row. */}
             <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: 0, textTransform: "uppercase", color: colors.mutedLight, marginBottom: 6 }}>
@@ -713,36 +662,49 @@ export function ExperienceDetail() {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16 }}>
               <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(32px, 3.8vw, 52px)", margin: 0, letterSpacing: 0 }}>{experience.title}</h1>
               <div style={{ flex: "none" }}>
-                {experience.priceCents ? (
-                  <div style={{ fontWeight: 800, fontSize: 22, color: colors.text }}>€{(experience.priceCents / 100).toFixed(2)}</div>
-                ) : (
-                  <div style={{ fontWeight: 700, fontSize: 14, color: colors.greenText, background: colors.greenBg, borderRadius: radius.pill, padding: "4px 12px" }}>Free</div>
-                )}
+
               </div>
             </div>
-            {experience.blurb && <p style={{ margin: "6px 0 0", fontSize: 15, color: colors.mutedLight, lineHeight: 1.5 }}>{experience.blurb}</p>}
-            <div style={{ display: "flex", alignItems: "center", gap: 5, color: colors.mutedLight, fontSize: 13.5, marginTop: 8 }}>
-              <PinIcon size={13} /> {experience.area}{experience.area && experience.county ? ", " : ""}{experience.county}
+            {experience.blurb && !description.trim().startsWith(experience.blurb.trim().slice(0, 40)) && <p style={{ margin: "6px 0 0", fontSize: 15, color: colors.mutedLight, lineHeight: 1.5 }}>{experience.blurb}</p>}
+            {/* When and where, once, under the title (owner 2026-10-27, booking
+                box option 2): the booking box no longer repeats them. */}
+            <div className="detail-when-where">
+              {session && (
+                <span>
+                  <CalendarIcon size={15} />
+                  <b>{dateLabel(session.date)} · {session.time}</b>
+                  {experience.durationMinutes ? <> · {formatDuration(experience.durationMinutes)}</> : null}
+                  {experience.sessions.length > 1 ? <> · next of {experience.sessions.length} dates</> : null}
+                </span>
+              )}
+              <span>
+                <PinIcon size={15} />
+                <b>{experience.meetingPoint || [experience.area, experience.county].filter(Boolean).join(", ")}</b>
+                {experience.meetingPoint && [experience.area, experience.county].filter(Boolean).length ? <>, {[experience.area, experience.county].filter(Boolean).join(", ")}</> : null}
+                {" · "}
+                <a href={directionsHref([experience.meetingPoint, experience.area, experience.county].filter(Boolean).join(", "), experience.lat, experience.lng)} target="_blank" rel="noreferrer">
+                  Directions
+                </a>
+              </span>
             </div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, fontSize: 13.5, color: colors.muted, marginTop: 10 }}>
-              {[
-                experience.durationMinutes ? formatDuration(experience.durationMinutes) : null,
-                experience.difficulty ? capitalize(experience.difficulty) : null,
-                `Up to ${experience.capacity}`,
-              ]
-                .filter((v): v is string => !!v)
-                .map((item, i) => (
-                  <span key={item}>
-                    {i > 0 && <span style={{ margin: "0 8px 0 0", color: colors.faint }}>·</span>}
-                    {item}
-                  </span>
-                ))}
-            </div>
+            {experience.vendorName && <div style={{ color: colors.mutedLight, fontSize: 14, marginTop: 4 }}>Hosted by {experience.vendorName}</div>}
+            <KeyFacts
+              facts={[
+                experience.durationMinutes > 0 && { icon: <ClockIcon size={17} />, value: formatDuration(experience.durationMinutes), label: "Duration" },
+                experience.distanceKm !== null && { icon: <PinIcon size={17} />, value: `${experience.distanceKm} km`, label: "Distance" },
+                experience.elevationGainM !== null && { icon: <TrendUpIcon size={17} />, value: `${experience.elevationGainM} m`, label: "Elevation gain" },
+                !isVolunteer && !!experience.difficulty && { icon: <TrendUpIcon size={17} />, value: capitalize(experience.difficulty), label: "Difficulty" },
+                { icon: <UsersIcon size={17} />, value: isVolunteer ? String(experience.capacity) : `Up to ${experience.capacity}`, label: isVolunteer ? "Volunteers needed" : "Group size" },
+                !!experience.minAge && { icon: <PersonIcon size={17} />, value: `${experience.minAge}+`, label: "Minimum age" },
+                !!experience.terrainType && { icon: <TreeIconSmall size={17} />, value: experience.terrainType, label: "Terrain" },
+                isVolunteer && !!experience.cause && { icon: <HeartIcon size={17} />, value: experience.cause, label: "Cause" },
+              ]}
+            />
 
             <ParticipationBlock attributes={experience.participationAttributes} />
             <OfficialCircleLink circleId={experience.circleId} circleName={experience.circleName} circleSlug={experience.circleSlug} />
 
-            {experience.meetingPoint && (
+            {experience.meetingPoint && (experience.lat === null || experience.lng === null) && (
               <div style={{ background: colors.greenBg, color: colors.greenText, borderRadius: radius.control, padding: "10px 14px", fontSize: 13.5, margin: "16px 0" }}>
                 <strong>Meeting point:</strong> {experience.meetingPoint}
               </div>
@@ -753,6 +715,9 @@ export function ExperienceDetail() {
               </div>
             )}
 
+          </div>
+
+          <div className="detail-body">
             <div style={sectionDividerStyle} />
 
             {description && (
@@ -770,60 +735,14 @@ export function ExperienceDetail() {
               </div>
             )}
 
-            {/* What to expect — Swiss-style data blocks (icon, bold value,
-                muted label), same idea as GameDetail's QuickAttributes line
-                but given its own section since there's more to say here. */}
-            <div style={{ marginBottom: 28 }}>
-              <SectionHeading title="What to expect" />
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 40 }}>
-                {experience.durationMinutes > 0 && (
-                  <div>
-                    <ClockIcon size={17} style={{ color: colors.mutedLight, marginBottom: 6 }} />
-                    <div style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 20 }}>{formatDuration(experience.durationMinutes)}</div>
-                    <div style={{ fontSize: 12.5, color: colors.mutedLight, marginTop: 1 }}>Total duration</div>
-                  </div>
-                )}
-                {experience.distanceKm !== null && (
-                  <div>
-                    <PinIcon size={17} style={{ color: colors.mutedLight, marginBottom: 6 }} />
-                    <div style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 20 }}>{experience.distanceKm} km</div>
-                    <div style={{ fontSize: 12.5, color: colors.mutedLight, marginTop: 1 }}>Distance</div>
-                  </div>
-                )}
-                {experience.elevationGainM !== null && (
-                  <div>
-                    <TrendUpIcon size={17} style={{ color: colors.mutedLight, marginBottom: 6 }} />
-                    <div style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 20 }}>{experience.elevationGainM} m</div>
-                    <div style={{ fontSize: 12.5, color: colors.mutedLight, marginTop: 1 }}>Elevation gain</div>
-                  </div>
-                )}
-                {experience.difficulty && (
-                  <div>
-                    <TrendUpIcon size={17} style={{ color: colors.mutedLight, marginBottom: 6 }} />
-                    <div style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 20 }}>{capitalize(experience.difficulty)}</div>
-                    <div style={{ fontSize: 12.5, color: colors.mutedLight, marginTop: 1 }}>Difficulty</div>
-                  </div>
-                )}
-                <div>
-                  <UsersIcon size={17} style={{ color: colors.mutedLight, marginBottom: 6 }} />
-                  <div style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 20 }}>Up to {experience.capacity}</div>
-                  <div style={{ fontSize: 12.5, color: colors.mutedLight, marginTop: 1 }}>Group size</div>
-                </div>
-              </div>
-            </div>
-
-            {/* Adventure/Experience details — structured label/value grid. */}
-            <div style={{ marginBottom: 28 }}>
-              <SectionHeading title={`${kindLabel} details`} />
-              <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }}>
-                {detailFields.map((f) => (
-                  <div key={f.label}>
-                    <div style={factLabelStyle}>{f.label}</div>
-                    <div style={{ fontSize: 14, fontWeight: 700, marginTop: 3, lineHeight: 1.4 }}>{f.value}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
+            <Requirements
+              rows={[
+                { label: "Fitness", value: experience.fitnessRequirements },
+                { label: "Requirements", value: experience.eligibility },
+                { label: "Skills needed", value: experience.skillsRequired },
+                { label: "Accessibility", value: experience.accessibilityInfo },
+              ]}
+            />
 
             {/* What to bring */}
             {(experience.equipmentProvided || experience.equipmentRequired) && (
@@ -847,10 +766,8 @@ export function ExperienceDetail() {
             )}
 
             <InfoBlock heading="Itinerary" body={experience.itinerary} />
-            <InfoBlock heading="Fitness requirements" body={experience.fitnessRequirements} />
             <InfoBlock heading="Transport" body={experience.transportInfo} />
             <InfoBlock heading="Weather policy" body={experience.weatherPolicy} />
-            <InfoBlock heading="Accessibility" body={experience.accessibilityInfo ?? ""} />
 
             {/* Hosted by — the real vendor behind this listing (businessName-
                 or-name + a verified badge off provider_tier), linking to
@@ -858,47 +775,8 @@ export function ExperienceDetail() {
                 vendor-listed, not resident-hosted like a Game, so this is a
                 business, not a person — deliberately not styled like a
                 personal host avatar. */}
-            {experience.vendorName && (
-              <div style={{ marginBottom: 28 }}>
-                <SectionHeading title="Hosted by" />
-                <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                    <span style={{ fontWeight: 700, fontSize: 14.5 }}>{experience.vendorName}</span>
-                    {experience.vendorVerified && (
-                      <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: radius.pill, padding: "2px 8px" }}>
-                        <AwardIcon size={11} /> Verified provider
-                      </span>
-                    )}
-                  </div>
-                  <button
-                    onClick={() => navigate(`/provider/${experience.vendorId}`)}
-                    style={{ background: "none", border: "none", padding: 0, fontSize: 13, fontWeight: 700, color: colors.text, cursor: "pointer", textDecoration: "underline" }}
-                  >
-                    View provider
-                  </button>
-                </div>
-              </div>
-            )}
 
             {/* Meeting point — same bordered-row + map pattern GameLocationCard uses. */}
-            {experience.lat !== null && experience.lng !== null && (
-              <div style={{ marginBottom: 28 }}>
-                <SectionHeading title="Meeting point" />
-                <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "16px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <PinIcon size={16} style={{ color: colors.mutedLight, flex: "none" }} />
-                    <div>
-                      <div style={{ fontWeight: 700, fontSize: 14.5 }}>{experience.meetingPoint || experience.title}</div>
-                      {experience.area && <div style={{ fontSize: 12.5, color: colors.mutedLight, marginTop: 2 }}>{experience.area}{experience.area && experience.county ? ", " : ""}{experience.county}</div>}
-                    </div>
-                  </div>
-                  <a href={directionsUrl} target="_blank" rel="noreferrer" style={{ fontSize: 13, fontWeight: 700, color: colors.text, textDecoration: "underline", flex: "none" }}>
-                    Get directions
-                  </a>
-                </div>
-                <SinglePinMap lat={experience.lat} lng={experience.lng} label={experience.title} height={240} />
-              </div>
-            )}
 
             {/* Safety & preparation — the vendor's own safetyInfo text, shown
                 as a checklist when entered line-by-line, prose otherwise.
@@ -932,12 +810,14 @@ export function ExperienceDetail() {
             </div>
 
             {/* Related listings */}
+            <ExploreWithOthers taxonomy={experience.taxonomy} county={experience.county} noun={kindNoun} excludeCircleId={experience.circleId} />
             {similar.length > 0 && (
               <div>
                 <SectionHeading title="More like this" />
-                <div style={{ display: "flex", gap: 14, overflowX: "auto", paddingBottom: 6 }}>
+                {/* The shared photo card (owner 2026-10-27), same as every "More like this". */}
+                <div className="lc-grid--b" style={{ display: "flex", gap: 16, overflowX: "auto", paddingBottom: 6 }}>
                   {similar.map((e) => (
-                    <div key={e.id} style={{ flex: "none", width: 240 }}>
+                    <div key={e.id} style={{ flex: "none", width: 260, display: "flex" }}>
                       <ExperienceCard e={e} />
                     </div>
                   ))}
@@ -948,46 +828,106 @@ export function ExperienceDetail() {
 
           {/* RIGHT COLUMN — sticky Join card, mirroring GameJoinCard's own
               headline / social-proof / divider / info / CTA rhythm. Booking
-              itself (session picker + form) now lives in a centred popup (Modal),
+              itself (session picker + form) lives in a centred popup (Modal),
               opened by the CTA button below, rather than sitting inline in
               this card. */}
-          <div className="sticky-aside" style={{ position: "sticky", top: 90 }}>
+          <div className="detail-aside">
             <Card>
               <div style={{ marginBottom: 16 }}>
                 <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 22, margin: 0, color: joinHeadlineColor }}>{joinHeadline}</h2>
-                {session && joined > 0 && (
-                  <p style={{ margin: "4px 0 0", fontSize: 12.5, color: colors.mutedLight }}>{joined} of {session.capacity} people joined</p>
+                {session && (startsIn(session.date, session.time) || joined > 0) && (
+                  <p style={{ margin: "4px 0 0", fontSize: 13.5, color: colors.mutedLight }}>
+                    {[startsIn(session.date, session.time), joined > 0 ? `${joined} of ${session.capacity} going` : null].filter(Boolean).join(" · ")}
+                  </p>
                 )}
+                {!session && <p style={{ margin: "4px 0 0", fontSize: 13.5, color: colors.mutedLight }}>The host hasn't added a date. We can tell you when they do.</p>}
               </div>
 
               <div style={{ height: 1, background: colors.border, margin: "0 0 16px" }} />
 
-              <div style={{ display: "flex", flexDirection: "column", gap: 8, fontSize: 13.5, color: colors.muted, marginBottom: 16 }}>
-                {session ? (
-                  <>
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><CalendarIcon size={14} /> {dateLabel(session.date)} · {session.time}</span>
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><PinIcon size={14} /> {experience.area}{experience.area && experience.county ? ", " : ""}{experience.county}</span>
-                    <span style={{ fontWeight: 700, color: experience.priceCents ? colors.text : colors.greenText }}>{formatPrice(experience.priceCents, { each: true })}</span>
-                  </>
-                ) : (
-                  <span style={{ color: colors.faint }}>No upcoming departures scheduled yet.</span>
-                )}
-              </div>
+              <BookingGlance items={glance} />
 
-              {experience.sessions.length > 0 && (
-                <Button full disabled={!anyAvailable} onClick={openBooking}>
-                  {anyAvailable ? registerLabel : "Full"}
-                </Button>
+              {/* No dates yet: the price still shows (owner 2026-10-27), so
+                  people know what it costs before asking to hear about dates. */}
+              <BookingFacts
+                  // Date and place live under the title (owner 2026-10-27).
+                  facts={[
+                    {
+                      key: "price",
+                      label: "Price",
+                      icon: <Euro size={18} strokeWidth={2} />,
+                      value: <BookingPrice cents={experience.priceCents} unit="per person" />,
+                      sub: experience.priceCents ? `${PAID_PRICE_NOTE} · ${experience.paymentMethod === "cash" ? "paid in cash on the day" : "paid online when you book"}` : undefined,
+                      emphasis: experience.priceCents ? "price" : "free",
+                    },
+                  ]}
+                />
+
+              {anyAvailable ? (
+                <Button full onClick={openBooking}>{registerLabel}</Button>
+              ) : experience.sessions.length === 0 ? (
+                // No dates yet: pick the days and times that suit, right here.
+                <IntentCaptureForm variant="box" activityLabel={experience.title} county={experience.county ?? ""} />
+              ) : (
+                <Button full variant="ghost" onClick={() => scrollToInterest("experience-cta-title")}>Tell me about new dates</Button>
+              )}
+              {/* Experience 3.0 — every date is full: offer a spot alert per departure. */}
+              {!anyAvailable && experience.sessions.length > 0 && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 12 }}>
+                  {experience.sessions.slice(0, 4).map((s) => (
+                    <div key={s.id} style={{ fontSize: 13 }}>
+                      <div style={{ fontWeight: 700 }}>{dateLabel(s.date)} · {s.time} · Full</div>
+                      <SpotAlertButton experienceId={experience.id} sessionId={s.id} />
+                    </div>
+                  ))}
+                </div>
               )}
               {anyAvailable && !experience.priceCents && (
                 <div style={{ textAlign: "center", fontSize: 12, color: colors.faint, marginTop: 8 }}>No payment required</div>
               )}
+              <div style={{ marginTop: 12 }}>
+                <BookingActions>
+                  <ShareButton entityType={experience.kind === "adventure" ? "adventure" : "experience"} entityId={experience.id} render={(open) => <IconAction label="Share" onClick={open}><ShareIcon size={18} /></IconAction>} />
+                  <InviteSheetButton entityType={experience.kind === "adventure" ? "adventure" : "experience"} entityId={experience.id} title={experience.title} render={(open) => <IconAction label="Invite someone" short="Invite" onClick={open}><UsersIcon size={18} /></IconAction>} />
+                  {experience.lat !== null && experience.lng !== null && (
+                    <IconAction label="Directions" href={directionsUrl}><PinIcon size={18} /></IconAction>
+                  )}
+                  {/* Circles 3.0 — suggest it in a Circle (secondary to Book). */}
+                  <PlanWithCircle
+                    listing={{ type: "experience", id: experience.id, title: experience.title, sessions: experience.sessions.filter((s) => s.spotsLeft > 0).slice(0, 12).map((s) => ({ id: s.id, label: `${dateLabel(s.date)} · ${s.time}` })) }}
+                    render={(open) => <IconAction label="Plan with my Circle" short="Circle" onClick={open}><UsersRound size={18} /></IconAction>}
+                  />
+                </BookingActions>
+              </div>
+              {experience.sessions.length === 0 && (
+                <QuietAction onClick={() => navigate(similarPath)}>See similar {experience.kind === "adventure" ? "adventures" : isVolunteer ? "opportunities" : "experiences"}</QuietAction>
+              )}
             </Card>
-            <GoodToKnow e={experience} />
-            <CancellationCard e={experience} />
+            <div style={{ marginTop: 24 }} />
+            {experience.vendorName && (
+              <DetailSection title="Hosted by">
+                <HostRow
+                  name={experience.vendorName}
+                  verifiedLabel={experience.vendorVerified ? "Verified provider" : null}
+                  href={`/provider/${experience.vendorId}`}
+                  linkLabel="View provider"
+                />
+              </DetailSection>
+            )}
+            {experience.lat !== null && experience.lng !== null && (
+              <DetailSection title="Meeting point">
+                <LocationBlock
+                  name={experience.meetingPoint || experience.title}
+                  area={`${experience.area}${experience.area && experience.county ? ", " : ""}${experience.county}`}
+                  directionsUrl={directionsUrl}
+                  map={{ lat: experience.lat, lng: experience.lng, label: experience.title }}
+                />
+              </DetailSection>
+            )}
           </div>
         </div>
       </section>
+
 
       <Modal
         open={bookingOpen}
@@ -1004,27 +944,35 @@ export function ExperienceDetail() {
           listing's own copy and the interest form. */}
       <CtaBand
         id="experience-cta-title"
-        label={experience.kind === "adventure" ? "Outdoors." : "Try it."}
+        label="Not this time?"
         lines={["Can't", "make this", "one?"]}
-        text="Tell HelloCircle when you'd like to do this. We'll let you know when something matches your interest."
-        action={{ label: `Browse more ${experience.kind === "adventure" ? "adventures" : "experiences"}`, to: browsePath }}
+        text={`No worries — we'll let you know about similar ${experience.kind === "adventure" ? "adventures" : experience.kind === "volunteer" ? "volunteering" : "experiences"} and new dates near you.`}
+        panel={{ title: "Another time works better?", text: `Tell us when suits you. We'll let you know when a similar ${experience.kind === "adventure" ? "adventure" : experience.kind === "volunteer" ? "opportunity" : "experience"} is planned.` }}
+        action={{
+          label: `Explore similar ${experience.kind === "adventure" ? "adventures" : experience.kind === "volunteer" ? "opportunities" : "experiences"}`,
+          to: experience.taxonomy ? `${browsePath}?category=${experience.taxonomy.categorySlug}${experience.taxonomy.subcategorySlug ? `&sub=${experience.taxonomy.subcategorySlug}` : ""}` : browsePath,
+        }}
       >
-        <IntentCaptureForm activityLabel={experience.title} county={experience.county ?? ""} startHref={browsePath} startLabel={`Or browse more ${experience.kind === "adventure" ? "adventures" : "experiences"} →`} />
+        <IntentCaptureForm variant="panel" activityLabel={experience.title} county={experience.county ?? ""} />
       </CtaBand>
 
       {/* Mobile sticky bar — same fixed-above-tab-bar pattern as
           GameJoinCard's own MobileJoinBar. Unlike a Game there's no
           single-tap join (booking needs a session + a short form), so this
           opens the same booking popup the desktop CTA does. */}
-      {anyAvailable && (
-        <div className="mobile-join-bar">
-          <div>
-            <div style={{ fontWeight: 800, fontSize: 15, fontFamily: fonts.display, color: joinHeadlineColor }}>{joinHeadline}</div>
-            <div style={{ fontSize: 12.5, color: colors.mutedLight }}>{formatPrice(experience.priceCents)}</div>
+      <div className="mobile-join-bar">
+        <div>
+          <div style={{ fontWeight: 800, fontSize: 15, fontFamily: fonts.display, color: joinHeadlineColor }}>{joinHeadline}</div>
+          <div style={{ fontSize: 12.5, color: colors.mutedLight }}>
+            {anyAvailable && session ? `${dateLabel(session.date)} · ${formatPrice(experience.priceCents)}` : "We can let you know"}
           </div>
-          <Button onClick={openBooking} style={{ flex: "none" }}>{registerLabel}</Button>
         </div>
-      )}
+        {anyAvailable ? (
+          <Button onClick={openBooking} style={{ flex: "none" }}>{registerLabel}</Button>
+        ) : (
+          <Button onClick={() => scrollToInterest("experience-cta-title")} style={{ flex: "none" }}>Notify me</Button>
+        )}
+      </div>
     </div>
   );
 }

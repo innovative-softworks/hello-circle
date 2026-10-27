@@ -3,8 +3,16 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { fetchReceiptDetail } from "../api";
 import { BackLink } from "../components/BackLink";
 import { ReceiptBody } from "../components/ReceiptDrawer";
-import { LoadErrorState, RowSkeleton } from "../components/ui";
-import type { ReceiptDetail } from "../components/commerceDisplay";
+import { Button, LoadErrorState, RowSkeleton } from "../components/ui";
+import { Printer } from "lucide-react";
+import { RECEIPT_STATUS, type ReceiptDetail, type ReceiptKind } from "../components/commerceDisplay";
+import { Pass, type PassKind, type PassTone } from "../components/pass/Pass";
+
+// The pass at the top of a receipt (owner 2026-10-27): the same ticket you
+// show up with, so the receipt and the booking always read the same. A
+// receipt has no date of its own, so the pass shows what was bought.
+const RECEIPT_PASS_KIND: Record<ReceiptKind, PassKind> = { booking: "room", registration: "club", game: "activity", pass: "pass", program_enrollment: "programme", experience: "experience" };
+const RECEIPT_PASS_TONE: Record<ReceiptDetail["status"], PassTone> = { paid: "ok", free: "ok", pay_at_venue: "ok", pending: "warn", failed: "bad", refunded: "bad", part_refunded: "ok" };
 import { signInHref } from "../authRedirect";
 import { fonts } from "../theme";
 import { usePageTitle } from "../pageTitle";
@@ -36,7 +44,7 @@ export function ReceiptPage() {
 
   return (
     <section className="section-pad" style={{ maxWidth: 640, margin: "0 auto", padding: "40px 24px 90px" }}>
-      <BackLink onClick={() => navigate("/profile?tab=receipts")}>Back to receipts</BackLink>
+      <BackLink onClick={() => navigate("/profile?tab=payment&view=receipts")}>Back to receipts</BackLink>
       <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(24px, 2.4vw, 30px)", margin: "8px 0 4px" }}>Receipt</h1>
       <p style={{ margin: "0 0 20px", fontFamily: "monospace" }}>{ref}</p>
       <div aria-live="polite" aria-busy={state.status === "loading" || undefined}>
@@ -53,7 +61,29 @@ export function ReceiptPage() {
           </div>
         )}
         {state.status === "error" && <LoadErrorState title="We couldn't load this receipt." detail={state.message} onRetry={load} />}
-        {state.status === "ready" && <ReceiptBody r={state.data} />}
+        {state.status === "ready" && (
+          <>
+            <div className="no-print" style={{ marginBottom: 20 }}>
+              <Pass
+                look={state.data.kind === "registration" ? "lanyard" : "ticket"}
+                kind={RECEIPT_PASS_KIND[state.data.kind]}
+                tone={RECEIPT_PASS_TONE[state.data.status]}
+                status={RECEIPT_STATUS[state.data.status].label}
+                title={state.data.label}
+                reference={state.data.kind === "pass" ? null : state.data.ref}
+                codeActive={state.data.status !== "pending" && state.data.status !== "failed" && state.data.status !== "refunded"}
+                listLine={{ title: state.data.ref, text: "Your reference" }}
+              />
+            </div>
+            <ReceiptBody r={state.data} />
+            {/* No PDF endpoint exists; the browser's print dialog can save a PDF. */}
+            <div className="no-print" style={{ marginTop: 20 }}>
+              <Button variant="ghost" onClick={() => window.print()}>
+                <Printer size={16} aria-hidden="true" /> Print or save as PDF
+              </Button>
+            </div>
+          </>
+        )}
       </div>
     </section>
   );

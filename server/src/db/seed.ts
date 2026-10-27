@@ -83,6 +83,30 @@ export function placeholderImage(seed: string, width: number, height: number): s
   return `https://images.unsplash.com/photo-${id}?w=${width}&h=${height}&q=75&auto=format&fit=crop`;
 }
 
+/** Detail-page audit DP-22 (2026-10-22) — a photo that matches what the
+ * listing is (football → football, hike → hiking …) from the same vetted
+ * pool, instead of a hash that put a yoga photo on a football game. Falls
+ * back to the hashed pick when nothing matches. */
+const TOPIC_PHOTOS: [RegExp, string][] = [
+  [/football|soccer|gaa|hurling|camogie|rugby|multi-sport|sports camp/i, "1526232761682-d26e03ac148e"],
+  [/hik|walk|trek|trail|scramble|ramble|mountain|cliff/i, "1551632811-561732d1e306"],
+  [/cycl|bike|spin/i, "1517649763962-0c623066013b"],
+  [/swim|surf|kayak|paddle|sea|lake/i, "1600965962102-9d260a71890d"],
+  [/yoga|pilates|stretch|meditat/i, "1544367567-0f2fcb009e0b"],
+  [/tennis|padel/i, "1554068865-24cecd4e34b8"],
+  [/badminton|basketball|volleyball|table tennis/i, "1743601587751-01dc32b707d2"],
+  [/gym|fitness|strength|bootcamp|circuit/i, "1571019613914-85f342c6a11e"],
+  [/coffee|chat|book|chess|quiz|meetup|social|knit|language|trad|music/i, "1543269865-cbf427effbad"],
+  [/sunrise|photograph/i, "1500534623283-312aade485b7"],
+  [/workshop|pottery|class|course|first aid|meeting/i, "1635321101901-7ac6eec3d371"],
+  [/toddler|play|kids|children/i, "1763561553595-a60112a2977e"],
+];
+export function topicImage(text: string, fallbackSeed: string, width: number, height: number): string {
+  const hit = TOPIC_PHOTOS.find(([re]) => re.test(text));
+  if (!hit) return placeholderImage(fallbackSeed, width, height);
+  return `https://images.unsplash.com/photo-${hit[1]}?w=${width}&h=${height}&q=75&auto=format&fit=crop`;
+}
+
 const img = (seed: string) => placeholderImage(`halla-${seed}`, 800, 500);
 // A handful of extra angles per listing so the detail-page gallery has more
 // than one photo to show — same approach, just more seeds per id.

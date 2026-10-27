@@ -4,9 +4,9 @@ import { createPortal } from "react-dom";
 import { Link, useNavigate } from "react-router-dom";
 import { CheckIcon, CloseIcon, StarIcon } from "./icons";
 import { getMediaUrl } from "../media";
-import { navigateWithSharedImage } from "../sharedElementTransition";
 import { colors, fonts, maxWidth, radius, zIndex } from "../theme";
 import { useInWorkspace } from "./workspace/inWorkspace";
+import { detailIcon } from "./workspace/detailIcons";
 
 // Shared, reusable building blocks for the vendor/admin/reviews UI — kept in
 // one place so button/card/badge styling can't drift between dashboards.
@@ -64,26 +64,10 @@ export function onActivateProps(handler: () => void) {
 // navigating. `label` is required (not optional) because the link usually
 // has no visible text content of its own — screen readers need a real
 // accessible name, not "View" repeated for every card on the page.
-export function CardLink({ to, label, sharedImage }: { to: string; label: string; sharedImage?: boolean }) {
-  const navigate = useNavigate();
-  return (
-    <Link
-      to={to}
-      className="stretched-link"
-      aria-label={label}
-      onClick={
-        sharedImage
-          ? (e) => {
-              if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-              const source = e.currentTarget.parentElement?.querySelector("img")?.parentElement;
-              if (!source) return;
-              e.preventDefault();
-              navigateWithSharedImage(navigate, to, source);
-            }
-          : undefined
-      }
-    />
-  );
+// Batch 2 (owner, 2026-10-22): a plain link — the card→detail image morph
+// (View Transitions) was removed; the detail page shows its skeleton instead.
+export function CardLink({ to, label }: { to: string; label: string; sharedImage?: boolean }) {
+  return <Link to={to} className="stretched-link" aria-label={label} />;
 }
 
 // --- Button ------------------------------------------------------------
@@ -93,7 +77,8 @@ type ButtonVariant = "primary" | "orange" | "dark" | "ghost" | "danger";
 // Design-system consistency pass: pill buttons; primary = brand orange with
 // forest text (white on #ff4b24 fails contrast), dark = forest night.
 export const buttonBase: CSSProperties = {
-  borderRadius: radius.pill,
+  borderRadius: "var(--radius-button)",
+  minWidth: "var(--button-min-width)",
   fontWeight: 700,
   fontSize: 14,
   padding: "10px 16px",
@@ -111,6 +96,25 @@ export const buttonVariants: Record<ButtonVariant, CSSProperties> = {
   danger: { background: "none", color: colors.danger, border: "none", padding: "6px 6px", fontWeight: 600, fontSize: 13 },
 };
 
+// One public button system (owner, 2026-10-22): the main action is the
+// button orange (#d7380f, white text, 4.7:1) and darkens on hover; the
+// secondary action is an outline (ink border + text) that fills ink on
+// hover. Admin / partner / host workspaces keep their own look, so inside a
+// WorkspaceShell `primary` stays green and `ghost` stays the light border.
+const publicVariants: Partial<Record<ButtonVariant, CSSProperties>> = {
+  primary: { background: "var(--color-cta)", color: "var(--color-on-cta)", border: "1.5px solid var(--color-cta)" },
+  orange: { background: "var(--color-cta)", color: "var(--color-on-cta)", border: "1.5px solid var(--color-cta)" },
+  ghost: { background: "transparent", color: colors.text, border: `1.5px solid ${colors.text}` },
+};
+const publicClass: Partial<Record<ButtonVariant, string>> = { primary: "btn-cta", orange: "btn-cta", ghost: "btn-outline" };
+function useButtonLook(variant: ButtonVariant): [string, CSSProperties] {
+  const inWorkspace = useInWorkspace();
+  if (!inWorkspace && publicVariants[variant]) return [publicClass[variant]!, publicVariants[variant]!];
+  // Inside workspaces the orange variant still gets readable white-on-orange.
+  if (variant === "orange") return ["btn-cta", publicVariants.orange!];
+  return [variantClass[variant], buttonVariants[variant]];
+}
+
 const variantClass: Record<ButtonVariant, string> = {
   primary: "btn-primary",
   orange: "btn-orange",
@@ -127,6 +131,7 @@ export function Button({
   style,
   type = "button",
   full,
+  size = "md",
   ...aria
 }: {
   variant?: ButtonVariant;
@@ -136,19 +141,30 @@ export function Button({
   style?: CSSProperties;
   type?: "button" | "submit";
   full?: boolean;
+  /** "lg" — a step or form's main action (48px tall; full width on phones via .btn-lg). */
+  size?: "md" | "lg";
 } & Pick<ButtonHTMLAttributes<HTMLButtonElement>, "aria-label" | "aria-describedby" | "aria-busy" | "aria-expanded" | "aria-controls" | "aria-pressed">) {
   // aria-* used to be accepted by JSX but silently dropped here (2026-10-14).
+  const [lookClass, lookStyle] = useButtonLook(variant);
   return (
     <button
       {...aria}
       type={type}
       onClick={onClick}
       disabled={disabled}
-      className={`btn ${variantClass[variant]}`}
+      className={`btn ${lookClass}${size === "lg" ? " btn-lg" : ""}`}
       style={{
         ...buttonBase,
-        ...buttonVariants[variant],
-        width: full ? "100%" : undefined,
+        ...lookStyle,
+        // Owner, 2026-10-22: a filled `full` button is the page's main action —
+        // full width and big. A ghost (secondary) `full` button isn't: it keeps
+        // the shared minimum width, grows with its label and sits at the start.
+        ...(size === "lg" ? { minHeight: 48, fontSize: 15, padding: "13px 22px" } : {}),
+        ...(full && variant !== "ghost"
+          ? { width: "100%", minHeight: 48, fontSize: 15, padding: "13px 20px" }
+          : full
+            ? { alignSelf: "flex-start", justifySelf: "start" }
+            : {}),
         opacity: disabled ? 0.5 : 1,
         ...style,
       }}
@@ -177,15 +193,16 @@ export function LinkButton({
   children: ReactNode;
   style?: CSSProperties;
 }) {
+  const [lookClass, lookStyle] = useButtonLook(variant);
   return (
     <a
       href={href}
       target={target}
       rel={target === "_blank" ? "noopener noreferrer" : undefined}
-      className={`btn ${variantClass[variant]}`}
+      className={`btn ${lookClass}`}
       style={{
         ...buttonBase,
-        ...buttonVariants[variant],
+        ...lookStyle,
         textDecoration: "none",
         ...style,
       }}
@@ -212,8 +229,9 @@ export function RouteLinkButton({
   children: ReactNode;
   style?: CSSProperties;
 }) {
+  const [lookClass, lookStyle] = useButtonLook(variant);
   return (
-    <Link to={to} className={`btn ${variantClass[variant]}`} style={{ ...buttonBase, ...buttonVariants[variant], textDecoration: "none", ...style }}>
+    <Link to={to} className={`btn ${lookClass}`} style={{ ...buttonBase, ...lookStyle, textDecoration: "none", ...style }}>
       {children}
     </Link>
   );
@@ -506,8 +524,10 @@ export function Spinner({ size = 26, style }: { size?: number; style?: CSSProper
  * initial fetch) — where the wait is normally brief and building a layout
  * skeleton isn't worth it. */
 export function PageSpinner() {
+  // Batch 2 load check: the spinner only appears after 250ms (CSS delay), so
+  // a fast route or data load doesn't flash a spinner before the page.
   return (
-    <div style={{ display: "flex", justifyContent: "center", padding: "140px 24px" }}>
+    <div className="page-spinner" role="status" aria-label="Loading" style={{ display: "flex", justifyContent: "center", padding: "140px 24px" }}>
       <Spinner size={32} />
     </div>
   );
@@ -528,10 +548,12 @@ export function Skeleton({
 }
 
 /** Stands in for CentreCard/ClubCard while a listing grid loads. */
-export function CardSkeleton({ photoHeight = 140 }: { photoHeight?: number }) {
+/** Listing-card placeholder. Without `photoHeight` the photo uses the card's
+ * real 16:10 ratio (card redesign 2026-10-22), so results don't jump. */
+export function CardSkeleton({ photoHeight }: { photoHeight?: number }) {
   return (
     <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, overflow: "hidden" }}>
-      <Skeleton height={photoHeight} radius={0} />
+      {photoHeight ? <Skeleton height={photoHeight} radius={0} /> : <div className="skeleton" style={{ aspectRatio: "16 / 10", width: "100%" }} />}
       <div style={{ padding: "16px 18px 18px" }}>
         <Skeleton width={90} height={13} style={{ marginBottom: 12 }} />
         <Skeleton width="80%" height={17} style={{ marginBottom: 8 }} />
@@ -966,7 +988,7 @@ export function StatTile({
     return (
       <div className="ws-stat">
         {icon && (
-          <span className="ws-stat-icon" aria-hidden="true">
+          <span className="ws-stat-icon wd-ico" data-tone={detailIcon(label).tone} aria-hidden="true">
             {icon}
           </span>
         )}

@@ -1,0 +1,250 @@
+/* The pass (Pass.tsx): one structure, three looks. Header colour by type,
+   status pill by tone; colour is never the only signal (the pill has words). */
+.hc-pass {
+  --pass-type: #2e7d50;
+  --pass-on-type: #ffffff;
+  --pass-s: var(--color-green-text);
+  --pass-s-soft: var(--color-green-bg);
+  position: relative;
+  min-width: 0;
+  background: var(--color-surface);
+  color: var(--color-text);
+  text-align: left;
+}
+.hc-pass[data-kind="activity"] { --pass-type: #2e7d50; }
+.hc-pass[data-kind="experience"] { --pass-type: #c4370f; }
+.hc-pass[data-kind="adventure"] { --pass-type: #3d6b3f; }
+.hc-pass[data-kind="volunteer"] { --pass-type: #1f7a80; }
+.hc-pass[data-kind="programme"] { --pass-type: #6b4a8a; }
+.hc-pass[data-kind="room"] { --pass-type: #3f5f7d; }
+.hc-pass[data-kind="club"] { --pass-type: #b5541c; }
+.hc-pass[data-kind="circle"] { --pass-type: #2b3a33; }
+.hc-pass[data-kind="pass"] { --pass-type: #b5541c; }
+
+.hc-pass-tone-ok { --pass-s: var(--color-green-text); --pass-s-soft: var(--color-green-bg); }
+.hc-pass-tone-warn { --pass-s: var(--color-gold, #9a6200); --pass-s-soft: var(--color-orange-bg); }
+.hc-pass-tone-hot,
+.hc-pass-tone-live { --pass-s: var(--color-orange-dark); --pass-s-soft: var(--color-orange-bg); }
+.hc-pass-tone-bad { --pass-s: var(--color-danger); --pass-s-soft: var(--color-danger-bg); }
+.hc-pass-tone-wait,
+.hc-pass-tone-ended { --pass-s: var(--color-muted); --pass-s-soft: var(--color-panel); }
+.hc-pass-tone-host { --pass-s: var(--color-text); --pass-s-soft: var(--color-panel); }
+
+.hc-pass-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.hc-pass-brand {
+  font-family: "Bricolage Grotesque Variable", "Bricolage Grotesque", system-ui, sans-serif;
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.hc-pass-main { display: grid; gap: 8px; min-width: 0; }
+.hc-pass-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  justify-self: start;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--pass-s-soft);
+  color: var(--pass-s);
+  font-size: 12.5px;
+  font-weight: 700;
+}
+.hc-pass-status i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.hc-pass-tone-live .hc-pass-status i { animation: hcPassPulse 1.6s ease-in-out infinite; }
+@keyframes hcPassPulse { 50% { opacity: 0.25; } }
+@media (prefers-reduced-motion: reduce) { .hc-pass-tone-live .hc-pass-status i { animation: none; } }
+.hc-pass-title {
+  margin: 0;
+  font-family: "Bricolage Grotesque Variable", "Bricolage Grotesque", system-ui, sans-serif;
+  font-size: 21px;
+  font-weight: 800;
+  line-height: 1.12;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+.hc-pass-who { font-size: 13px; color: var(--color-muted); }
+.hc-pass-who b { color: var(--color-text); }
+.hc-pass-when { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; }
+.hc-pass-date {
+  font-family: "Bricolage Grotesque Variable", "Bricolage Grotesque", system-ui, sans-serif;
+  font-size: 24px;
+  font-weight: 800;
+  line-height: 1;
+}
+.hc-pass-time { font-size: 15px; font-weight: 700; }
+.hc-pass-where { font-size: 13.5px; color: var(--color-muted); }
+.hc-pass-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 14px; margin: 4px 0 0; }
+.hc-pass-fields div { min-width: 0; }
+.hc-pass-fields dt { font-size: 10.5px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; color: var(--color-faint); }
+.hc-pass-fields dd { margin: 1px 0 0; font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.hc-pass-note { margin: 4px 0 0; padding: 9px 11px; border-radius: 10px; background: var(--pass-s-soft); font-size: 13px; line-height: 1.45; }
+.hc-pass-progress { display: flex; gap: 4px; margin-top: 2px; }
+.hc-pass-progress span { flex: 1; height: 6px; border-radius: 3px; background: var(--color-panel); }
+.hc-pass-progress span.on { background: var(--pass-type); }
+.hc-pass-progress span.now { background: var(--pass-type); opacity: 0.45; }
+.hc-pass-tone-ended .hc-pass-title,
+.hc-pass-tone-bad .hc-pass-title { color: var(--color-muted); }
+.hc-pass-tone-bad .hc-pass-date,
+.hc-pass-tone-bad .hc-pass-time { color: var(--color-muted); text-decoration: line-through; text-decoration-thickness: 2px; }
+
+.hc-pass-stub { position: relative; display: grid; justify-items: center; align-content: center; gap: 6px; text-align: center; }
+.hc-pass-stub:empty { display: none; }
+.hc-pass-code { width: 92px; height: 92px; padding: 6px; border-radius: 8px; background: #ffffff; }
+.hc-pass-code svg { display: block; width: 100%; height: 100%; }
+.hc-pass-code.is-dim { opacity: 0.18; }
+.hc-pass-reflabel { font-size: 10.5px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; color: var(--color-faint); }
+.hc-pass-ref { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 13px; font-weight: 600; letter-spacing: 0.04em; user-select: all; }
+.hc-pass-list { max-width: 18ch; font-size: 12.5px; color: var(--color-muted); }
+.hc-pass-list b {
+  display: block;
+  font-family: "Bricolage Grotesque Variable", "Bricolage Grotesque", system-ui, sans-serif;
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--color-text);
+}
+.hc-pass-stamp {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) rotate(-12deg);
+  padding: 3px 10px;
+  border: 2.5px solid var(--pass-s);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-surface) 82%, transparent);
+  color: var(--pass-s);
+  font-family: "Bricolage Grotesque Variable", "Bricolage Grotesque", system-ui, sans-serif;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.hc-pass-actions { display: grid; gap: 10px; }
+.hc-pass-actions .booking-quiet { margin-top: 0; }
+
+/* ---------- wallet ---------- */
+.hc-pass--wallet { display: grid; overflow: hidden; border: 1px solid var(--color-border); border-radius: 18px; box-shadow: 0 10px 24px -20px rgba(0, 0, 0, 0.45); }
+.hc-pass--wallet .hc-pass-top { padding: 14px 18px 46px; background: var(--pass-type); color: var(--pass-on-type); align-items: flex-start; }
+.hc-pass--wallet .hc-pass-main { margin: -34px 12px 0; padding: 14px 14px 12px; border-radius: 14px; background: var(--color-surface); }
+.hc-pass--wallet .hc-pass-stub {
+  grid-template-columns: auto minmax(0, 1fr);
+  justify-items: start;
+  column-gap: 14px;
+  margin: 4px 18px 0;
+  padding: 14px 0 6px;
+  border-top: 1px dashed var(--color-border-strong);
+  text-align: left;
+}
+.hc-pass--wallet .hc-pass-code { grid-row: span 3; width: 78px; height: 78px; }
+.hc-pass--wallet .hc-pass-stamp { top: 22px; left: auto; right: 0; transform: rotate(-10deg); }
+.hc-pass--wallet .hc-pass-actions { padding: 14px 18px 16px; }
+/* Inside a detail page's booking box the box is the card already. */
+.detail-aside .hc-pass--wallet { box-shadow: none; }
+
+/* ---------- ticket ---------- */
+.hc-pass--ticket {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 160px;
+  grid-template-areas: "top top" "main stub" "act act";
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+}
+.hc-pass--ticket .hc-pass-top { grid-area: top; padding: 10px 18px; background: var(--pass-type); color: var(--pass-on-type); }
+.hc-pass--ticket .hc-pass-main { grid-area: main; padding: 16px 18px; }
+.hc-pass--ticket .hc-pass-stub { grid-area: stub; padding: 16px 12px; border-left: 2px dashed var(--color-border-strong); }
+.hc-pass--ticket .hc-pass-stub::before,
+.hc-pass--ticket .hc-pass-stub::after {
+  content: "";
+  position: absolute;
+  left: -11px;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--color-border);
+  border-radius: 50%;
+  background: var(--color-bg);
+}
+.hc-pass--ticket .hc-pass-stub::before { top: -11px; }
+.hc-pass--ticket .hc-pass-stub::after { bottom: -11px; }
+.hc-pass--ticket .hc-pass-actions { grid-area: act; padding: 12px 18px 16px; border-top: 1px solid var(--color-border); }
+@media (max-width: 560px) {
+  .hc-pass--ticket { grid-template-columns: minmax(0, 1fr); grid-template-areas: "top" "main" "stub" "act"; }
+  .hc-pass--ticket .hc-pass-stub { border-left: 0; border-top: 2px dashed var(--color-border-strong); }
+  .hc-pass--ticket .hc-pass-stub::after { top: -11px; bottom: auto; left: auto; right: -11px; }
+}
+
+/* ---------- lanyard ---------- */
+.hc-pass--lanyard { display: grid; overflow: hidden; border: 1px solid var(--color-border); border-radius: 16px; text-align: center; }
+.hc-pass--lanyard .hc-pass-top { position: relative; flex-direction: column; gap: 6px; padding: 30px 16px 14px; background: var(--pass-type); color: var(--pass-on-type); }
+.hc-pass--lanyard .hc-pass-top::before {
+  content: "";
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  width: 46px;
+  height: 9px;
+  margin-left: -23px;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  border-radius: 6px;
+  background: var(--color-bg);
+}
+.hc-pass--lanyard .hc-pass-main { justify-items: center; padding: 16px 16px 6px; text-align: center; }
+.hc-pass--lanyard .hc-pass-status { justify-self: center; }
+.hc-pass--lanyard .hc-pass-who { order: -1; font-size: 12px; }
+.hc-pass--lanyard .hc-pass-who b {
+  display: block;
+  font-family: "Bricolage Grotesque Variable", "Bricolage Grotesque", system-ui, sans-serif;
+  font-size: 24px;
+  font-weight: 800;
+  line-height: 1.1;
+}
+.hc-pass--lanyard .hc-pass-title { font-size: 17px; }
+.hc-pass--lanyard .hc-pass-when { justify-content: center; }
+.hc-pass--lanyard .hc-pass-fields,
+.hc-pass--lanyard .hc-pass-note { width: 100%; text-align: left; }
+.hc-pass--lanyard .hc-pass-stub { padding: 10px 16px 4px; }
+.hc-pass--lanyard .hc-pass-actions { padding: 10px 16px 16px; }
+/* Booking box: as tall as the photo beside it; the actions sit at the bottom. */
+.detail-aside > .hc-pass .hc-pass-actions { margin-top: auto; }
+/* Five labelled icons fit one row inside a pass in the booking column. */
+.hc-pass .booking-icon { width: 56px; }
+.hc-pass .booking-actions { gap: 6px 2px; }
+
+/* Scan passes (ScanPassModal.tsx). */
+.scan-frame {
+  position: relative;
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  max-width: 100%;
+  max-height: 60vh;
+  margin: 0 auto;
+  width: min(100%, 420px);
+  overflow: hidden;
+  border-radius: 16px;
+  background: #111;
+  color: #fff;
+}
+.scan-frame video { width: 100%; height: 100%; object-fit: cover; }
+.scan-frame-box {
+  position: absolute;
+  inset: 18%;
+  border: 3px solid rgba(255, 255, 255, 0.9);
+  border-radius: 14px;
+  box-shadow: 0 0 0 999px rgba(0, 0, 0, 0.28);
+}
+.scan-frame-msg { margin: 0; padding: 24px; text-align: center; font-size: 14px; line-height: 1.5; }
+.scan-result { padding: 12px 14px; border-radius: 10px; background: var(--color-panel); font-weight: 700; font-size: 15px; }
+.scan-result.is-ok { background: var(--color-green-bg); color: var(--color-green-text); }
+.scan-result.is-bad { background: var(--color-danger-bg); color: var(--color-danger); }

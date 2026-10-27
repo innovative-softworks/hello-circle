@@ -1,7 +1,7 @@
 import { BrandLogo } from "./BrandLogo";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Bell, ChevronDown, CircleHelp, Heart, Menu, MessageCircle, Plus, Search, Store, type LucideIcon, ExternalLink } from "lucide-react";
+import { ArrowRight, Bell, ChevronDown, ChevronRight, CircleHelp, MapPin, Sparkles, Heart, Menu, MessageCircle, Plus, Search, Store, type LucideIcon, ExternalLink } from "lucide-react";
 import { guestLogout, logout, switchWorkspace } from "../api";
 import { useAuth } from "../AuthContext";
 import { signInHref, signUpHref } from "../authRedirect";
@@ -13,7 +13,7 @@ import { colors, fonts, maxWidth } from "../theme";
 import { useMyStuff } from "../MyStuffContext";
 import { VENUE_PAGES_PUBLIC } from "../venueLaunch";
 import { useOpenBookingOpen } from "../paidCheckout";
-import { EXPLORE_FEATURED, EXPLORE_PATHS, EXPLORE_PLACES, EXPLORE_THINGS, FREE_TIME_ITEM, START_ITEMS, START_PATHS, SUGGEST_PLACE_ITEM, isUnder, visibleItems, type NavContext, type NavItem } from "../navigation/navConfig";
+import { EXPLORE_LEARN, EXPLORE_PATHS, EXPLORE_PLACES, EXPLORE_PLACES_SOON, EXPLORE_THINGS, FREE_TIME_ITEM, START_GROUPS, START_PATHS, SUGGEST_PLACE_ITEM, isUnder, visibleItems, type NavContext, type NavItem } from "../navigation/navConfig";
 import { useHeaderData } from "./header/useHeaderData";
 import { HeaderSearch } from "./header/HeaderSearch";
 import { MobileSearchScreen } from "./header/MobileSearchScreen";
@@ -56,6 +56,8 @@ export function Header() {
   const [sheet, setSheet] = useState<Sheet>(null);
   const [searchScreen, setSearchScreen] = useState(false);
   const megaRef = useRef<HTMLDivElement>(null);
+  // Explore opens under its trigger; nudged left only to stay in the viewport.
+  const [exploreOffset, setExploreOffset] = useState(0);
   const panelRefs = {
     explore: useRef<HTMLDivElement>(null),
     start: useRef<HTMLDivElement>(null),
@@ -64,6 +66,20 @@ export function Header() {
     search: useRef<HTMLDivElement>(null),
   };
   const toggle = (p: Exclude<Panel, null>) => setPanel((cur) => (cur === p ? null : p));
+  useLayoutEffect(() => {
+    if (panel !== "explore") return;
+    const place = () => {
+      const trigger = panelRefs.explore.current;
+      if (!trigger) return;
+      // Align the panel with the page container (same gutter as the logo).
+      const gutter = window.innerWidth <= 860 ? 16 : 24;
+      const pageLeft = Math.max(gutter, (window.innerWidth - maxWidth) / 2 + gutter);
+      setExploreOffset(Math.round(pageLeft - trigger.getBoundingClientRect().left));
+    };
+    place();
+    window.addEventListener("resize", place);
+    return () => window.removeEventListener("resize", place);
+  }, [panel]); // eslint-disable-line react-hooks/exhaustive-deps
   const closeAll = () => {
     setPanel(null);
     setSheet(null);
@@ -197,89 +213,106 @@ export function Header() {
   const accountLabel = `Account menu${accountAttention > 0 ? `, ${accountAttention} ${user?.role === "admin" ? "pending approvals" : "listings need attention"}` : ""}`;
   const avatarName = resident?.name || user?.name || guestEmail || "?";
   const badge = (n: number) => (n > 0 ? <span style={badgeStyle}>{countLabel(n)}</span> : null);
-  const savedActive = pathname === "/profile" && new URLSearchParams(location.search).get("tab") === "favourites";
+  const savedActive = (pathname === "/bookings" || pathname === "/my-life") && new URLSearchParams(location.search).get("tab") === "saved";
 
-  // ── Explore: the existing mega menu, laid out full width ──────────────────
-  const places = visibleItems(EXPLORE_PLACES, navCtx);
-  const megaTitle: React.CSSProperties = { display: "block", fontFamily: fonts.display, fontSize: 15.5, fontWeight: 700, color: colors.text, letterSpacing: 0 };
-  const megaDesc: React.CSSProperties = { display: "block", fontSize: 13, color: colors.muted, marginTop: 2, lineHeight: 1.45 };
-  const megaRow = (item: NavItem) => (
-    <Link key={item.key} to={item.to} className="hc-mega-row" aria-current={pathname + location.search === item.to ? "page" : undefined} onClick={closeAll}>
-      <span className="hc-row-icon">
-        <NavIcon icon={item.icon} size={21} />
+  // ── Explore ───────────────────────────────────────────────────────────────
+  const places = [...visibleItems(EXPLORE_PLACES, navCtx), ...visibleItems(EXPLORE_PLACES_SOON, navCtx)];
+  // Navigation redesign 2026-10-22 (owner: "design the nav much better",
+  // "I don't need full width menu") — Explore and Start are compact dropdowns
+  // under their buttons, sharing one item style: icon tile, title, one line.
+  const dropRow = (item: NavItem) => (
+    <Link key={item.key} to={item.to} className="hc-drop-row" aria-current={pathname + location.search === item.to ? "page" : undefined} onClick={closeAll}>
+      <span className="hc-drop-icon" aria-hidden="true">
+        <NavIcon icon={item.icon} size={19} />
       </span>
-      <span>
-        <span style={megaTitle}>{item.label}</span>
-        <span style={megaDesc}>{item.desc}</span>
+      <span style={{ minWidth: 0 }}>
+        <span className="hc-drop-title">{item.label}</span>
+        <span className="hc-drop-desc">{item.desc}</span>
       </span>
     </Link>
   );
-  const megaTile = (item: NavItem, cta: string) => (
-    <Link key={item.key} to={item.to} className="hc-mega-tile" aria-current={pathname === item.to ? "page" : undefined} onClick={closeAll}>
-      <span style={megaTitle}>{item.label}</span>
-      <span style={megaDesc}>{item.desc}</span>
-      <span style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: colors.orangeDark, letterSpacing: 0, marginTop: 10 }}>{cta} &rarr;</span>
+  const dropGroup = (id: string, label: string, items: NavItem[]) => (
+    <div role="group" aria-labelledby={id} className="hc-drop-group">
+      <div id={id} className="hc-drop-label">{label}</div>
+      {items.map(dropRow)}
+    </div>
+  );
+  // Explore mega menu (owner reference design, 2026-10-22): page-width panel
+  // aligned to the logo, three ruled columns (icon · title · one line ·
+  // chevron), a photo card for this weekend, and a tinted footer.
+  const weekend = EXPLORE_THINGS.find((i) => i.key === "events")!;
+  const editorialLink = (item: NavItem) => (
+    <Link key={item.key} to={item.to} className="hc-ed-link" aria-current={pathname + location.search === item.to ? "page" : undefined} onClick={closeAll}>
+      <span className="hc-ed-icon" aria-hidden="true">
+        <NavIcon icon={item.icon} size={24} />
+      </span>
+      <span style={{ minWidth: 0, flex: 1 }}>
+        <span className="hc-ed-title">{item.label}</span>
+        <span className="hc-ed-desc">{item.desc}</span>
+      </span>
+      {item.soon ? <span className="hc-ed-soon">Soon</span> : <ChevronRight className="hc-ed-chev" size={18} strokeWidth={ICON_STROKE} aria-hidden="true" />}
     </Link>
   );
+  const startAndHost = START_GROUPS.flatMap((g) => visibleItems(g.items, navCtx));
   const exploreMega = (
-    <div ref={megaRef} id="hc-explore-menu" className="hc-mega pop-in">
-      <div className="hc-mega-inner hc-mega-layout" data-places={places.length > 0 ? "1" : "0"} style={{ maxWidth }}>
-        <div>
-          <div className="hc-mega-label">
-            <span style={{ opacity: 0.6 }}>/</span> THINGS TO DO
-          </div>
-          <div className="hc-mega-grid">{EXPLORE_THINGS.map(megaRow)}</div>
+    <div ref={megaRef} id="hc-explore-menu" className="hc-drop hc-drop--editorial pop-in" style={{ left: exploreOffset }}>
+      <div className="hc-ed-body">
+        <div role="group" aria-labelledby="hc-ed-things" className="hc-ed-col">
+          <div id="hc-ed-things" className="hc-drop-label">Things to do</div>
+          {EXPLORE_THINGS.map(editorialLink)}
         </div>
-        {places.length > 0 && (
-          <div>
-            <div className="hc-mega-label">
-              <span style={{ opacity: 0.6 }}>/</span> PLACES
+        <div className="hc-ed-col">
+          <div role="group" aria-labelledby="hc-ed-learn">
+            <div id="hc-ed-learn" className="hc-drop-label">Learn & give back</div>
+            {EXPLORE_LEARN.map(editorialLink)}
+          </div>
+          {places.length > 0 && (
+            <div role="group" aria-labelledby="hc-ed-places" className="hc-ed-subgroup">
+              <div id="hc-ed-places" className="hc-drop-label">Places</div>
+              {places.map(editorialLink)}
             </div>
-            {places.map(megaRow)}
-          </div>
-        )}
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          <div className="hc-mega-label" style={{ marginBottom: 4 }}>
-            <span style={{ opacity: 0.6 }}>/</span> FEATURED
-          </div>
-          {megaTile(EXPLORE_FEATURED[0], "SEE WHAT'S ON")}
-          {megaTile(EXPLORE_FEATURED[1], "GET STARTED")}
-          {megaTile(FREE_TIME_ITEM, "TRY IT")}
+          )}
         </div>
-        <Link to="/explore" onClick={closeAll} className="hc-mega-photo hc-mega-photo-col" aria-label="Discover what's on — start exploring">
-          <img
-            src="https://images.unsplash.com/photo-1633894812833-3961145496a3?w=600&q=75&auto=format&fit=crop"
-            alt=""
-            style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", display: "block", filter: "grayscale(.15) saturate(1.05)" }}
-          />
-          <span style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg, rgba(30,36,32,0) 45%, rgba(30,36,32,.88) 100%)" }} />
-          <span style={{ position: "absolute", left: 20, right: 20, bottom: 20, textAlign: "left" }}>
-            <span style={{ display: "block", fontFamily: fonts.display, fontWeight: 800, fontSize: 20, color: "#fff", lineHeight: 1.2 }}>
-              Discover
-              <br />
-              what's on.
-            </span>
-            <span style={{ display: "block", width: 26, height: 1, background: colors.gold, margin: "14px 0" }} />
-            <span style={{ display: "block", fontSize: 12, fontWeight: 700, color: colors.gold, letterSpacing: 0 }}>START EXPLORING &rarr;</span>
+        <div role="group" aria-labelledby="hc-ed-start" className="hc-ed-col">
+          <div id="hc-ed-start" className="hc-drop-label">Start & host</div>
+          {startAndHost.map(editorialLink)}
+        </div>
+        <Link to={weekend.to} className="hc-ed-photo" onClick={closeAll}>
+          <img src="https://images.unsplash.com/photo-1551632811-561732d1e306?w=640&q=75&auto=format&fit=crop" alt="" loading="eager" />
+          <span className="hc-ed-photo-text">
+            <span className="hc-ed-photo-kicker">This weekend</span>
+            <span className="hc-ed-photo-title">Find your next adventure.</span>
+            <span className="hc-ed-photo-sub">Great activities, events and experiences near you.</span>
+            <span className="hc-ed-photo-cta">See what's on <ArrowRight size={16} strokeWidth={2.2} aria-hidden="true" /></span>
           </span>
         </Link>
+      </div>
+      <div className="hc-ed-footer">
+        <Link to={FREE_TIME_ITEM.to} className="hc-ed-footer-link" onClick={closeAll} aria-current={pathname === FREE_TIME_ITEM.to ? "page" : undefined}>
+          <Sparkles size={20} strokeWidth={ICON_STROKE} aria-hidden="true" style={{ color: colors.text }} />
+          <span style={{ color: colors.muted }}>Not sure what to do?</span>
+          <span className="hc-ed-footer-cta">
+            Try Free Time Mode <ArrowRight size={16} strokeWidth={2.2} aria-hidden="true" />
+          </span>
+        </Link>
+        {resident?.homeCounty && (
+          <span className="hc-ed-footer-near">
+            <MapPin size={18} strokeWidth={ICON_STROKE} aria-hidden="true" />
+            Showing results near <strong>{resident.homeCounty}</strong>
+            <Link to="/profile" onClick={closeAll} className="hc-ed-footer-change">Change</Link>
+          </span>
+        )}
       </div>
     </div>
   );
 
   const startPanel = (
-    <div className="pop-in" id="hc-start-menu" style={{ ...panelStyle, left: 0, width: 340 }}>
-      {visibleItems(START_ITEMS, navCtx).map((item) => (
-        <Link key={item.key} to={item.to} className="hc-menu-row" aria-current={pathname === item.to ? "page" : undefined} onClick={closeAll} style={{ alignItems: "flex-start", padding: "10px 12px" }}>
-          <span className="hc-row-icon" style={{ marginTop: 1 }}>
-            <NavIcon icon={item.icon} size={21} />
-          </span>
-          <span>
-            <span style={menuRowTitleStyle}>{item.label}</span>
-            <span style={menuRowDescStyle}>{item.desc}</span>
-          </span>
-        </Link>
-      ))}
+    <div className="hc-drop hc-drop--start pop-in" id="hc-start-menu">
+      {START_GROUPS.map((g) => {
+        const items = visibleItems(g.items, navCtx);
+        if (!items.length) return null;
+        return <div key={g.key}>{dropGroup(`hc-start-${g.key}`, g.label, items)}</div>;
+      })}
     </div>
   );
 
@@ -326,11 +359,12 @@ export function Header() {
 
         {!inAdmin && (
         <nav className="desktop-nav hc-nav" aria-label="Main">
-          <div ref={panelRefs.explore}>
+          <div ref={panelRefs.explore} style={{ position: "relative" }}>
             <button type="button" className={`hc-nav-link${exploreActive ? " is-active" : ""}`} onClick={() => toggle("explore")} aria-expanded={panel === "explore"} aria-controls="hc-explore-menu">
               Explore <ChevronDown className="hc-chevron" size={16} strokeWidth={ICON_STROKE} aria-hidden="true" />
             </button>
-          </div>
+            {panel === "explore" && exploreMega}
+                </div>
           <Link to="/circles" className={`hc-nav-link${isUnder(pathname, ["/circles"]) && !startActive ? " is-active" : ""}`} aria-current={pathname === "/circles" ? "page" : undefined}>
             Circles
           </Link>
@@ -394,7 +428,7 @@ export function Header() {
           ) : signedIn ? (
             <>
               {resident && (
-                <Link to="/profile?tab=favourites" className={`hc-icon-btn${savedActive ? " is-active" : ""}`} aria-label="Saved" title="Saved" aria-current={savedActive ? "page" : undefined}>
+                <Link to="/bookings?tab=saved" className={`hc-icon-btn${savedActive ? " is-active" : ""}`} aria-label="Saved" title="Saved" aria-current={savedActive ? "page" : undefined}>
                   <NavIcon icon={Heart} />
                 </Link>
               )}
@@ -504,7 +538,6 @@ export function Header() {
         </div>
       </div>
 
-      {panel === "explore" && exploreMega}
 
       <MobileSearchScreen open={searchScreen} onClose={() => setSearchScreen(false)} />
 
@@ -540,6 +573,7 @@ export function Header() {
         )}
         <AccountMenuContent
           {...accountProps}
+          surface="sheet"
           extra={
             <>
               <div style={{ borderTop: `1px solid ${colors.border}`, margin: "6px 4px" }} />

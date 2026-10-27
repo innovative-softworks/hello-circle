@@ -1,3 +1,4 @@
+import { detailIcon } from "./workspace/detailIcons";
 import { VENUE_PAGES_PUBLIC } from "../venueLaunch";
 import { useState } from "react";
 import { AlertTriangle, Building2, CalendarDays, Eye, Lightbulb, MessageSquare, Volleyball, X, type LucideIcon } from "lucide-react";
@@ -147,7 +148,7 @@ export function VendorOverviewTab({
               onClick={() => onNavigateTab(c.tab)}
               aria-label={`${c.label}: ${c.value}. Open ${c.tab}`}
             >
-              <span className="adm-ov-cardicon">
+              <span className="adm-ov-cardicon wd-ico" data-tone={detailIcon(c.label).tone}>
                 <Icon size={17} strokeWidth={1.9} aria-hidden="true" />
               </span>
               <span className="adm-ov-cardvalue">{c.value}</span>

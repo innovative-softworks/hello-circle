@@ -4,14 +4,16 @@ import { TraderProfileForm } from "./TraderProfileForm";
 import type { HostGameEarning } from "../api";
 import { CreditCard } from "lucide-react";
 import { EmptyState } from "./ui";
-import { Box, Loaded, useAdminData } from "./admin/adminUi";
+import { Box, Loaded, useAdminData, RowMenu } from "./admin/adminUi";
 import { dateLabel } from "../euro";
+import { useNavigate } from "react-router-dom";
 
 // Vendor-parity pass, Phase 24 — a Host equivalent of PaymentsPanel
 // (VendorOrg.tsx), scoped to paid Games instead of bookings/registrations.
 // No payout/Stripe Connect concept exists for either surface — this is a
 // read-only transaction list, same as Vendor's.
 export function HostEarningsTab() {
+  const navigate = useNavigate();
   const state = useAdminData<HostGameEarning[]>(() => fetchHostGameEarnings());
   const totalCents = (state.data ?? []).reduce((sum, r) => sum + (r.amountCents ?? 0), 0);
 
@@ -39,6 +41,9 @@ export function HostEarningsTab() {
                       <th scope="col" className="adm-num">
                         Amount
                       </th>
+                                          <th scope="col">
+                        <span className="adm-visually-hidden">Actions</span>
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
@@ -49,6 +54,9 @@ export function HostEarningsTab() {
                         <td data-label="Player">{r.participantName}</td>
                         <td data-label="Amount" className="adm-num" style={{ fontWeight: 700 }}>
                           €{((r.amountCents ?? 0) / 100).toFixed(2)}
+                        </td>
+                        <td data-label="">
+                          <RowMenu name={`${r.participantName}, ${r.activityLabel}`} items={[{ label: "Open activity", onSelect: () => navigate(`/manage?tab=activities&record=activity:${r.gameId}`) }]} />
                         </td>
                       </tr>
                     ))}

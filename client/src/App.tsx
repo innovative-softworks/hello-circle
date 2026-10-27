@@ -1,4 +1,5 @@
 import { PartnerOrgGate } from "./components/OrgSuspendedView";
+import { LAUNCH_GATE_ENABLED } from "./launchMode";
 import { BookingChangePage } from "./pages/BookingChangePage";
 import { AdminInviteAccept } from "./pages/AdminInviteAccept";
 import { lazy, Suspense, useEffect, useRef } from "react";
@@ -78,12 +79,17 @@ const HelpGuideCircles = lazy(() => import("./pages/helpGuide/HelpGuideCircles")
 const HelpGuideMyLife = lazy(() => import("./pages/helpGuide/HelpGuideMyLife").then((m) => ({ default: m.HelpGuideMyLife })));
 const HelpGuideStart = lazy(() => import("./pages/helpGuide/HelpGuideStart").then((m) => ({ default: m.HelpGuideStart })));
 const Login = lazy(() => import("./pages/Login").then((m) => ({ default: m.Login })));
+const ActivityPassport = lazy(() => import("./pages/ActivityPassport").then((m) => ({ default: m.ActivityPassport })));
+const ForMe = lazy(() => import("./pages/ForMe").then((m) => ({ default: m.ForMe })));
+const PlanMyDay = lazy(() => import("./pages/PlanMyDay").then((m) => ({ default: m.PlanMyDay })));
 const MakeItHappen = lazy(() => import("./pages/MakeItHappen").then((m) => ({ default: m.MakeItHappen })));
 const MyBookings = lazy(() => import("./pages/MyBookings").then((m) => ({ default: m.MyBookings })));
 const PaymentCancel = lazy(() => import("./pages/PaymentCancel").then((m) => ({ default: m.PaymentCancel })));
 const PaymentSuccess = lazy(() => import("./pages/PaymentSuccess").then((m) => ({ default: m.PaymentSuccess })));
 const PrivacyPolicy = lazy(() => import("./pages/PrivacyPolicy").then((m) => ({ default: m.PrivacyPolicy })));
 // Booking kit preview (UX plan Phase 1) — dev builds only; tree-shaken from production.
+// Card redesign preview (2026-10-22) — dev builds only; tree-shaken from production.
+const CardKitPreview = import.meta.env.DEV ? lazy(() => import("./pages/CardKitPreview").then((m) => ({ default: m.CardKitPreview }))) : null;
 const BookingKitPreview = import.meta.env.DEV ? lazy(() => import("./pages/BookingKitPreview").then((m) => ({ default: m.BookingKitPreview }))) : null;
 const PolicyIndex = lazy(() => import("./pages/Policies").then((m) => ({ default: m.PolicyIndex })));
 const PolicyPage = lazy(() => import("./pages/Policies").then((m) => ({ default: m.PolicyPage })));
@@ -119,14 +125,15 @@ const HostRewardsPage = lazy(() => import("./pages/RewardsHistoryPage").then((m)
 const ManageCircle = lazy(() => import("./pages/ManageCircle").then((m) => ({ default: m.ManageCircle })));
 const ManageHome = lazy(() => import("./pages/ManageHome").then((m) => ({ default: m.ManageHome })));
 const ReceiptPage = lazy(() => import("./pages/ReceiptPage").then((m) => ({ default: m.ReceiptPage })));
+const BookingDetailPage = lazy(() => import("./pages/BookingDetailPage").then((m) => ({ default: m.BookingDetailPage })));
 const StartCirclePage = lazy(() => import("./pages/StartCirclePage").then((m) => ({ default: m.StartCirclePage })));
 
 // Pre-launch lockdown (no real vendor/resident data yet — see CLAUDE.md's
 // "Dev vs. prod database" section). Defaults ON (gated) until a deploy
 // explicitly sets VITE_LAUNCH_MODE=public, so a forgotten env var fails
 // closed rather than open. Flip to "public" once real Dublin/Cork vendors
-// are onboarded and Phase 0-3 of the launch plan are done.
-const LAUNCH_GATE_ENABLED = import.meta.env.VITE_LAUNCH_MODE !== "public";
+// are onboarded and Phase 0-3 of the launch plan are done. The switch itself
+// lives in launchMode.ts (shared with pages, e.g. ForVenues — PUB-10).
 
 // Routes that must stay reachable by direct URL while gated: the vendor-
 // recruitment landing page (root + /for-venues), the waitlist splash itself,
@@ -204,25 +211,10 @@ export function App() {
   const location = useLocation();
   const navigate = useNavigate();
   const mainRef = useRef<HTMLElement>(null);
-  const lastPathRef = useRef(location.pathname);
   useCardTilt();
 
-  useEffect(() => {
-    if (lastPathRef.current === location.pathname) return;
-    lastPathRef.current = location.pathname;
-    const el = mainRef.current;
-    if (!el || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    el.classList.remove("route-enter");
-    void el.offsetWidth;
-    el.classList.add("route-enter");
-    const done = (e: AnimationEvent) => {
-      if (e.target !== el) return;
-      el.classList.remove("route-enter");
-      el.removeEventListener("animationend", done);
-    };
-    el.addEventListener("animationend", done);
-    return () => el.removeEventListener("animationend", done);
-  }, [location.pathname]);
+  // Batch 2 (owner, 2026-10-22): no route-change fade — pages appear as soon as
+  // they render, with skeletons while their data loads.
 
   // Hides the native splash screen (Capacitor's SplashScreen.hide(), no-op
   // on web) once the app shell has mounted, instead of relying on the
@@ -364,6 +356,10 @@ export function App() {
                 <Route path="/games/host/:gameId" element={<HostGamePage />} />
                 <Route path="/free-time" element={<FreeTimeMode />} />
                 <Route path="/make-it-happen" element={<MakeItHappen />} />
+                {/* Experience 3.0 — each page shows a "not switched on" state while its switch is off. */}
+                <Route path="/plan-my-day" element={<PlanMyDay />} />
+                <Route path="/my-life/passport" element={<ActivityPassport />} />
+                <Route path="/my-life/for-you" element={<ForMe />} />
                 <Route path="/suggest-place" element={<SuggestPlacePage />} />
                 {/* Sitemap audit P2-15 — Ask HelloCircle ran the same structured search
                     as Explore and was only reachable from /landing; folded into
@@ -380,6 +376,9 @@ export function App() {
                     would have to remember to forward), while /my-life gives the
                     "My Life" nav label a URL that actually matches it. */}
                 <Route path="/my-life" element={<MyBookings />} />
+                {/* Batch 2 — one booking's details, all six participation types
+                    (kind = booking | registration | program | experience | game | pass). */}
+                <Route path="/bookings/:kind/:ref" element={<BookingDetailPage />} />
                 <Route path="/receipts/:ref" element={<ReceiptPage />} />
                 <Route path="/profile" element={<Profile />} />
                 <Route path="/chats" element={<Chats />} />
@@ -461,6 +460,7 @@ export function App() {
                     over dynamic ones regardless of declaration order, so this never
                     shadows an existing 2-segment route like /games/:id. */}
                 {BookingKitPreview && <Route path="/dev/booking-kit" element={<BookingKitPreview />} />}
+                {CardKitPreview && <Route path="/dev/card-kit" element={<CardKitPreview />} />}
                 <Route path="/:county/:activity" element={<LocalActivity />} />
                 <Route path="*" element={<NotFound />} />
               </Routes>

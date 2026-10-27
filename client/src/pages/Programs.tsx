@@ -24,6 +24,8 @@ export function programToBrowseItem(p: ProgramSummary): BrowseItem {
     priceCents: p.priceCents,
     // One price covers the whole program, not each session.
     perPerson: false,
+    // One price for the whole programme (price rules, owner 2026-10-27).
+    priceUnit: p.upcomingSessions > 1 ? `for ${p.upcomingSessions} sessions` : "for the programme",
     imageUrl: p.imageUrl,
     featured: false,
     href: `/programs/${p.id}`,
@@ -31,7 +33,7 @@ export function programToBrowseItem(p: ProgramSummary): BrowseItem {
     next: { date: p.nextSessionDate, time: p.nextSessionTime, spotsLeft: p.spotsLeft },
     tags: [p.category, p.skillLevel, p.ageRange ? `Ages ${p.ageRange}` : "", p.upcomingSessions > 1 ? `${p.upcomingSessions} sessions` : ""].filter(Boolean),
     filterTag: p.category || null,
-    ctaLabel: "View program",
+    ctaLabel: "View programme",
     // Favourites don't cover programs yet, so no save button.
     save: null,
   };
@@ -41,13 +43,19 @@ export function Programs() {
   const config = useMemo<BrowseConfig>(
     () => ({
       title: "Programmes",
+      kindLabel: "Programme",
+      featured: "activities",
       subtitle: "Multi-week courses and series at community centres and clubs — sign up once and come back each week.",
       nounPlural: "programmes",
       searchPlaceholder: "What would you like to learn? e.g. Pottery",
       icon: <GridIcon size={24} />,
-      load: () => fetchProgramBrowse().then((rows) => rows.map(programToBrowseItem)),
+      load: (taxonomy) => fetchProgramBrowse(undefined, undefined, taxonomy).then((rows) => rows.map(programToBrowseItem)),
       resetKey: "programs",
+      categoryFamily: "programme",
+      categoryBasePath: "/programs",
+      // The free-text programme category stays as the fallback filter only.
       tagFilterLabel: "Category",
+      tagFilterFallbackOnly: true,
       // No "Search this area" — the map's area search covers venues and
       // experiences, not programs; the list's own pins are shown instead.
       mapSearchTypes: undefined,

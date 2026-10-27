@@ -4,6 +4,8 @@ import { checkInGameParticipant, fetchGameParticipantsForManage } from "../api";
 import { CheckIcon, SearchIcon } from "./icons";
 import { Avatar, Button, EmptyState, LoadErrorState, Modal, PageSpinner } from "./ui";
 import { useToast } from "./Toast";
+import { ScanPassModal, readPassCode, type ScanResult } from "./pass/ScanPassModal";
+import { QrCode } from "lucide-react";
 import { errorMessage } from "./admin/adminUi";
 import { colors, fonts, radius } from "../theme";
 import type { Game, ManageParticipant } from "../types";
@@ -19,6 +21,7 @@ export function HostCheckInScreen({ game, onClose }: { game: Game | null; onClos
   const [search, setSearch] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
+  const [scanning, setScanning] = useState(false);
   const toast = useToast();
 
   const load = () => {
@@ -49,6 +52,27 @@ export function HostCheckInScreen({ game, onClose }: { game: Game | null; onClos
     }
   };
 
+  // Scan passes (owner 2026-10-27): the code on an activity pass names the
+  // activity and the person; the check-in is the same host call as the button.
+  const onScan = async (text: string): Promise<ScanResult> => {
+    if (!game || !participants) return { ok: false, message: "The list is still loading." };
+    const code = readPassCode(text);
+    if (!code) return { ok: false, message: "That isn't a HelloCircle pass." };
+    if (code.kind !== "game") return { ok: false, message: "That pass is for a booking, not this activity." };
+    if (code.gameId !== game.id) return { ok: false, message: "That pass is for a different activity or date." };
+    const p = joined.find((x) => x.residentId === code.residentId);
+    if (!p) return { ok: false, message: "They're not on the list for this activity." };
+    if (p.paymentStatus && p.paymentStatus !== "paid") return { ok: false, message: `${p.name}'s payment isn't confirmed yet.` };
+    if (p.checkedInAt) return { ok: true, message: `${p.name} is already checked in.` };
+    await checkInGameParticipant(game.id, p.residentId);
+    setParticipants((prev) => prev && prev.map((x) => (x.residentId === p.residentId ? { ...x, checkedInAt: new Date().toISOString() } : x)));
+    return { ok: true, message: `Checked in: ${p.name}` };
+  };
+
+  if (scanning && game) {
+    return <ScanPassModal open title={`Scan passes · ${game.activityLabel}`} onClose={() => setScanning(false)} onCode={onScan} />;
+  }
+
   return (
     <Modal
       open={!!game}
@@ -67,6 +91,9 @@ export function HostCheckInScreen({ game, onClose }: { game: Game | null; onClos
             <div aria-hidden="true" style={{ height: 6, borderRadius: radius.control, background: colors.panel, overflow: "hidden" }}>
               <div style={{ height: "100%", width: `${joined.length ? (checkedInCount / joined.length) * 100 : 0}%`, background: colors.green, transition: "width .3s ease" }} />
             </div>
+            <Button variant="ghost" onClick={() => setScanning(true)}>
+              <QrCode size={16} aria-hidden="true" /> Scan passes
+            </Button>
             <div style={{ display: "flex", alignItems: "center", gap: 8, background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.control, padding: "10px 14px" }}>
               <SearchIcon size={15} style={{ color: colors.faint }} />
               <input

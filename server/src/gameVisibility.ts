@@ -26,6 +26,9 @@ export async function canViewPrivateGame(gameId: string, circleId: string | null
   if (viewerResidentId === hostResidentId) return true;
   if (await db.prepare(`SELECT 1 FROM game_participants WHERE game_id = ? AND resident_id = ? AND status = 'joined'`).get(gameId, viewerResidentId)) return true;
   if (circleId && await db.prepare(`SELECT 1 FROM circle_members WHERE circle_id = ? AND resident_id = ?`).get(circleId, viewerResidentId)) return true;
+  // Experience 3.0 (owner decision D2) — a Circle-to-Circle activity both
+  // organisers agreed to is also open to the partner Circle's members.
+  if (circleId && await db.prepare(`SELECT 1 FROM games g JOIN circle_members cm ON cm.circle_id = g.partner_circle_id WHERE g.id = ? AND cm.resident_id = ?`).get(gameId, viewerResidentId)) return true;
   return !!await db.prepare(`SELECT 1 FROM invitations WHERE entity_type = 'game' AND entity_id = ? AND invitee_resident_id = ?
     AND status IN ('pending', 'accepted', 'maybe') AND expires_at > NOW()`).get(gameId, viewerResidentId);
 }

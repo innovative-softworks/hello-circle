@@ -13,7 +13,11 @@ import type {
   CircleInvitation,
   CircleMemberSummary,
   CircleMoment,
+  CircleMembership,
   CirclePlanIdea,
+  CirclePlanListingType,
+  MyCirclePlan,
+  CircleLink,
   CirclePlanPreview,
   CirclePoll,
   CircleRecentActivity,
@@ -428,6 +432,8 @@ export function fetchGames(county?: string): Promise<Game[]> {
 export interface GameListFilters {
   q?: string; county?: string; category?: string; dateFrom?: string; dateTo?: string;
   timeFrom?: string; weekend?: boolean; priceMin?: number; priceMax?: number; skill?: string; centreId?: string; limit?: number;
+  /** Category system — taxonomy slugs (server: listing_taxonomy). */
+  categorySlug?: string; subcategorySlug?: string;
 }
 
 export function fetchGamesPage(filters: GameListFilters = {}, cursor?: string | null): Promise<Page<Game>> {
@@ -448,6 +454,12 @@ export function fetchMyGames(opts?: { hostedOnly?: boolean }): Promise<Game[]> {
 
 export interface CreateGameInput {
   activityLabel: string;
+  /** Circles 3.1 — a member's "create an activity for this Circle": linked after creation, for an organiser to approve. */
+  shareToCircleId?: string;
+  /** Category system — omitted leaves it unchanged; "" clears it. */
+  categoryId?: string;
+  subcategoryId?: string | null;
+  tags?: string[];
   centreId?: string;
   /** Booking UX Phase 5 — required with centreId: the host's own confirmed booking there. */
   bookingRef?: string;
@@ -483,6 +495,8 @@ export interface CreateGameInput {
    * this activity; server-validated (organiser + confirmed status) and
    * idempotency-guarded, unlike circleId above. */
   planId?: string;
+  /** Experience 3.0 — an accepted Circle-to-Circle activity; server-checked. */
+  collaborationId?: string;
   /** Cover image — only meaningful on updateGame() (needs a real game id
    * first). Omitting it on an unrelated edit leaves the existing cover
    * untouched (COALESCE'd server-side, see games.ts's PUT /:id). */
@@ -760,7 +774,7 @@ export function fetchCircles(county?: string): Promise<Circle[]> {
 }
 
 /** HC-QA-073 — paginated Circles list with server-side q / county / activity. */
-export function fetchCirclesPage(filters: { q?: string; county?: string; activity?: string; limit?: number } = {}, cursor?: string | null): Promise<Page<Circle>> {
+export function fetchCirclesPage(filters: { q?: string; county?: string; activity?: string; limit?: number; categorySlug?: string; subcategorySlug?: string } = {}, cursor?: string | null): Promise<Page<Circle>> {
   return requestPage<Circle>(`/circles${queryString({ ...filters, cursor })}`);
 }
 
@@ -772,6 +786,27 @@ export function fetchCircle(id: string): Promise<Circle> {
  * the public browse list. */
 export function fetchMyCircles(): Promise<Circle[]> {
   return request(`/circles/mine`);
+}
+
+/** Circles 3.1 — listings linked to a Circle. */
+export function fetchCircleLinks(circleId: string): Promise<CircleLink[]> {
+  return request(`/circles/${encodeURIComponent(circleId)}/links`);
+}
+/** Organiser: shows now. Member: waits for an organiser (status "pending"). */
+export function linkListingToCircle(circleId: string, listing: { type: CirclePlanListingType; id: string }, note?: string): Promise<{ id: string; status: "approved" | "pending" }> {
+  return request(`/circles/${encodeURIComponent(circleId)}/links`, { method: "POST", body: JSON.stringify({ listing, note }) });
+}
+export function decideCircleLink(circleId: string, linkId: string, approve: boolean, reason?: string): Promise<{ ok: boolean }> {
+  return request(`/circles/${encodeURIComponent(circleId)}/links/${encodeURIComponent(linkId)}/${approve ? "approve" : "decline"}`, { method: "POST", body: JSON.stringify({ reason }) });
+}
+/** Ends the link only; the listing and its bookings are untouched. */
+export function removeCircleLink(circleId: string, linkId: string): Promise<{ ok: boolean }> {
+  return request(`/circles/${encodeURIComponent(circleId)}/links/${encodeURIComponent(linkId)}`, { method: "DELETE" });
+}
+
+/** Circles 3.0 — plans you said "I'm in" to, across your Circles. */
+export function fetchMyCirclePlans(): Promise<MyCirclePlan[]> {
+  return request(`/circles/my-plans`);
 }
 
 export function fetchCircleUpcoming(id: string): Promise<CirclePlanPreview[]> {
@@ -806,6 +841,10 @@ export function fetchCircleSuggestions(): Promise<CircleSuggestion[]> {
 export type CircleJoinMode = "open" | "approval" | "invite";
 
 interface CircleInput {
+  /** Category system — omitted leaves it unchanged; "" clears it. */
+  categoryId?: string;
+  subcategoryId?: string | null;
+  tags?: string[];
   name: string;
   activityLabel?: string;
   area?: string;
@@ -818,6 +857,8 @@ interface CircleInput {
   joinMode?: CircleJoinMode;
   /** Booking UX Phase 5 — up to three questions for an approval Circle; omit to leave unchanged, [] to clear. */
   joinQuestions?: string[];
+  /** Circle Experience 4.0 — "people often come on their own"; null = not said. */
+  soloWelcome?: boolean | null;
 }
 
 export function createCircle(input: CircleInput): Promise<{ id: string; slug: string }> {
@@ -845,7 +886,7 @@ export function leaveCircle(id: string): Promise<{ ok: boolean }> {
   return request(`/circles/${id}/join`, { method: "DELETE" });
 }
 
-export function fetchCircleMembership(id: string): Promise<{ member: boolean; role: string | null; requested: boolean }> {
+export function fetchCircleMembership(id: string): Promise<CircleMembership> {
   return request(`/circles/${id}/membership`);
 }
 
@@ -887,9 +928,10 @@ export function fetchCirclePlansForManage(id: string): Promise<ManageCirclePlan[
   return request(`/circles/${id}/plans`);
 }
 
-/** Organiser removes a non-organiser member. */
-export function removeCircleMember(id: string, residentId: string): Promise<{ ok: boolean }> {
-  return request(`/circles/${id}/members/${residentId}/remove`, { method: "POST" });
+/** Organiser removes a non-organiser member. Owner decision D5: they can't
+ * rejoin or ask again until an organiser lifts it (see liftCircleRestriction). */
+export function removeCircleMember(id: string, residentId: string, reason?: string): Promise<{ ok: boolean }> {
+  return request(`/circles/${id}/members/${residentId}/remove`, { method: "POST", body: JSON.stringify(reason ? { reason } : {}) });
 }
 
 /** Co-organisers (Vendor-parity pass, Phase 26) — no schema change, `role`
@@ -980,7 +1022,8 @@ export function fetchCirclePlanIdea(circleId: string, planId: string): Promise<C
 
 export function createCirclePlanIdea(
   circleId: string,
-  input: { title: string; note?: string; proposedDate?: string; proposedTime?: string; locationText?: string }
+  /** targetSize / sourcePulseKey — Circle Experience 2.0 (ignored while Make It Happen is off). */
+  input: { title: string; note?: string; proposedDate?: string; proposedTime?: string; locationText?: string; targetSize?: number; sourcePulseKey?: string; listing?: { type: CirclePlanListingType; id: string; sessionId?: string | null } }
 ): Promise<CirclePlanIdea> {
   return request(`/circles/${circleId}/plan-ideas`, { method: "POST", body: JSON.stringify(input) });
 }
@@ -997,8 +1040,8 @@ export function confirmCirclePlanIdea(circleId: string, planId: string): Promise
   return request(`/circles/${circleId}/plan-ideas/${planId}/confirm`, { method: "POST" });
 }
 
-export function cancelCirclePlanIdea(circleId: string, planId: string): Promise<{ ok: boolean }> {
-  return request(`/circles/${circleId}/plan-ideas/${planId}/cancel`, { method: "POST" });
+export function cancelCirclePlanIdea(circleId: string, planId: string, reason?: string): Promise<{ ok: boolean }> {
+  return request(`/circles/${circleId}/plan-ideas/${planId}/cancel`, { method: "POST", body: JSON.stringify(reason ? { reason } : {}) });
 }
 
 // --- Participation Chat (implementation plan Phase 11) ----------------------
@@ -1344,4 +1387,36 @@ export function fetchMyPrivacyRequests(): Promise<MyPrivacyRequest[]> {
 
 export function submitPrivacyRequest(kind: MyPrivacyRequest["kind"], details: string): Promise<{ id: number }> {
   return request(`/residents/me/privacy-requests`, { method: "POST", body: JSON.stringify({ kind, details }) });
+}
+
+// --- My Life 3.0 (docs/my-life-3/) ---------------------------------------
+
+export interface MyLifeSavedSignal {
+  listingType: string;
+  listingId: string;
+  upcoming: number;
+  next: { id: string; title: string; date: string; time: string; href: string };
+  spotsLeft: number | null;
+}
+export interface MyLifeRoutineMatch {
+  routineId: string;
+  activityLabel: string;
+  dayOfWeek: number;
+  matches: { id: string; title: string; date: string; time: string; href: string }[];
+}
+
+/** Saved items with sessions coming up, and sessions that fit your routines (mylife.pulse). */
+export function fetchMyLifeSignals(): Promise<{ saved: MyLifeSavedSignal[]; routines: MyLifeRoutineMatch[] }> {
+  return request(`/my-life/signals`);
+}
+
+/** Pulse items and suggestions you hid ("not for me"); follows you across devices. */
+export function fetchMyLifeDismissals(): Promise<{ keys: string[] }> {
+  return request(`/my-life/dismissals`);
+}
+export function dismissMyLifeItem(key: string): Promise<{ ok: true }> {
+  return request(`/my-life/dismissals`, { method: "POST", body: JSON.stringify({ key }) });
+}
+export function undismissMyLifeItem(key: string): Promise<{ ok: true }> {
+  return request(`/my-life/dismissals/${encodeURIComponent(key)}`, { method: "DELETE" });
 }

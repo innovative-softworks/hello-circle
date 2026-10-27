@@ -1,6 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import { BallIcon, CalendarIcon, CheckCircleIcon, RepeatIcon, TagIcon } from "./icons";
 import { colors, fonts } from "../theme";
+import { dateLabel } from "../euro";
 import type { ParticipationEntry } from "../types";
 import { irelandToday } from "../irelandDate";
 
@@ -59,6 +60,12 @@ function groupKey(dateIso: string, today: string): "TODAY" | "THIS WEEK" | "EARL
 }
 
 const GROUP_ORDER = ["TODAY", "THIS WEEK", "EARLIER"] as const;
+
+/** Some feed subtitles start with a raw "YYYY-MM-DD HH:MM"; show it as
+ * "Sun 18 Oct · 11:00" like the rest of the app. Anything else is kept. */
+function readableSubtitle(subtitle: string): string {
+  return subtitle.replace(/^(\d{4}-\d{2}-\d{2})(?:[ T](\d{2}:\d{2}))?/, (_, d: string, t?: string) => `${dateLabel(d)}${t ? ` · ${t}` : ""}`);
+}
 const VISIBLE_LIMIT = 5;
 
 export function MyLifeRecentActivity({ entries, onViewFull }: { entries: ParticipationEntry[]; onViewFull?: () => void }) {
@@ -93,7 +100,7 @@ export function MyLifeRecentActivity({ entries, onViewFull }: { entries: Partici
                     <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                       {cancelled ? "Cancelled — " : `${KIND_VERB[e.kind]} `}{e.title}
                     </div>
-                    <div style={{ fontSize: 12.5, color: colors.mutedLight }}>{e.subtitle}</div>
+                    <div style={{ fontSize: 12.5, color: colors.mutedLight }}>{readableSubtitle(e.subtitle)}</div>
                   </div>
                   <div style={{ flex: "none", fontSize: 12.5, color: colors.faint }}>{relativeTime(e.date)}</div>
                 </button>

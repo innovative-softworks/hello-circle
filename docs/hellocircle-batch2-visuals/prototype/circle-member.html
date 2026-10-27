@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Circle (member) — proposed</title>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=Figtree:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="proto.css">
+<style>
+  .mhead { display: flex; gap: 18px; align-items: center; padding: var(--s3) 0 var(--s4); }
+  .mhead img { width: 84px; height: 84px; border-radius: 16px; object-fit: cover; flex: none; }
+  .mhead h1 { font-size: clamp(26px, 3vw, 38px); }
+  .strip { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 12px 0; }
+  .strip .sp { flex: 1; }
+  .nextplan { display: grid; grid-template-columns: 72px 1fr auto; gap: 18px; align-items: center; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-card); padding: 18px 20px; }
+  .nextplan .d b { display: block; font: 800 30px/1 var(--display); } .nextplan .d span { font: 700 12px/1.2 var(--body); color: var(--orange); text-transform: uppercase; }
+  .idea { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: center; padding: 12px 0; border-top: 1px solid var(--border); }
+  .idea:first-of-type { border-top: 0; }
+  .vote { display: flex; align-items: center; gap: 6px; } .vote b { min-width: 22px; text-align: center; }
+  .poll .opt { position: relative; display: flex; justify-content: space-between; padding: 10px 14px; border: 1px solid var(--border-strong); border-radius: 10px; margin-top: 8px; overflow: hidden; font-weight: 600; }
+  .poll .opt i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--green-bg); z-index: 0; } .poll .opt span { position: relative; z-index: 1; }
+  .poll .opt.mine { border-color: var(--green); }
+  .ann { border-left: 3px solid var(--orange); padding: 4px 0 4px 14px; }
+  @media (max-width: 760px) { .mhead img { width: 64px; height: 64px; } .nextplan { grid-template-columns: 56px 1fr; } .nextplan .btn { grid-column: 1 / -1; } }
+</style></head>
+<body data-page="circles" data-signedin="1">
+<main class="wrap">
+  <nav class="crumbs" aria-label="Breadcrumb"><span data-ic="back"></span>My Circles</nav>
+  <header class="mhead"><img src="https://images.unsplash.com/photo-1552674605-db6ffd4facb5?w=300&q=70&auto=format&fit=crop" alt=""><div><span class="eyebrow">Public Circle · Cork City</span><h1 style="margin-top:6px">Cork Saturday Parkrun Circle</h1></div></header>
+  <!-- Membership status strip: member actions at the top (PUB-30) -->
+  <div class="strip" role="region" aria-label="Your membership"><span class="pill green">✓ You're a member</span><span class="support">7 members · since 3 Oct</span><span class="sp"></span><span class="btn secondary sm"><span data-ic="chat"></span>Chat <span class="pill red" style="height:20px;margin-left:2px">3</span></span><span class="btn secondary sm"><span data-ic="bell"></span>Notifications: all</span><span class="icon-btn" aria-label="More: share, leave, report" data-ic="more"></span></div>
+  <nav class="stabs" aria-label="Circle sections"><a class="on" href="#">Overview</a><a href="#">Plans</a><a href="#">Planning 2</a><a href="#">Polls 1</a><a href="#">Members 7</a><a href="#">About</a></nav>
+  <div class="detail" style="margin-top:var(--s5)">
+    <div class="main">
+      <section style="padding-bottom:var(--s5)">
+        <h2 style="font-size:22px;margin-bottom:12px">Next plan</h2>
+        <div class="nextplan"><div class="d"><b>24</b><span>Sat · 09:30</span></div><div><h3 style="font-size:19px">Fitzgerald Park 5k</h3><p class="support">Meet at the bandstand · 5 of 12 going · Free</p></div><span class="btn primary">I'm going</span></div>
+      </section>
+      <section class="section">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px"><h2 style="margin:0">Planning</h2><span class="btn sm secondary"><span data-ic="idea"></span>Suggest a plan</span></div>
+        <div class="idea"><div><h4>Christmas Day fun run</h4><p class="support">Suggested by Niamh · Fri 25 Dec, 10:00 · Ballincollig</p></div><div class="vote"><span class="icon-btn" aria-label="Interested" data-ic="check"></span><b>6</b></div></div>
+        <div class="idea"><div><h4>Trail run at Gougane Barra</h4><p class="support">Suggested by Seán · date to agree</p></div><div class="vote"><span class="icon-btn" aria-label="Interested" data-ic="check"></span><b>3</b></div></div>
+      </section>
+      <section class="section poll">
+        <h2 style="margin-bottom:4px">Poll · Which Saturday works for the 10k?</h2><p class="caption">Closes Sun 25 Oct · 6 votes · you voted</p>
+        <div class="opt mine"><i style="width:58%"></i><span>Sat 7 Nov ✓</span><span>4</span></div>
+        <div class="opt"><i style="width:28%"></i><span>Sat 14 Nov</span><span>2</span></div>
+        <div class="opt"><i style="width:0%"></i><span>Sat 21 Nov</span><span>0</span></div>
+      </section>
+      <section class="section">
+        <h2>From the organiser</h2>
+        <div class="ann"><p><b>New meeting point from November:</b> the bandstand gate is closed for works, so we'll meet at the Mardyke entrance.</p><p class="caption" style="margin-top:4px">Cian Murphy · 2 days ago</p></div>
+      </section>
+    </div>
+    <aside class="rail">
+      <section class="panel"><div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px"><h3>Members</h3><a class="btn quiet" href="#">All 7</a></div>
+        <div style="display:flex;flex-direction:column;gap:10px"><div class="host"><span class="avatar g">CM</span><div><b style="font-size:14.5px">Cian Murphy</b><div class="caption">Organiser</div></div></div><div class="host"><span class="avatar p">NO</span><div><b style="font-size:14.5px">Niamh O'Brien</b><div class="caption">Member</div></div></div><div class="host"><span class="avatar y">SM</span><div><b style="font-size:14.5px">Seán McCarthy</b><div class="caption">Member</div></div></div></div></section>
+      <section class="panel"><h3 style="margin-bottom:6px">About</h3><p class="support">A shared Saturday morning parkrun, plus coffee afterwards for whoever's up for it. Walkers, joggers and runners welcome.</p></section>
+    </aside>
+  </div>
+</main>
+<script src="proto.js"></script>
+</body></html>

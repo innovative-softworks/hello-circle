@@ -18,10 +18,12 @@ import {
 } from "../api";
 import { AwardIcon, CalendarIcon, CheckIcon, SearchIcon } from "./icons";
 import { Avatar, Button, ConfirmDialog, EmptyState, LoadErrorState, ManageCard as Card, tableStyle, tdStyle, thStyle } from "./ui";
-import { Award, Building2, CalendarDays, List, ListChecks, X } from "lucide-react";
+import { Award, Building2, CalendarDays, List, ListChecks, QrCode, X } from "lucide-react";
+import { ScanPassModal, readPassCode, type ScanResult } from "./pass/ScanPassModal";
 import { ActionMenu } from "./ActionMenu";
 import { useToast } from "./Toast";
 import { RecordState, RecordView } from "./workspace/RecordView";
+import { DetailStats } from "./workspace/DetailParts";
 import { AdminButton, Box, Facts, IconTabs, SearchField, SectionLabel, SelectField, Toolbar } from "./admin/adminUi";
 import { useRecordParam, useUrlParam } from "../useUrlTab";
 import { DemandSignalsView } from "./DemandSignals";
@@ -368,45 +370,18 @@ function BookingRecord({ booking, onBack, onCancelled, onRefunded }: { booking: 
           )}
         </>
       }
-    >
-      {notice && (
-        <p role="status" style={{ background: colors.panel, padding: "10px 12px", margin: "0 0 16px", fontSize: 13.5 }}>
-          {notice}
-        </p>
-      )}
-      {error && (
-        <p role="alert" style={{ color: colors.danger, fontSize: 13.5, margin: "0 0 16px" }}>
-          {error}
-        </p>
-      )}
-      <div className="adm-record-grid">
-        <div>
-          <SectionLabel>Booking</SectionLabel>
-          <Facts
-            rows={[
-              ["Venue", booking.centreName],
-              ["Room", booking.roomName ?? "—"],
-              ["Date and time", `${dateLabel(booking.date)} · ${booking.time}`],
-              ["Duration", `${booking.duration} hour${booking.duration === 1 ? "" : "s"}`],
-              ["Event type", booking.eventType || "—"],
-              ["Guests", String(booking.guests)],
-              ["Notes", booking.notes || "—"],
-            ]}
-          />
-          <SectionLabel>Payment</SectionLabel>
-          <Facts
-            rows={[
-              ["Total", total],
-              ["How it was paid", booking.hasStripePayment ? "Online (Stripe)" : "At the venue / free"],
-              ["Payment status", st.payment.text],
-              ["Refund", booking.paymentStatus === "refunded" ? "Refunded" : st.refund ? "Pending — cancelled after online payment" : "None"],
-            ]}
-          />
-          <p className="adm-note" style={{ marginTop: 6 }}>
-            Settlement and payout to your bank are shown under Earnings; they aren't tracked per booking.
-          </p>
-        </div>
-        <div>
+      stats={
+        <DetailStats
+          items={[
+            { label: "Total", value: total, sub: booking.hasStripePayment ? "Paid online" : "At the venue / free" },
+            { label: "When", value: dateLabel(booking.date), sub: booking.time },
+            { label: "Duration", value: `${booking.duration} h`, sub: booking.roomName ?? booking.centreName },
+            { label: "Guests", value: String(booking.guests), sub: booking.eventType || undefined },
+          ]}
+        />
+      }
+      aside={
+        <>
           <SectionLabel>Guest</SectionLabel>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
             <Avatar name={booking.name} size={36} />
@@ -429,8 +404,39 @@ function BookingRecord({ booking, onBack, onCancelled, onRefunded }: { booking: 
               </button>
             </p>
           )}
-        </div>
-      </div>
+        </>
+      }
+    >
+      {notice && (
+        <p role="status" style={{ background: colors.panel, padding: "10px 12px", margin: "0 0 16px", fontSize: 13.5 }}>
+          {notice}
+        </p>
+      )}
+      {error && (
+        <p role="alert" style={{ color: colors.danger, fontSize: 13.5, margin: "0 0 16px" }}>
+          {error}
+        </p>
+      )}
+      <SectionLabel>Booking</SectionLabel>
+      <Facts
+        rows={[
+          ["Venue", booking.centreName],
+          ["Room", booking.roomName ?? "—"],
+          ["Event type", booking.eventType || "—"],
+          ["Notes", booking.notes || "—"],
+        ]}
+      />
+      <SectionLabel>Payment</SectionLabel>
+      <Facts
+        rows={[
+          ["How it was paid", booking.hasStripePayment ? "Online (Stripe)" : "At the venue / free"],
+          ["Payment status", st.payment.text],
+          ["Refund", booking.paymentStatus === "refunded" ? "Refunded" : st.refund ? "Pending — cancelled after online payment" : "None"],
+        ]}
+      />
+      <p className="adm-note" style={{ marginTop: 6 }}>
+        Settlement and payout to your bank are shown under Earnings; they aren't tracked per booking.
+      </p>
       <div style={{ marginTop: 20 }}>
         <BookingChangeHistory bookingRef={booking.ref} refreshKey={changesKey} canWithdraw={booking.status !== "cancelled"} />
       </div>
@@ -485,6 +491,7 @@ export function BookingsTab({ centreId, clubId }: { centreId?: string; clubId?: 
   const [search, setSearch] = useUrlParam<string>("bq", "");
 
   const [checkedInRefs, setCheckedInRefs] = useState<Set<string>>(new Set());
+  const [scanning, setScanning] = useState(false);
   const [noShowRefs, setNoShowRefs] = useState<Set<string>>(new Set());
   const [selectedBookings, setSelectedBookings] = useState<Set<string>>(new Set());
   const [selectedRegistrations, setSelectedRegistrations] = useState<Set<string>>(new Set());
@@ -719,6 +726,29 @@ export function BookingsTab({ centreId, clubId }: { centreId?: string; clubId?: 
     );
   };
 
+  // Scan passes (owner 2026-10-27): a room booking or club registration pass
+  // holds its reference; the check-in is the same call as the row's button.
+  const onScan = async (text: string): Promise<ScanResult> => {
+    const code = readPassCode(text);
+    if (!code) return { ok: false, message: "That isn't a HelloCircle pass." };
+    if (code.kind !== "booking" && code.kind !== "registration") return { ok: false, message: "That pass isn't for a room booking or club registration." };
+    const kind = code.kind;
+    const ref = code.ref;
+    const b = kind === "booking" ? bookings.find((x) => x.ref.toUpperCase() === ref) : undefined;
+    const r = kind === "registration" ? registrations.find((x) => x.ref.toUpperCase() === ref) : undefined;
+    const who = b ? b.name : r ? `${r.childFirst} ${r.childLast}`.trim() : ref;
+    if ((b ?? r)?.status === "cancelled") return { ok: false, message: `${who}: this ${kind} was cancelled.` };
+    const realRef = b?.ref ?? r?.ref ?? ref;
+    if (checkedInRefs.has(`${kind}:${realRef}`)) return { ok: true, message: `${who} is already checked in.` };
+    await checkInBooking(kind, realRef, "present", "qr");
+    markCheckedIn(kind, realRef);
+    return { ok: true, message: `Checked in: ${who}` };
+  };
+
+  if (scanning) {
+    return <ScanPassModal open title="Scan passes" hint="Room bookings and club registrations. Hold the code on their pass inside the square." onClose={() => setScanning(false)} onCode={onScan} />;
+  }
+
   if (openRef) {
     if (loadError.bookings && !loaded.bookings) return <RecordState state="error" backLabel="Bookings" onBack={closeRecord} onRetry={loadBookings} />;
     if (!loaded.bookings) return <RecordState state="loading" backLabel="Bookings" onBack={closeRecord} />;
@@ -730,6 +760,11 @@ export function BookingsTab({ centreId, clubId }: { centreId?: string; clubId?: 
     <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       {/* Booking UX Phase 6 — refunds and deposits still owed, across every order type (org-wide view only). */}
       {!centreId && !clubId && <VendorActionNeeded />}
+      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+        <AdminButton size="sm" onClick={() => setScanning(true)}>
+          <QrCode size={15} aria-hidden="true" /> Scan passes
+        </AdminButton>
+      </div>
       {!showAll && <BookingsFilterBar
         status={statusFilter}
         onStatus={setStatusFilter}

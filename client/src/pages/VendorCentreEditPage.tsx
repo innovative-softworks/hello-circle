@@ -4,7 +4,7 @@ import { fetchVendorCentre, fetchVendorListings, fetchVendorRooms, publishVendor
 import { useAuth } from "../AuthContext";
 import { BackLink } from "../components/BackLink";
 import { PartnerWorkspace } from "../components/workspace/PartnerWorkspace";
-import { ListingMeta } from "../components/workspace/ListingMeta";
+import { ListingKeyNumbers, ListingMeta } from "../components/workspace/ListingMeta";
 import { BookingsTab } from "../components/VendorBookings";
 import { AvailabilityBlocksManager, CentreEditor, FacilityHoursEditor, RoomsManager } from "../components/VendorCentreEditor";
 import { CentreCreationWizard } from "../components/CentreCreationWizard";
@@ -131,6 +131,7 @@ export function VendorCentreEditPage() {
         ) : (
           <>
             <ListingReviewNotice listing={{ type: "centre", id: centreId }} status={centre?.status} dirty={dirty} onResubmit={async () => setCentre(await publishVendorCentre(centreId))} />
+            <ListingKeyNumbers summary={listingSummary} kind="centre" />
             <div style={{ marginBottom: 22 }}>
               <Tabs
                 value={tab}
