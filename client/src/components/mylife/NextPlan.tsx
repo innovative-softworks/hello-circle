@@ -68,7 +68,7 @@ const RECENT_SHOWN = 3;
  * and rooms. A code only while the place is good to use. */
 function passKind(p: MyPlan): PassKind {
   if (p.placeKind === "game") return p.circleName ? "circle" : "activity";
-  if (p.placeKind === "experience") return p.listingHref?.startsWith("/adventures") ? "adventure" : "experience";
+  if (p.placeKind === "experience") return p.listingHref?.startsWith("/adventures") ? "adventure" : p.listingHref?.startsWith("/events") ? "event" : "experience";
   if (p.placeKind === "program") return "programme";
   return "room";
 }

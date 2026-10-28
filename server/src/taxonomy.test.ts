@@ -82,10 +82,11 @@ afterAll(async () => {
 });
 
 describe("seed", () => {
-  it("has the 21 approved active categories plus inactive extras, two levels deep, unique slugs", () => {
+  // 21 approved in the first release + "Culture, faith & celebrations" (Participation Phase 1, owner 2026-10-29).
+  it("has the 22 approved active categories plus inactive extras, two levels deep, unique slugs", () => {
     const rows = [...index.byId.values()];
     const cats = rows.filter((r) => !r.parent_id);
-    expect(cats.filter((c) => Number(c.active) === 1).map((c) => c.id)).toHaveLength(21);
+    expect(cats.filter((c) => Number(c.active) === 1).map((c) => c.id)).toHaveLength(22);
     expect(cats).toHaveLength(CATEGORY_SEED.length);
     for (const r of rows.filter((r) => r.parent_id)) expect(index.byId.get(r.parent_id!)?.parent_id).toBeNull();
     expect(new Set(rows.map((r) => r.slug)).size).toBe(rows.length);

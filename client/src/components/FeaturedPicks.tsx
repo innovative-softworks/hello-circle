@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { experienceHref, experienceKindWord } from "../experienceKind";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import { fetchCircles, fetchExperiences, fetchGamesPage, fetchProgramBrowse } from "../api";
@@ -45,9 +46,9 @@ async function loadPicks(kind: FeaturedKind): Promise<FeaturePick[]> {
     rows.sort((a, b) => Number(!!b.featured) - Number(!!a.featured));
     return rows.map((e) => ({
       key: e.id,
-      href: `/${e.kind === "adventure" ? "adventures" : "experiences"}/${e.slug ?? e.id}`,
+      href: experienceHref(e.kind, e.slug ?? e.id),
       image: getMediaUrl(e.imageUrl, "card"),
-      kicker: e.featured ? `Featured ${e.kind === "adventure" ? "adventure" : "experience"}` : e.difficulty || (e.kind === "adventure" ? "Adventure" : "Experience"),
+      kicker: e.featured ? `Featured ${experienceKindWord(e.kind).toLowerCase()}` : e.difficulty || experienceKindWord(e.kind),
       title: e.title,
       line: [e.sessions[0] ? `Next ${bigDay(e.sessions[0].date)}` : null, place(e.area, e.county)].filter(Boolean).join(" · "),
     }));

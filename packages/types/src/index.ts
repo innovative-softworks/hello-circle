@@ -234,11 +234,15 @@ export interface ExperienceBookingConfirmation {
   /** Booking UX Phase 3 — ISO instant after which it can't be cancelled online (server rule). Optional: older servers don't send it. */
   cancelDeadline?: string;
   experienceId: string;
+  /** Participation Phase 1 — so the confirmation pass says Event/Adventure correctly. */
+  kind?: ExperienceKind;
   title: string;
   meetingPoint: string;
   date: string;
   time: string;
   partySize: number;
+  /** Participation Phase 1 — what was bought (empty for a single-price booking). */
+  lines?: OrderLine[];
 }
 
 export interface ProgramEnrollmentConfirmation {
@@ -2161,8 +2165,9 @@ export interface VendorProgramSummary {
 // experience_bookings comments. Booked per-session (a single departure),
 // not a multi-session enrollment the way a Program is.
 
-/** Release 5 — "volunteer" is an experience kind, not a separate module. */
-export type ExperienceKind = "adventure" | "experience" | "volunteer";
+/** Release 5 — "volunteer" is an experience kind, not a separate module.
+ * Participation Phase 1 — "event" (community events) is one too. */
+export type ExperienceKind = "adventure" | "experience" | "volunteer" | "event";
 
 export interface ExperienceSessionSlot {
   id: string;
@@ -2170,6 +2175,86 @@ export interface ExperienceSessionSlot {
   time: string;
   capacity: number;
   spotsLeft: number;
+  /** Participation Phase 1 — places left per option with its own limit (null = no own limit). */
+  optionsLeft?: Record<string, number | null>;
+}
+
+// --- Participation Phase 1: registration options and purchased lines ----------
+
+export type OptionKind = "option" | "addon" | "bundle";
+export type PriceBasis = "per_person" | "per_booking";
+export type AgeBand = "adult" | "child" | "infant" | "senior" | "any";
+
+/** One option as the public booking box sees it. */
+export interface RegistrationOption {
+  id: string;
+  kind: OptionKind;
+  label: string;
+  description: string;
+  priceMinor: number;
+  priceBasis: PriceBasis;
+  /** People one unit includes (a family Pooja = 5); 0 for an add-on. */
+  headsPerUnit: number;
+  ageBand: AgeBand | null;
+  maxPerOrder: number | null;
+  onSale: boolean;
+  saleEndsAt: string | null;
+}
+
+/** "single" = one price × party (as always); "options" = choose options. `open`
+ * is false while registration is paused (the options switch is off). */
+export interface ExperienceRegistration {
+  mode: "single" | "options";
+  open: boolean;
+  options: RegistrationOption[];
+}
+
+/** An option as the partner edits it (GET/PUT /vendor/experiences/:id/options). */
+export interface VendorOfferingOption {
+  id?: string;
+  kind: OptionKind;
+  label: string;
+  description: string;
+  priceMinor: number;
+  priceBasis: PriceBasis;
+  headsPerUnit: number;
+  ageBand: AgeBand | null;
+  capacity: number | null;
+  maxPerOrder: number | null;
+  saleStartsAt: string | null;
+  saleEndsAt: string | null;
+  taxTreatment?: "standard";
+  sortOrder?: number;
+  active: boolean;
+}
+
+/** What a booking bought, frozen at purchase. */
+export interface OrderLine {
+  lineNo: number;
+  kind: "option" | "addon";
+  label: string;
+  description: string;
+  priceBasis: string;
+  ageBand: string | null;
+  unitMinor: number;
+  quantity: number;
+  quantityPurchased: number;
+  heads: number;
+  totalMinor: number;
+  refundedQuantity: number;
+  refundedMinor: number;
+}
+
+/** A priced line in a quote (server amounts). */
+export interface QuotedLine {
+  optionId: string;
+  label: string;
+  kind: OptionKind;
+  priceBasis: PriceBasis;
+  quantity: number;
+  heads: number;
+  unitMinor: number;
+  totalMinor: number;
 }
 
 export interface Experience {
@@ -2223,6 +2308,8 @@ export interface Experience {
   imageUrl: string;
   images: string[];
   sessions: ExperienceSessionSlot[];
+  /** Participation Phase 1 — public detail/list responses only. */
+  registration?: ExperienceRegistration;
   /** Bounded "featured" flag (IA spec §16) — admin-toggled promotion. */
   featured: boolean;
   /** Slugs (master-prompt punch list #1) — null until backfilled/generated. */
@@ -2293,6 +2380,9 @@ export interface MyExperienceBooking {
   time: string;
   /** Release 3 — host-recorded attendance ("present"/"no_show"), null when none. */
   attendance?: string | null;
+  /** Participation Phase 1 — what was bought (empty for a single-price booking). */
+  lines?: OrderLine[];
+  linesSummary?: string | null;
 }
 
 export interface VendorExperienceBooking {
@@ -2311,6 +2401,8 @@ export interface VendorExperienceBooking {
   attendance?: string | null;
   /** OG-19 — the departure this booking is on. */
   sessionId?: string;
+  /** Participation Phase 1 — what was bought (empty for a single-price booking). */
+  lines?: OrderLine[];
 }
 
 export interface ScheduleEntry {

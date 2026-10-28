@@ -2,7 +2,7 @@ import { adminCategoriesRouter, categoriesConfigRouter } from "./adminCategories
 import { verifiedSql } from "../reviewEligibility.js";
 import { adminVerificationRouter } from "./verificationChecks.js";
 import { adminAttendanceRouter } from "./attendanceCorrections.js";
-import { FEATURE_SWITCHES, allFeatureStates, featureOn, isFeatureKey, setFeature } from "../circleFeatures.js";
+import { FEATURE_SWITCHES, LockedFeatureError, allFeatureStates, featureOn, isFeatureKey, setFeature } from "../circleFeatures.js";
 import crypto from "node:crypto";
 import { matchExperienceSupply } from "../participationIntents.js";
 import { DEFAULT_WEIGHTS, getRecommendationWeights, setRecommendationWeights, validateWeights } from "../recommendationWeights.js";
@@ -1813,7 +1813,12 @@ adminRouter.put("/config/feature-switches/:key", requireAdminPermission("platfor
   if (!isFeatureKey(req.params.key)) return res.status(404).json({ error: "Unknown feature switch" });
   if (typeof enabled !== "boolean") return res.status(400).json({ error: "enabled must be a boolean" });
   const before = await featureOn(req.params.key);
-  await setFeature(req.params.key, enabled);
+  try {
+    await setFeature(req.params.key, enabled);
+  } catch (e) {
+    if (e instanceof LockedFeatureError) return res.status(409).json({ error: e.message, locked: true });
+    throw e;
+  }
   await writeAudit({
     actorUserId: req.user!.id,
     action: "config.feature_switch_changed",

@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, renameSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { authIntegrationConfigIssues, authQaPersonas } from "../support/integration-safety";
+import { authIntegrationConfigIssues, authQaPersonas, qaPorts } from "../support/integration-safety";
 import { acquireRunLock, connectedPreflight, docker, manifestPath, repositoryRoot, verifyContainer, type Manifest } from "./runtime";
 
 const secret = () => randomBytes(32).toString("hex");
@@ -12,17 +12,18 @@ async function setup() {
     throw new Error("QA SAFETY ABORT: Clear inherited application/database/service configuration before provisioning.");
   }
   const runId = `qa_${randomBytes(8).toString("hex")}`;
+  const ports = qaPorts(process.env);
   const dataDir = path.join(repositoryRoot, ".qa-data", runId);
   const secretsDir = mkdtempSync(path.join(os.tmpdir(), "hellocircle-qa-"));
   const rootPassword = secret();
   const env: Record<string, string> = {
-    NODE_ENV: "test", QA_E2E_ENABLED: "true", QA_PROFILE: "auth", QA_RUN_ID: runId,
-    E2E_ENVIRONMENT: "local", E2E_BASE_URL: "http://127.0.0.1:4178", E2E_API_URL: "http://127.0.0.1:4311",
-    CLIENT_URL: "http://127.0.0.1:4178", PUBLIC_ORIGINS: "http://127.0.0.1:4178", PORT: "4311",
-    DB_HOST: "127.0.0.1", DB_PORT: "13306", DB_USER: "hello_circle_qa", DB_PASSWORD: secret(),
+    NODE_ENV: "test", QA_E2E_ENABLED: "true", QA_PROFILE: "auth", QA_RUN_ID: runId, QA_PORT_OFFSET: process.env.QA_PORT_OFFSET ?? "0",
+    E2E_ENVIRONMENT: "local", E2E_BASE_URL: `http://127.0.0.1:${ports.web}`, E2E_API_URL: `http://127.0.0.1:${ports.api}`,
+    CLIENT_URL: `http://127.0.0.1:${ports.web}`, PUBLIC_ORIGINS: `http://127.0.0.1:${ports.web}`, PORT: String(ports.api),
+    DB_HOST: "127.0.0.1", DB_PORT: String(ports.db), DB_USER: "hello_circle_qa", DB_PASSWORD: secret(),
     DB_NAME: `hello_circle_e2e_${runId}`, DATA_DIR: dataDir,
     MEDIA_PROVIDER: "local", CLOUDINARY_UPLOADS_ENABLED: "false", MEDIA_LOCAL_PROCESSING_ENABLED: "false",
-    VITE_MAPBOX_ENABLED: "false", VITE_LAUNCH_MODE: "public", GEOCODER_BASE_URL: "http://127.0.0.1:4312",
+    VITE_MAPBOX_ENABLED: "false", VITE_LAUNCH_MODE: "public", GEOCODER_BASE_URL: `http://127.0.0.1:${ports.geocoder}`,
   };
   for (const persona of authQaPersonas) {
     env[`${persona}_EMAIL`] = `${persona.toLowerCase()}@example.test`;
@@ -44,7 +45,7 @@ async function setup() {
   const networkId = docker(["network", "create", "--driver", "bridge", "--label", `ie.hellocircle.qa.run=${runId}`, containerName]);
   const containerId = docker(["run", "-d", "--name", containerName, "--network", networkId,
     "--label", `ie.hellocircle.qa.run=${runId}`, "--label", `ie.hellocircle.qa.nonce=${nonce}`,
-    "--publish", "127.0.0.1:13306:3306", "--tmpfs", "/var/lib/mysql:rw,nosuid,size=1g",
+    "--publish", `127.0.0.1:${ports.db}:3306`, "--tmpfs", "/var/lib/mysql:rw,nosuid,size=1g",
     "--mount", `type=bind,source=${secretsDir},target=/run/qa,readonly`,
     "--env", "MYSQL_ROOT_PASSWORD_FILE=/run/qa/root-password", image.Id]);
   const manifest: Manifest = { runId, nonce, databaseName: env.DB_NAME, serverUuid: "", containerId, containerName, imageId: image.Id, networkId, secretsDir, dataDir };

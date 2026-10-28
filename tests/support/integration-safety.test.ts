@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { authIntegrationConfigIssues, authIntegrationPreflight, authQaPersonas, stripeTestProfileIssues, isStripeBrowserHost, QA_WEBHOOK_SECRET_PATTERN, qaWebhookSecretOk } from "./integration-safety";
+import { authIntegrationConfigIssues, authIntegrationPreflight, authQaPersonas, qaPorts, stripeTestProfileIssues, isStripeBrowserHost, QA_WEBHOOK_SECRET_PATTERN, qaWebhookSecretOk } from "./integration-safety";
 
 const root = path.resolve(".");
 function validConfig(): Record<string, string | undefined> {
@@ -110,5 +110,25 @@ describe("Phase 9 Stripe TEST-mode profile", () => {
     expect(qaWebhookSecretOk("whsec_" + "a".repeat(40))).toBe(true);
     expect(qaWebhookSecretOk("sk_test_" + "a".repeat(40))).toBe(false);
     if (before === undefined) delete process.env.QA_STRIPE_WEBHOOK_SOURCE; else process.env.QA_STRIPE_WEBHOOK_SOURCE = before;
+  });
+});
+
+// 2026-10-29 — a second checkout/worktree can run its own isolated QA
+// environment on shifted ports; the exact-match checks follow the offset.
+describe("QA_PORT_OFFSET", () => {
+  it("defaults to the documented ports", () => {
+    expect(qaPorts({})).toEqual({ db: 13306, api: 4311, geocoder: 4312, web: 4178 });
+    expect(qaPorts({ QA_PORT_OFFSET: "0" })).toEqual(qaPorts({}));
+  });
+  it("shifts every port together by 10s, and refuses anything else", () => {
+    expect(qaPorts({ QA_PORT_OFFSET: "10" })).toEqual({ db: 13316, api: 4321, geocoder: 4322, web: 4188 });
+    for (const bad of ["5", "100", "-10", "abc", "010", " 10"]) expect(() => qaPorts({ QA_PORT_OFFSET: bad })).toThrow(/QA_PORT_OFFSET/);
+  });
+  it("accepts a shifted configuration only when every port is shifted", () => {
+    const env = { ...validConfig(), QA_PORT_OFFSET: "10", E2E_BASE_URL: "http://127.0.0.1:4188", E2E_API_URL: "http://127.0.0.1:4321", CLIENT_URL: "http://127.0.0.1:4188", PUBLIC_ORIGINS: "http://127.0.0.1:4188", PORT: "4321", DB_PORT: "13316", GEOCODER_BASE_URL: "http://127.0.0.1:4322" };
+    expect(authIntegrationConfigIssues(env, root)).toEqual([]);
+    expect(authIntegrationConfigIssues({ ...env, DB_PORT: "13306" }, root).join(" ")).toMatch(/DB_PORT/);
+    expect(authIntegrationConfigIssues({ ...validConfig(), QA_PORT_OFFSET: "10" }, root).length).toBeGreaterThan(0);
+    expect(authIntegrationConfigIssues({ ...validConfig(), QA_PORT_OFFSET: "7" }, root).join(" ")).toMatch(/QA_PORT_OFFSET/);
   });
 });

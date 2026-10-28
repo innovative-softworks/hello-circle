@@ -67,7 +67,7 @@ export interface CategoryOptions {
 }
 
 /** Live categories (with inventory) for a family, or across every family. */
-export function fetchCategories(family?: CategoryFamily, experienceKind?: "adventure" | "experience"): Promise<PublicCategory[]> {
+export function fetchCategories(family?: CategoryFamily, experienceKind?: "adventure" | "experience" | "event"): Promise<PublicCategory[]> {
   const qs = new URLSearchParams();
   if (family) qs.set("family", family);
   if (experienceKind) qs.set("kind", experienceKind);

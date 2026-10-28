@@ -176,7 +176,7 @@ function CircleFeaturesSwitches() {
     <Box icon={CircleDot} title="New features" subtitle="Circle and discovery tools. Off by default; each can be switched on or off on its own, within a few seconds, with no redeploy. Every change is recorded in the audit log.">
       <Loaded state={state} rows={8}>
         {(m) => (
-          <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>{(["circles", "experience"] as const).map((group) => (<section key={group}><h3 className="adm-note" style={{ textTransform: "uppercase", fontWeight: 800, margin: "0 0 10px" }}>{group === "circles" ? "Circles" : "Discovery and My Life"}</h3>
+          <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>{(["circles", "experience", "participation"] as const).map((group) => (<section key={group}><h3 className="adm-note" style={{ textTransform: "uppercase", fontWeight: 800, margin: "0 0 10px" }}>{group === "circles" ? "Circles" : group === "experience" ? "Discovery and My Life" : "Community events and registration"}</h3>
           <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 14 }}>
             {m.features.filter((f) => (f.group ?? "circles") === group).map((f) => (
               <li key={f.key} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
@@ -186,7 +186,9 @@ function CircleFeaturesSwitches() {
                   </strong>
                   <div className="adm-note">{f.description}</div>
                 </div>
-                {can("platform.settings") ? (
+                {f.locked && !f.enabled ? (
+                  <span className="adm-note">Locked — needs the owner's approval before it can be switched on.</span>
+                ) : can("platform.settings") ? (
                   <AdminButton disabled={busy === f.key} onClick={() => flip(f.key, !f.enabled)}>
                     {f.enabled ? `Turn ${f.label} off` : `Turn ${f.label} on`}
                   </AdminButton>

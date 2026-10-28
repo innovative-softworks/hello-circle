@@ -3,6 +3,7 @@ import { computeCapacity } from "../capacity.js";
 import { gameSeatSql, holdIsLive, occupiesCapacitySql } from "../bookingIntegrity.js";
 import { irelandWallTimeToUtc } from "../irelandTime.js";
 import { bookingEndHour, hoursOverlap } from "../util.js";
+import { optionTaken } from "../participation/lines.js";
 
 // D-10 (2026-10-15) — the facts a paid order is checked against before it can
 // be confirmed or keep a place under review: its start time, whether its
@@ -171,7 +172,23 @@ export async function orderFits(tx: Tx, type: OrderType, row: Record<string, any
     const session = (await tx.prepare(`SELECT s.capacity, s.status, e.capacity as expCapacity FROM experience_sessions s JOIN experiences e ON e.id = s.experience_id WHERE s.id = ?`).get(row.session_id)) as { capacity: number | null; status: string; expCapacity: number };
     if (session.status !== "scheduled") return false;
     const { n } = (await tx.prepare(`SELECT COALESCE(SUM(party_size), 0) as n FROM experience_bookings WHERE session_id = ? AND ref != ? AND ${occ}`).get(row.session_id, row.ref)) as { n: number };
-    return Number(n) + row.party_size <= (session.capacity ?? session.expCapacity);
+    if (Number(n) + row.party_size > (session.capacity ?? session.expCapacity)) return false;
+    // Participation Phase 1 — an order bought with options must also still fit
+    // each option's own limit (a lapsed hold can't oversell an option).
+    if (row.pricing_mode === "lines") {
+      const limited = (await tx
+        .prepare(
+          `SELECT ol.option_id AS optionId, ol.line_kind AS kind, ol.quantity, ol.heads, o.capacity
+           FROM order_lines ol JOIN offering_options o ON o.id = ol.option_id
+           WHERE ol.source_type = 'experience' AND ol.source_ref = ? AND o.capacity IS NOT NULL ORDER BY ol.option_id`
+        )
+        .all(row.ref)) as { optionId: string; kind: string; quantity: number; heads: number; capacity: number }[];
+      for (const l of limited) {
+        const taken = await optionTaken(tx, l.optionId, row.session_id, row.ref);
+        if (taken + Number(l.kind === "addon" ? l.quantity : l.heads) > Number(l.capacity)) return false;
+      }
+    }
+    return true;
   }
   if (type === "game") {
     const g = (await tx.prepare(`SELECT capacity, status FROM games WHERE id = ?`).get(row.game_id)) as { capacity: number; status: string };

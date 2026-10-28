@@ -1,6 +1,7 @@
 import { Euro } from "lucide-react";
 import { WhatToExpect, experienceExpectFacts } from "../components/trust/WhatToExpect";
 import { SpotAlertButton } from "../components/experience/SpotAlertButton";
+import { OptionPicker, headsOf, selectedLines, type OptionQuantities } from "../components/experience/OptionPicker";
 import { BookingActions, BookingFacts, BookingGlance, BookingPrice, directionsHref, IconAction, QuietAction, startsIn, type GlanceItem } from "../components/BookingFacts";
 import { formatDuration } from "../formatters";
 import { Pass, passDate, passTime } from "../components/pass/Pass";
@@ -136,6 +137,17 @@ export function ExperienceDetail() {
   // a linked summary that takes focus on a failed submit.
   const fe = useFormErrors();
   const [confirmed, setConfirmed] = useState<{ ref: string } | null>(null);
+  // Participation Phase 1 — registration options: quantities chosen per option.
+  const [qty, setQty] = useState<OptionQuantities>({});
+  const optionsMode = experience?.registration?.mode === "options";
+  const registrationOpen = !optionsMode || experience?.registration?.open !== false;
+  const regOptions = optionsMode ? experience!.registration!.options : [];
+  const optionHeads = headsOf(regOptions, qty);
+  const chosenLines = selectedLines(qty);
+  const chosenKey = JSON.stringify(chosenLines);
+  // With options the head count comes from the options chosen (the server re-derives it).
+  const partySize = optionsMode ? Math.max(optionHeads, 1) : form.partySize;
+  const linesInput = optionsMode ? { lines: chosenLines } : {};
 
   const load = () => {
     if (!idOrSlug) return;
@@ -166,16 +178,22 @@ export function ExperienceDetail() {
   }, [experience]);
 
   useEffect(() => {
-    if (!experience || !selectedSession || !experience.priceCents) {
+    if (!experience || !selectedSession || (optionsMode ? optionHeads === 0 || !registrationOpen : !experience.priceCents)) {
       setQuote(null);
       return;
     }
     let live = true;
-    quoteExperienceSession(experience.id, selectedSession.id, { partySize: form.partySize, useCredits, couponCode: appliedCoupon ?? undefined })
-      .then((q) => live && setQuote(q))
+    quoteExperienceSession(experience.id, selectedSession.id, { partySize, useCredits, couponCode: appliedCoupon ?? undefined, ...linesInput })
+      .then((q) => {
+        if (!live) return;
+        setQuote(q);
+        if (optionsMode) setError(null);
+      })
       .catch((e) => {
         if (!live) return;
         setQuote(null);
+        // Participation Phase 1 — an option that sold out or closed while choosing.
+        if (optionsMode && e instanceof ApiError && /^(lines_|registration_)/.test(String(e.body.code ?? ""))) setError(e.message);
         // A coupon that stopped applying (e.g. party size below its minimum spend) is dropped, with the reason.
         if (appliedCoupon && e instanceof ApiError && String(e.body.code ?? "").startsWith("coupon_")) {
           setAppliedCoupon(null);
@@ -185,7 +203,8 @@ export function ExperienceDetail() {
     return () => {
       live = false;
     };
-  }, [experience, selectedSession, form.partySize, useCredits, appliedCoupon]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [experience, selectedSession, form.partySize, useCredits, appliedCoupon, chosenKey]);
 
   const applyCoupon = async () => {
     if (!experience || !selectedSession) return;
@@ -193,7 +212,7 @@ export function ExperienceDetail() {
     if (!code) return;
     setCouponError(null);
     try {
-      const q = await quoteExperienceSession(experience.id, selectedSession.id, { partySize: form.partySize, useCredits, couponCode: code });
+      const q = await quoteExperienceSession(experience.id, selectedSession.id, { partySize, useCredits, couponCode: code, ...linesInput });
       setAppliedCoupon(q.couponCode ?? code);
       setQuote(q);
       trackTypedEvent(AnalyticsEvent.CouponApplied);
@@ -227,8 +246,9 @@ export function ExperienceDetail() {
 
   const submit = async () => {
     if (!experience || !selectedSession) return;
-    const extraNames = Array.from({ length: form.partySize - 1 }, (_, i) => (others[i] ?? "").trim());
+    const extraNames = Array.from({ length: partySize - 1 }, (_, i) => (others[i] ?? "").trim());
     const problems: FormError[] = [];
+    if (optionsMode && optionHeads === 0) problems.push({ field: "options", message: "Choose at least one option" });
     if (!form.participantName.trim()) problems.push({ field: "name", fieldId: "exp-name", message: isVolunteer ? "Enter your name" : "Enter a name for the booking" });
     extraNames.forEach((n, i) => {
       if (!n) problems.push({ field: `person-${i + 2}`, fieldId: `exp-person-${i + 2}`, message: `Enter a name for person ${i + 2}` });
@@ -248,9 +268,11 @@ export function ExperienceDetail() {
     try {
       // Commerce Engine Phase 2 — hand back the quote the customer was shown;
       // the server refuses (409) rather than charging a price that moved.
-      const quoteId = quote && quote.partySize === form.partySize ? quote.quoteId : undefined;
+      const quoteId = quote && quote.partySize === partySize ? quote.quoteId : undefined;
       const res = await bookExperienceSession(experience.id, selectedSession.id, {
         ...form,
+        partySize,
+        ...linesInput,
         quoteId,
         useCredits,
         couponCode: appliedCoupon ?? undefined,
@@ -272,7 +294,7 @@ export function ExperienceDetail() {
       // the customer can review it and try again.
       const code = e instanceof ApiError ? e.body.code : undefined;
       if (typeof code === "string" && (code.startsWith("quote_") || code === "price_changed")) {
-        quoteExperienceSession(experience.id, selectedSession.id, { partySize: form.partySize, useCredits, couponCode: appliedCoupon ?? undefined }).then(setQuote).catch(() => setQuote(null));
+        quoteExperienceSession(experience.id, selectedSession.id, { partySize, useCredits, couponCode: appliedCoupon ?? undefined, ...linesInput }).then(setQuote).catch(() => setQuote(null));
       }
     } finally {
       setSubmitting(false);
@@ -289,9 +311,10 @@ export function ExperienceDetail() {
   // see App.tsx) is a real, always-available signal for which one they
   // actually meant, so use that instead of a hardcoded default.
   const isAdventureRoute = experience ? experience.kind === "adventure" : location.pathname.startsWith("/adventures");
-  const browsePath = isAdventureRoute ? "/adventures" : "/experiences";
-  const browseLabel = isAdventureRoute ? "All adventures" : "All experiences";
-  const kindNoun = isAdventureRoute ? "adventure" : "experience";
+  const isEventRoute = experience ? experience.kind === "event" : location.pathname.startsWith("/events");
+  const browsePath = isAdventureRoute ? "/adventures" : isEventRoute ? "/events" : "/experiences";
+  const browseLabel = isAdventureRoute ? "All adventures" : isEventRoute ? "All events" : "All experiences";
+  const kindNoun = isAdventureRoute ? "adventure" : isEventRoute ? "event" : "experience";
 
   if (loadError) {
     return (
@@ -316,7 +339,7 @@ export function ExperienceDetail() {
             lanyard look. Then the icons, then one main action. */}
         <Pass
           look={experience.kind === "volunteer" ? "lanyard" : "ticket"}
-          kind={experience.kind === "adventure" ? "adventure" : experience.kind === "volunteer" ? "volunteer" : "experience"}
+          kind={experience.kind === "adventure" ? "adventure" : experience.kind === "volunteer" ? "volunteer" : experience.kind === "event" ? "event" : "experience"}
           tone="ok"
           status={experience.kind === "volunteer" ? "Signed up" : experience.priceCents && experience.paymentMethod === "cash" ? "Booked · pay on the day" : "Booked"}
           title={experience.title}
@@ -325,8 +348,8 @@ export function ExperienceDetail() {
           time={selectedSession ? passTime(selectedSession.time, experience.durationMinutes) : null}
           where={experience.meetingPoint || [experience.area, experience.county].filter(Boolean).join(", ")}
           fields={[
-            ["People", String(form.partySize)],
-            ...(experience.priceCents && experience.paymentMethod === "cash" ? ([["Pay", `${formatPrice(experience.priceCents * form.partySize)} cash`]] as [string, string][]) : []),
+            ["People", String(partySize)],
+            ...(experience.priceCents && experience.paymentMethod === "cash" ? ([["Pay", `${formatPrice(optionsMode && quote ? quote.totalCents : experience.priceCents * form.partySize)} cash`]] as [string, string][]) : []),
             ...(experience.equipmentRequired ? ([["Bring", experience.equipmentRequired]] as [string, string][]) : []),
           ].slice(0, 4) as [string, string][]}
           reference={confirmed.ref}
@@ -349,7 +372,7 @@ export function ExperienceDetail() {
   const descriptionIsLong = description.length > 320;
   const visibleDescription = descriptionExpanded || !descriptionIsLong ? description : `${description.slice(0, 320).trimEnd()}…`;
   const isVolunteer = experience.kind === "volunteer";
-  const kindLabel = experience.kind === "adventure" ? "Adventure" : isVolunteer ? "Volunteer" : "Experience";
+  const kindLabel = experience.kind === "adventure" ? "Adventure" : isVolunteer ? "Volunteer" : experience.kind === "event" ? "Event" : "Experience";
   const kindAccent = experience.kind === "adventure" ? colors.green : colors.orange;
   const directionsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${experience.meetingPoint || experience.title}, ${experience.area}, ${experience.county}`)}`;
 
@@ -381,7 +404,7 @@ export function ExperienceDetail() {
     : `${session.spotsLeft} spots left`;
   const joinHeadlineColor = !session ? colors.muted : full ? colors.muted : session.spotsLeft <= 3 ? colors.orangeDark : colors.text;
   const anyAvailable = experience.sessions.some((s) => s.spotsLeft > 0);
-  const registerLabel = experience.kind === "adventure" ? "Book this adventure" : isVolunteer ? "Volunteer" : "Register for this experience";
+  const registerLabel = experience.kind === "adventure" ? "Book this adventure" : isVolunteer ? "Volunteer" : experience.kind === "event" ? "Register for this event" : "Register for this experience";
   // The step-2 submit verb ("Book"/"Register") tracks the same per-kind
   // choice as `registerLabel` above, so a free experience's flow doesn't
   // open on "Register for this experience" and then submit as "Book for
@@ -392,9 +415,11 @@ export function ExperienceDetail() {
   // (tapping one moves on), then your details, with the total and the pay
   // button pinned in the footer so they're always visible. A single-date
   // listing skips straight to step 2 (see openBooking).
-  const bookingTotalCents = experience.priceCents * form.partySize; // > 0 ⇔ a paid booking (labels only)
-  const quotedTotal = quote && quote.partySize === form.partySize ? quote.totalCents : null;
-  const bookingDirty = !!selectedSession && (form.participantName.trim() !== "" || form.phone.trim() !== "" || form.partySize > 1);
+  // > 0 ⇔ a paid booking (labels only). With options: whether anything chosen has a price.
+  const bookingTotalCents = optionsMode ? (regOptions.some((o) => (qty[o.id] ?? 0) > 0 && o.priceMinor > 0) ? 1 : 0) : experience.priceCents * form.partySize;
+  const quotedTotal = quote && quote.partySize === partySize ? quote.totalCents : null;
+  const bookingDirty = !!selectedSession && (form.participantName.trim() !== "" || form.phone.trim() !== "" || form.partySize > 1 || chosenLines.length > 0);
+  const priceSummary = optionsMode ? (quote?.lines ?? []).map((l) => `${l.label} × ${l.quantity}`).join(" · ") : `${form.partySize} × €${(experience.priceCents / 100).toFixed(2)}`;
   const openBooking = () => {
     const available = experience.sessions.filter((s) => s.spotsLeft > 0);
     if (available.length === 1) setSelectedSession(available[0]);
@@ -466,15 +491,25 @@ export function ExperienceDetail() {
           <input {...fe.control("exp-name")} autoComplete="name" value={form.participantName} onChange={(e) => setForm((f) => ({ ...f, participantName: e.target.value }))} style={inputStyle} />
           <FieldError fieldId="exp-name" message={fe.messageFor("exp-name")} />
         </div>
-        <NumberStepper
-          label={isVolunteer ? "How many volunteers" : "Party size"}
-          value={form.partySize}
-          onChange={(n) => setForm((f) => ({ ...f, partySize: n }))}
-          min={1}
-          max={selectedSession.spotsLeft}
-        />
-        {form.partySize > 1 &&
-          Array.from({ length: form.partySize - 1 }, (_, i) => (
+        {optionsMode ? (
+          registrationOpen ? (
+            <OptionPicker options={regOptions} qty={qty} onChange={(next) => { setQty(next); fe.clearField("options"); }} left={selectedSession.optionsLeft} placesLeft={selectedSession.spotsLeft} />
+          ) : (
+            <p role="status" style={{ margin: 0, padding: "10px 12px", background: colors.panel, borderRadius: radius.control, fontSize: 13.5 }}>
+              Registration for this {kindNoun} is paused for now. Please check back soon.
+            </p>
+          )
+        ) : (
+          <NumberStepper
+            label={isVolunteer ? "How many volunteers" : "Party size"}
+            value={form.partySize}
+            onChange={(n) => setForm((f) => ({ ...f, partySize: n }))}
+            min={1}
+            max={selectedSession.spotsLeft}
+          />
+        )}
+        {partySize > 1 &&
+          Array.from({ length: partySize - 1 }, (_, i) => (
             <div key={i}>
               <label htmlFor={`exp-person-${i + 2}`} style={labelStyle}>
                 Name for person {i + 2}
@@ -542,7 +577,10 @@ export function ExperienceDetail() {
           {PAID_CLOSED_MESSAGE}
         </p>
       )}
-      {quote && !!experience?.priceCents && <CheckoutBreakdown quote={quote} unitPriceCents={experience.priceCents} />}
+      {/* Shown whenever something is priced before discounts — including a paid
+          booking that coupon + credit bring to €0 ("nothing to pay"); hidden only
+          for an all-free choice of options. */}
+      {quote && (optionsMode ? quote.subtotalCents > 0 : !!experience?.priceCents) && <CheckoutBreakdown quote={quote} unitPriceCents={experience.priceCents} />}
       <fieldset style={{ border: "none", margin: "16px 0 0", padding: 0, display: "flex", flexDirection: "column", gap: 10 }}>
         <legend style={{ ...labelStyle, padding: 0 }}>Before you book</legend>
         {!!experience.minAge && (
@@ -583,19 +621,21 @@ export function ExperienceDetail() {
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14 }}>
       <div style={{ minWidth: 0 }}>
         <div style={{ fontWeight: 800, fontSize: 17, color: bookingTotalCents ? colors.text : colors.greenText }} data-testid="booking-total">
-          {bookingTotalCents ? (quotedTotal !== null ? `€${(quotedTotal / 100).toFixed(2)}` : "…") : "Free"}
+          {bookingTotalCents ? (quotedTotal !== null ? `€${(quotedTotal / 100).toFixed(2)}` : "…") : optionsMode && optionHeads === 0 ? "—" : "Free"}
         </div>
         <div style={{ fontSize: 12, color: colors.mutedLight }}>
           {bookingTotalCents
             ? quote && quotedTotal !== null
               ? quote.vatIncluded
-                ? `${form.partySize} × €${(experience.priceCents / 100).toFixed(2)} · incl. VAT €${(quote.vatCents / 100).toFixed(2)}${quote.platformFeeCents ? ` + fee €${(quote.platformFeeCents / 100).toFixed(2)}` : ""}`
-                : `${form.partySize} × €${(experience.priceCents / 100).toFixed(2)} + VAT €${(quote.vatCents / 100).toFixed(2)} + fee €${(quote.platformFeeCents / 100).toFixed(2)}`
+                ? `${priceSummary} · incl. VAT €${(quote.vatCents / 100).toFixed(2)}${quote.platformFeeCents ? ` + fee €${(quote.platformFeeCents / 100).toFixed(2)}` : ""}`
+                : `${priceSummary} + VAT €${(quote.vatCents / 100).toFixed(2)} + fee €${(quote.platformFeeCents / 100).toFixed(2)}`
               : "Calculating total…"
+            : optionsMode && optionHeads === 0
+            ? "Choose your options"
             : "No payment required"}
         </div>
       </div>
-      <Button onClick={submit} disabled={submitting || (paidOpen === false && !!bookingTotalCents && quotedTotal !== 0 && experience.paymentMethod !== "cash")} style={{ flex: "none" }}>
+      <Button onClick={submit} disabled={submitting || (optionsMode && (!registrationOpen || optionHeads === 0)) || (paidOpen === false && !!bookingTotalCents && quotedTotal !== 0 && experience.paymentMethod !== "cash")} style={{ flex: "none" }}>
         {submitting ? "Please wait…" : bookingTotalCents && quotedTotal !== 0 ? "Continue to pay" : submitVerb}
       </Button>
     </div>
@@ -650,8 +690,8 @@ export function ExperienceDetail() {
               <CategoryBreadcrumb
                 taxonomy={experience.taxonomy}
                 tags={experience.tags}
-                basePath={experience.kind === "adventure" ? "/adventures" : experience.kind === "volunteer" ? "/volunteer" : "/experiences"}
-                typeLabel={experience.kind === "adventure" ? "Adventures" : experience.kind === "volunteer" ? "Volunteering" : "Experiences"}
+                basePath={experience.kind === "adventure" ? "/adventures" : experience.kind === "volunteer" ? "/volunteer" : experience.kind === "event" ? "/events" : "/experiences"}
+                typeLabel={experience.kind === "adventure" ? "Adventures" : experience.kind === "volunteer" ? "Volunteering" : experience.kind === "event" ? "Events" : "Experiences"}
               />
             </div>
             {/* Eyebrow (kind) + title + price row — same position/weight as
@@ -829,7 +869,8 @@ export function ExperienceDetail() {
                       key: "price",
                       label: "Price",
                       icon: <Euro size={18} strokeWidth={2} />,
-                      value: <BookingPrice cents={experience.priceCents} unit="per person" />,
+                      // Participation Phase 1 — with options the cheapest is a "from" price; each option's own basis shows when booking.
+                      value: optionsMode ? <BookingPrice cents={experience.priceCents} unit={experience.priceCents ? "from · several options" : undefined} /> : <BookingPrice cents={experience.priceCents} unit="per person" />,
                       sub: experience.priceCents ? `${PAID_PRICE_NOTE} · ${experience.paymentMethod === "cash" ? "paid in cash on the day" : "paid online when you book"}` : undefined,
                       emphasis: experience.priceCents ? "price" : "free",
                     },

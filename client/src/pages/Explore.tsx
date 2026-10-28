@@ -116,6 +116,7 @@ const RESULT_TYPE_LABELS: Record<string, string> = {
   activities: "Activities & games",
   adventures: "Adventures",
   experiences: "Experiences",
+  events: "Community events",
   volunteering: "Volunteering",
   programmes: "Programmes",
   circles: "Circles",
@@ -575,11 +576,13 @@ export function Explore() {
   // Narrows which result group(s) are visible — a filter on top of the
   // results Search already returned, not a re-query.
   const resultType = searchParams.get("rtype") ?? "";
-  const expOf = (kind: string) => allExperiences.filter((e) => (e.kind === "adventure" || e.kind === "volunteer" ? e.kind : "experience") === kind);
+  const expOf = (kind: string) => allExperiences.filter((e) => (e.kind === "adventure" || e.kind === "volunteer" || e.kind === "event" ? e.kind : "experience") === kind);
   const groups = {
     activities: filteredActivities,
     adventures: expOf("adventure"),
     experiences: expOf("experience"),
+    // Participation Phase 1 — only present when the server returns events (switch on).
+    events: expOf("event"),
     volunteering: expOf("volunteer"),
   };
   const groupCounts = { activities: groups.activities.length, experiences: allExperiences.length, programmes: allProgrammes.length, circles: allCircles.length, places: allCentres.length + allClubs.length };
@@ -588,6 +591,7 @@ export function Explore() {
     { v: "activities", l: RESULT_TYPE_LABELS.activities, count: groups.activities.length },
     { v: "adventures", l: RESULT_TYPE_LABELS.adventures, count: groups.adventures.length },
     { v: "experiences", l: RESULT_TYPE_LABELS.experiences, count: groups.experiences.length },
+    ...(groups.events.length > 0 || resultType === "events" ? [{ v: "events", l: RESULT_TYPE_LABELS.events, count: groups.events.length }] : []),
     { v: "volunteering", l: RESULT_TYPE_LABELS.volunteering, count: groups.volunteering.length },
     { v: "programmes", l: RESULT_TYPE_LABELS.programmes, count: groupCounts.programmes },
     { v: "circles", l: RESULT_TYPE_LABELS.circles, count: groupCounts.circles },
@@ -595,7 +599,7 @@ export function Explore() {
   ];
   const showActivities = resultType === "" || resultType === "activities";
   const showPlaces = resultType === "" || resultType === "places";
-  const experiences = resultType === "" ? allExperiences : resultType === "adventures" ? groups.adventures : resultType === "experiences" ? groups.experiences : resultType === "volunteering" ? groups.volunteering : [];
+  const experiences = resultType === "" ? allExperiences : resultType === "adventures" ? groups.adventures : resultType === "experiences" ? groups.experiences : resultType === "events" ? groups.events : resultType === "volunteering" ? groups.volunteering : [];
   const programmes = resultType === "" || resultType === "programmes" ? allProgrammes : [];
   const circleResults = resultType === "" || resultType === "circles" ? allCircles : [];
   const centres = showPlaces ? allCentres : [];

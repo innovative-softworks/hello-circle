@@ -1,4 +1,5 @@
 import { listPublicCategories, type Family } from "./taxonomy.js";
+import { eventsVisible, hiddenEventsSql } from "./participation/eventsVisibility.js";
 import { orgActiveSql } from "./orgSql.js";
 import { CORPORATE_BRAND, CORPORATE_BRAND_URL, LEGAL_OPERATOR, PRODUCT_BRAND } from "./companyIdentity.js";
 import { venuePagesPublic, isVenuePath } from "./venueLaunch.js";
@@ -49,7 +50,7 @@ export interface OgMeta {
   robots?: "index, follow" | "noindex, nofollow";
 }
 
-const ROUTE_PATTERN = /^\/(centres|clubs|circles|experiences|adventures|games|programs|host|provider)\/([^/]+)\/?$/;
+const ROUTE_PATTERN = /^\/(centres|clubs|circles|experiences|adventures|events|games|programs|host|provider)\/([^/]+)\/?$/;
 
 // Local SEO landing pages (participation-intent plan Phase 3) — the county
 // segment is checked against a real county with actual approved listings
@@ -58,7 +59,7 @@ const ROUTE_PATTERN = /^\/(centres|clubs|circles|experiences|adventures|games|pr
 // "0 results" meta description for a place with no real inventory.
 const LOCAL_ROUTE_PATTERN = /^\/([^/]+)\/([^/]+)\/?$/;
 const RESERVED_FIRST_SEGMENTS = new Set([
-  "centres", "clubs", "circles", "experiences", "adventures", "games", "browse", "book", "register",
+  "centres", "clubs", "circles", "experiences", "adventures", "events", "games", "browse", "book", "register",
   "programs", "provider", "host", "vendor", "admin", "payment",
 ]);
 
@@ -202,6 +203,10 @@ const STATIC_DISCOVERY_PAGES: Record<string, { title: string; description: strin
     title: "Experiences across Ireland — HelloCircle",
     description: "Book classes, workshops, and one-off experiences across Ireland.",
   },
+  "/events": {
+    title: "Community events across Ireland — HelloCircle",
+    description: "Cultural festivals, faith gatherings and community celebrations near you, with registration in one place.",
+  },
 };
 
 export function resolveStaticDiscoveryOgMeta(pathName: string): OgMeta | null {
@@ -231,6 +236,7 @@ const SHARE_KIND: Record<string, string> = {
   circles: "circle",
   experiences: "experience",
   adventures: "adventure",
+  events: "experience",
   games: "game",
   programs: "program",
   host: "host",
@@ -370,7 +376,7 @@ async function resolveOgMetaInner(pathName: string, viewerResidentId: string | n
     };
   }
 
-  if (kind === "experiences" || kind === "adventures") {
+  if (kind === "experiences" || kind === "adventures" || kind === "events") {
     const row = (await db.prepare(`SELECT title, blurb, image_url, slug FROM experiences WHERE (slug = ? OR id = ?) AND status = 'approved' AND ${orgActiveSql("vendor_id")}`).get(idOrSlug, idOrSlug)) as
       | { title: string; blurb: string; image_url: string; slug: string | null }
       | undefined;
@@ -588,7 +594,7 @@ export function injectOgTags(html: string, meta: OgMeta): string {
 // open game, not every syntactically-valid local-landing URL (which would
 // be unbounded, since the activity segment accepts free text).
 
-const STATIC_SITEMAP_PATHS = ["/", "/explore", "/browse/centres", "/browse/clubs", "/circles", "/games", "/adventures", "/experiences", "/about", "/contact"];
+const STATIC_SITEMAP_PATHS = ["/", "/explore", "/browse/centres", "/browse/clubs", "/circles", "/games", "/adventures", "/experiences", "/events", "/about", "/contact"];
 
 function slugifyActivity(label: string): string {
   return label.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
@@ -596,7 +602,8 @@ function slugifyActivity(label: string): string {
 
 export async function generateSitemapUrls(): Promise<string[]> {
   // HC-QA-060 — only publicly reachable pages: venue pages are left out while gated.
-  const urls = STATIC_SITEMAP_PATHS.filter((p) => venuePagesPublic() || !isVenuePath(p)).map((p) => `${CLIENT_URL}${p}`);
+  const showEvents = await eventsVisible();
+  const urls = STATIC_SITEMAP_PATHS.filter((p) => (venuePagesPublic() || !isVenuePath(p)) && (p !== "/events" || showEvents)).map((p) => `${CLIENT_URL}${p}`);
 
   const todayIso = irelandTodayIso();
   const [centres, clubs, circles, experiences, programs, hosts, providers, games, localPages] = await Promise.all([
@@ -607,7 +614,7 @@ export async function generateSitemapUrls(): Promise<string[]> {
     // plan Task 2 closed this same leak in the Circle JSON responses
     // themselves; this query had the identical gap independently).
     db.prepare(`SELECT COALESCE(slug, id) as slug FROM circles WHERE status = 'active' AND join_mode = 'open'`).all() as Promise<{ slug: string }[]>,
-    db.prepare(`SELECT COALESCE(slug, id) as slug FROM experiences WHERE status = 'approved' AND ${orgActiveSql("vendor_id")}`).all() as Promise<{ slug: string }[]>,
+    db.prepare(`SELECT COALESCE(slug, id) as slug FROM experiences WHERE status = 'approved' AND ${orgActiveSql("vendor_id")}${await hiddenEventsSql()}`).all() as Promise<{ slug: string }[]>,
     db.prepare(`SELECT id FROM programs WHERE status = 'published' AND ${orgActiveSql("vendor_id")}`).all() as Promise<{ id: string }[]>,
     db.prepare(`SELECT id FROM residents WHERE host_status = 'verified'`).all() as Promise<{ id: string }[]>,
     db.prepare(`SELECT id FROM users WHERE role = 'vendor' AND status = 'approved' AND ${orgActiveSql("users.id")}`).all() as Promise<{ id: string }[]>,
@@ -656,12 +663,13 @@ export function buildSitemapXml(urls: string[]): string {
 // that has live listings in that page's family; every other combination is
 // noindex with its canonical pointing at the category page. Unknown or empty
 // categories fall back to the plain list page's meta.
-const CATEGORY_LIST_PAGES: Record<string, { family: Family; kind?: "adventure" | "experience"; noun: string }> = {
+const CATEGORY_LIST_PAGES: Record<string, { family: Family; kind?: "adventure" | "experience" | "event"; noun: string }> = {
   "/games": { family: "activity", noun: "activities" },
   "/circles": { family: "circle", noun: "Circles" },
   "/programs": { family: "programme", noun: "programmes" },
   "/adventures": { family: "experience", kind: "adventure", noun: "adventures" },
   "/experiences": { family: "experience", kind: "experience", noun: "experiences" },
+  "/events": { family: "experience", kind: "event", noun: "community events" },
   "/volunteer": { family: "volunteer", noun: "volunteering" },
 };
 

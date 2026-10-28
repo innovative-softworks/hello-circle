@@ -1,4 +1,5 @@
 import { db } from "./db/index.js";
+import { experienceHref } from "./participation/eventsVisibility.js";
 import { gameSeatSql, occupiesCapacitySql } from "./bookingIntegrity.js";
 import { canViewGame } from "./gameVisibility.js";
 import { orgActiveSql } from "./orgSql.js";
@@ -125,7 +126,7 @@ export async function resolvePlanListing(ref: PlanListingRef, viewerId: string |
       )
       .get(ref.id)) as { id: string; slug: string | null; kind: string; title: string; imageUrl: string | null; priceCents: number | null; capacity: number; meetingPoint: string; area: string; county: string } | undefined;
     if (!e) return unavailable(ref, "experience");
-    const base = `/${e.kind === "adventure" ? "adventures" : "experiences"}/${e.slug ?? e.id}`;
+    const base = experienceHref(e.kind, e.slug ?? e.id);
     const where = e.meetingPoint || [e.area, e.county].filter(Boolean).join(", ") || null;
     let date: string | null = null;
     let time: string | null = null;

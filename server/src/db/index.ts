@@ -2257,6 +2257,12 @@ export async function initSchema() {
 
   await initCommerceSchema(ensureColumn, ensureIndex);
 
+  // Participation Expansion Phase 1 — registration options and purchased
+  // lines (participation/schema.ts). Dynamic import for the same reason as
+  // taxonomy below. After the commerce tables (it extends commerce_quotes).
+  const { initParticipationSchema } = await import("../participation/schema.js");
+  await initParticipationSchema(ensureColumn, ensureIndex);
+
   // Category system (approved 2026-10-22) — three additive tables, seed and a
   // once-per-database backfill. Dynamic import: taxonomy.ts imports this
   // module, so a static import would be circular.

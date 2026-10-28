@@ -11,9 +11,11 @@ import { getSetting, setSetting } from "./db/index.js";
 
 export interface FeatureSwitch {
   key: string;
-  group: "circles" | "experience";
+  group: "circles" | "experience" | "participation";
   label: string;
   description: string;
+  /** Can't be switched on from admin Settings until the owner approves it. */
+  locked?: boolean;
 }
 
 export const FEATURE_SWITCHES: FeatureSwitch[] = [
@@ -38,11 +40,21 @@ export const FEATURE_SWITCHES: FeatureSwitch[] = [
   { key: "mylife.for_you", group: "experience", label: "My Life: Made for your week", description: "Personal suggestions on My Life and a For Me page, from the existing For you ranking with its reasons. Suggestions can be dismissed." },
   { key: "mylife.passport_tab", group: "experience", label: "My Life: Passport tab", description: "Shows the Activity Passport as a My Life tab. Needs the Activity Passport switch too." },
   { key: "mylife.alerts", group: "experience", label: "My Life: alerts", description: "People who opt in get an in-app note when something they saved has a new session, and the evening before a routine day with matching sessions. Off for everyone until they opt in." },
+  // Participation Expansion Phase 1 (docs/participation-expansion/07). Read
+  // paths are never switched off: orders already placed with options stay
+  // visible, cancellable and refundable whatever these say.
+  { key: "participation.events", group: "participation", label: "Community events", description: "Partners can create community events (cultural, faith and community celebrations). Events appear in search, filters and category pages. Paid events still go through the normal payment gates." },
+  { key: "participation.options", group: "participation", label: "Registration options", description: "Partners can sell several registration options on one experience or event (for example Pooja €71 and Darshan €11), each with its own price, head count and limit. People choose options when they book." },
+  { key: "participation.partial_cancel", group: "participation", label: "Remove a person from a booking", description: "People can remove someone from a booking with registration options and get that person's share back. Locked until the owner approves it.", locked: true },
 ];
+
+/** Thrown when someone tries to switch on a locked switch. */
+export class LockedFeatureError extends Error {}
 
 /** Circle Experience 2.0 subset — kept for existing callers. */
 export const CIRCLE_FEATURES = FEATURE_SWITCHES.filter((f) => f.group === "circles");
 export const EXPERIENCE_FEATURES = FEATURE_SWITCHES.filter((f) => f.group === "experience");
+export const PARTICIPATION_FEATURES = FEATURE_SWITCHES.filter((f) => f.group === "participation");
 
 export function isFeatureKey(key: string): boolean {
   return FEATURE_SWITCHES.some((f) => f.key === key);
@@ -65,9 +77,12 @@ async function statesFor(list: FeatureSwitch[]): Promise<Record<string, boolean>
 export const circleFeatureStates = () => statesFor(CIRCLE_FEATURES);
 export const experienceFeatureStates = () => statesFor(EXPERIENCE_FEATURES);
 export const allFeatureStates = () => statesFor(FEATURE_SWITCHES);
+export const participationFeatureStates = () => statesFor(PARTICIPATION_FEATURES);
 
 export async function setFeature(key: string, enabled: boolean): Promise<void> {
   if (!isFeatureKey(key)) throw new Error(`Unknown feature switch "${key}"`);
+  // A locked switch can always be turned off, never on from here.
+  if (enabled && FEATURE_SWITCHES.find((f) => f.key === key)?.locked) throw new LockedFeatureError(`"${key}" needs the owner's approval before it can be switched on`);
   await setSetting(key, enabled ? "true" : "false");
 }
 export const setCircleFeature = setFeature;

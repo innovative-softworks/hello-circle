@@ -1077,13 +1077,15 @@ export function MyBookings() {
       : e.kind === "booking"
       ? `Ref ${e.booking.ref} · ${euro(e.booking.totalCents / 100)}`
       : e.kind === "experience"
-      ? `${e.booking.partySize} ${e.booking.partySize === 1 ? "person" : "people"} · ${euro(e.booking.totalCents / 100)}`
+      ? `${e.booking.linesSummary ? `${e.booking.linesSummary} · ` : ""}${e.booking.partySize} ${e.booking.partySize === 1 ? "person" : "people"} · ${euro(e.booking.totalCents / 100)}`
       : e.enrollment.listingName;
   const KIND_NAME = { game: "Session", booking: "Booking", experience: "Adventure", program: "Programme" } as const;
+  // Participation Phase 1 — an event booking is labelled an Event, not an Adventure.
+  const kindLabelOf = (e: (typeof nextEntities)[number]): string => (e.kind === "experience" && e.booking.kind === "event" ? "Event" : KIND_NAME[e.kind]);
   const upcomingCards: UpcomingCard[] = [
     ...nextEntities.slice(0, 12).map((e, i): UpcomingCard => ({
       key: `m-${e.kind}-${i}-${e.date}`, date: e.date, dateLabel: bigDate(e.date), time: e.time,
-      title: titleOf(e), meta: metaOf(e), kind: "mine", kindLabel: KIND_NAME[e.kind], image: imageOf(e), href: hrefOf(e),
+      title: titleOf(e), meta: metaOf(e), kind: "mine", kindLabel: kindLabelOf(e), image: imageOf(e), href: hrefOf(e),
     })),
     ...circlePlansThisWeek.map((c): UpcomingCard => ({
       key: `c-${c.id}`, date: c.nextPlan!.date, dateLabel: bigDate(c.nextPlan!.date), time: c.nextPlan!.time,
@@ -1100,7 +1102,7 @@ export function MyBookings() {
   // and the calendar.
   const bookingCards: UpcomingCard[] = nextEntities.map((e, i) => ({
     key: `b-${e.kind}-${i}-${e.date}`, date: e.date, dateLabel: bigDate(e.date), time: e.time,
-    title: titleOf(e), meta: metaOf(e), kind: "mine", kindLabel: KIND_NAME[e.kind], image: imageOf(e), href: hrefOf(e),
+    title: titleOf(e), meta: metaOf(e), kind: "mine", kindLabel: kindLabelOf(e), image: imageOf(e), href: hrefOf(e),
   }));
   const cancelledUpcoming = [
     ...bookings.filter((b) => b.status === "cancelled" && b.date >= today).map((b) => (

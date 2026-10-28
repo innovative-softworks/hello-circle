@@ -273,6 +273,13 @@ export async function refundInApp(input: {
   reason: string;
   responsible: "customer" | "partner" | "platform";
   actorId: string;
+  /** Participation Phase 1 (partial cancellation) — a caller-chosen key, so a
+   * retried or doubled request for the same removal can never refund twice. */
+  idempotencyKey?: string;
+  /** Participation Phase 1 — runs under the order's row lock, before the refund
+   * row and the provider call; returns the amount to refund. Its own writes
+   * (e.g. removing a seat) commit or roll back with the refund itself. */
+  prepare?: (tx: Tx, ctx: { paidMinor: number; refundedMinor: number; remainingMinor: number }) => Promise<number>;
 }): Promise<{ refundId: number; amountMinor: number; full: boolean; reconciled: boolean }> {
   if (input.type === "pass") throw new RefundError("Pass refunds aren't supported yet", 409);
   if (typeof input.reason !== "string" || input.reason.trim().length < 5) throw new RefundError("A reason (at least 5 characters) is required");
@@ -288,12 +295,12 @@ export async function refundInApp(input: {
     const paid = Number(row.total ?? 0);
     const already = await refundedSoFar(tx, input.type, input.ref);
     const remaining = paid - already;
-    const amount = input.amountMinor ?? remaining;
+    const amount = input.prepare ? await input.prepare(tx, { paidMinor: paid, refundedMinor: already, remainingMinor: remaining }) : input.amountMinor ?? remaining;
     if (!Number.isSafeInteger(amount) || amount < 1) throw new RefundError("Refund amount must be a whole number of cents, at least 1");
     if (amount > remaining) throw new RefundError(`Only ${remaining} cents can still be refunded`, 409);
     const full = amount === remaining;
     const payment = (await tx.prepare(`SELECT id FROM payment_records WHERE source_type = ? AND source_ref = ?`).get(input.type, input.ref)) as { id: number } | undefined;
-    const key = `hc-refund-${row.sid}-${already === 0 && full ? "full" : `${already}-${amount}`}`;
+    const key = input.idempotencyKey ?? `hc-refund-${row.sid}-${already === 0 && full ? "full" : `${already}-${amount}`}`;
     const info = await tx
       .prepare(
         `INSERT INTO refunds (source_type, source_ref, payment_record_id, idempotency_key, amount_minor, currency, kind, origin, responsible, reason, status, initiated_by)
@@ -303,7 +310,7 @@ export async function refundInApp(input: {
     const refundId = Number(info.lastInsertRowid);
     // A first full refund keeps the historical HC-QA-051 key, so a retry after
     // a lost commit can't refund twice at the provider.
-    const result = await issueStripeRefund(row.sid, already === 0 && full ? {} : { amountMinor: amount, idempotencyKey: key });
+    const result = await issueStripeRefund(row.sid, already === 0 && full && !input.idempotencyKey ? {} : { amountMinor: amount, idempotencyKey: key });
     if (!result.ok) throw new RefundError(result.error, result.kind === "unsupported" ? 409 : 502);
     await tx
       .prepare(`UPDATE refunds SET status = ?, provider_refund_id = ?, origin = ? WHERE id = ?`)

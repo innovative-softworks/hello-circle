@@ -1,4 +1,5 @@
 import { withGameCardFacts } from "../gameCardFacts.js";
+import { hiddenEventsSql } from "../participation/eventsVisibility.js";
 import { activityRef, withCategoryLabels } from "../categoryLabels.js";
 import { orgActiveSql } from "../orgSql.js";
 import { Router } from "express";
@@ -145,12 +146,13 @@ export async function runStructuredSearch(
   const allowed = (i: number, id: string) => !inFilter || inFilter[i].has(id);
   const matchesKeywords = (haystack: string) => keywordMatch(haystack);
 
+  const hideEvents = await hiddenEventsSql();
   const [allCentres, allClubs, allExperiencesRaw] = await Promise.all([
     listCentres(parsed.county ?? undefined),
     listClubs(parsed.county ?? undefined),
     parsed.county
-      ? db.prepare(`SELECT id, kind, title, area, county, blurb, price_cents, image_url FROM experiences WHERE status = 'approved' AND ${orgActiveSql("vendor_id")} AND county = ?`).all(parsed.county)
-      : db.prepare(`SELECT id, kind, title, area, county, blurb, price_cents, image_url FROM experiences WHERE status = 'approved' AND ${orgActiveSql("vendor_id")}`).all(),
+      ? db.prepare(`SELECT id, kind, title, area, county, blurb, price_cents, image_url FROM experiences WHERE status = 'approved' AND ${orgActiveSql("vendor_id")}${hideEvents} AND county = ?`).all(parsed.county)
+      : db.prepare(`SELECT id, kind, title, area, county, blurb, price_cents, image_url FROM experiences WHERE status = 'approved' AND ${orgActiveSql("vendor_id")}${hideEvents}`).all(),
   ]);
   const allExperiences = allExperiencesRaw as ExperienceSearchRow[];
 

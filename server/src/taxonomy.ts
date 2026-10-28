@@ -84,6 +84,10 @@ export const CATEGORY_SEED: SeedCategory[] = [
   { id: "music", name: "Music", families: [X, P, C], icon: "Music", description: "Guitar, piano, singing, trad music and live music.", subs: [["guitar", "Guitar"], ["piano", "Piano"], ["singing", "Singing"], ["trad-music", "Trad music"], ["live-music", "Live music"]] },
   { id: "food-drink", name: "Food & drink", families: [X, P, C], icon: "UtensilsCrossed", description: "Cooking, baking, food tours and tastings.", subs: [["cooking", "Cooking"], ["baking", "Baking"], ["food-tours", "Food tours"], ["tastings", "Tastings"]] },
   { id: "culture-heritage", name: "Culture & heritage", families: [X], icon: "Landmark", description: "Heritage tours, city walks, museums and theatre.", subs: [["heritage-tours", "Heritage tours"], ["city-walks", "City walks"], ["museums", "Museums"], ["theatre", "Theatre"]] },
+  // Participation Phase 1 (2026-10-29) — community events: cultural, faith and
+  // community celebrations. "Culture & heritage" covers tours, museums and
+  // theatre, not gatherings, so this is its own category (owner decision).
+  { id: "culture-faith-celebrations", name: "Culture, faith & celebrations", families: [X, C], icon: "PartyPopper", description: "Cultural festivals, faith gatherings, community celebrations and fundraisers.", subs: [["cultural-festivals", "Cultural festivals"], ["faith-gatherings", "Faith gatherings"], ["community-celebrations", "Community celebrations"], ["fundraisers", "Fundraisers"]] },
   { id: "learning", name: "Learning & skills", families: [P], icon: "GraduationCap", description: "Languages, coding, tutoring, first aid and professional skills.", subs: [["languages", "Languages"], ["coding", "Coding"], ["tutoring", "Tutoring"], ["first-aid", "First aid"], ["professional-skills", "Professional skills"]] },
   { id: "kids-family", name: "Kids & family", families: [X, P], icon: "Baby", description: "After-school clubs, camps, early learning and family days out.", subs: [["after-school", "After-school"], ["camps", "Camps"], ["early-learning", "Early learning"], ["family-days", "Family days"]] },
   { id: "volunteering", name: "Volunteering & causes", families: [V, C], icon: "HandHeart", description: "Environment, community support, charity and animal welfare.", subs: [["environment", "Environment & clean-ups"], ["community", "Community support"], ["charity", "Charity & fundraising"], ["animals", "Animal welfare"]] },
@@ -685,19 +689,26 @@ export async function taxonomyFilter(
 /** Public visibility per family — the same rules as each family's public list
  * (approval, lifecycle, organisation active, venue gate). Counts never come
  * from listing_taxonomy alone. Returns null when the family is gated. */
-function publicJoinFor(family: Family, experienceKind?: "adventure" | "experience"): { sql: string; params: unknown[] } | null {
+export type ExperiencePageKind = "adventure" | "experience" | "event";
+
+function publicJoinFor(family: Family, experienceKind?: ExperiencePageKind, eventsOn = false): { sql: string; params: unknown[] } | null {
   const today = irelandTodayIso();
   switch (family) {
     case "activity":
       return { sql: `JOIN games g ON lt.listing_type = 'game' AND g.id = lt.listing_id AND g.status = 'open' AND ${discoverableGameSql("g")} AND g.date >= ?`, params: [today] };
     case "circle":
       return { sql: `JOIN circles ci ON lt.listing_type = 'circle' AND ci.id = lt.listing_id AND ci.status = 'active' AND ci.join_mode IN ('open', 'approval')`, params: [] };
-    case "experience":
-      // Adventures and Experiences are separate pages over the same family.
+    case "experience": {
+      // Adventures, Experiences and (Participation Phase 1) community Events are
+      // separate pages over the same family. Events count only while
+      // participation.events is on.
+      const kindSql = experienceKind ? "e.kind = ?" : eventsOn ? "e.kind != 'volunteer'" : "e.kind NOT IN ('volunteer', 'event')";
+      const gate = experienceKind === "event" && !eventsOn ? " AND 1 = 0" : "";
       return {
-        sql: `JOIN experiences e ON lt.listing_type = 'experience' AND e.id = lt.listing_id AND e.status = 'approved' AND ${experienceKind ? "e.kind = ?" : "e.kind != 'volunteer'"} AND ${orgActiveSql("e.vendor_id")}`,
+        sql: `JOIN experiences e ON lt.listing_type = 'experience' AND e.id = lt.listing_id AND e.status = 'approved' AND ${kindSql}${gate} AND ${orgActiveSql("e.vendor_id")}`,
         params: experienceKind ? [experienceKind] : [],
       };
+    }
     case "volunteer":
       return { sql: `JOIN experiences e ON lt.listing_type = 'experience' AND e.id = lt.listing_id AND e.status = 'approved' AND e.kind = 'volunteer' AND ${orgActiveSql("e.vendor_id")}`, params: [] };
     case "programme":
@@ -714,8 +725,9 @@ function publicJoinFor(family: Family, experienceKind?: "adventure" | "experienc
 }
 
 /** Live public counts per category and subcategory id for one family. */
-export async function publicCounts(family: Family, experienceKind?: "adventure" | "experience"): Promise<Map<string, number>> {
-  const join = publicJoinFor(family, experienceKind);
+export async function publicCounts(family: Family, experienceKind?: ExperiencePageKind): Promise<Map<string, number>> {
+  const eventsOn = family === "experience" ? (await getSetting("participation.events", "false")) === "true" : false;
+  const join = publicJoinFor(family, experienceKind, eventsOn);
   const counts = new Map<string, number>();
   if (!join) return counts;
   const rows = (await db
@@ -751,7 +763,7 @@ function isLive(r: CategoryRow): boolean {
 /** Public category list. With a family: only categories that apply to it AND
  * have live inventory there (or are featured). Without a family: counts
  * summed over every family the category applies to. */
-export async function listPublicCategories(family: Family | null, experienceKind?: "adventure" | "experience"): Promise<PublicCategory[]> {
+export async function listPublicCategories(family: Family | null, experienceKind?: ExperiencePageKind): Promise<PublicCategory[]> {
   if ((await getSetting("categories_enabled", "1")) !== "1") return [];
   const index = await loadTaxonomy();
   const families: Family[] = family ? [family] : [...FAMILIES];

@@ -117,7 +117,7 @@ export interface BrowseConfig {
   /** Category system — chips + server filter for this family (?category=&sub=). */
   categoryFamily?: CategoryFamily;
   /** Adventures vs Experiences: counts only that kind. */
-  categoryExperienceKind?: "adventure" | "experience";
+  categoryExperienceKind?: "adventure" | "experience" | "event";
   /** Where category links in the empty state point (this page's path). */
   categoryBasePath?: string;
   /** The tag filter is only a fallback for when no category has live listings. */

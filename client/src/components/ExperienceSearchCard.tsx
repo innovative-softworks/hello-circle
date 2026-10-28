@@ -14,9 +14,9 @@ import { priceState } from "../exploreFilters";
 export function ExperienceSearchCard({ e, chosenWord }: { e: ExperienceSearchResult; chosenWord?: string | null }) {
   const navigate = useNavigate();
   const [fav, toggleFav] = useSavedState("experience", e.id);
-  const href = `/${e.kind === "adventure" ? "adventures" : "experiences"}/${e.id}`;
+  const href = `/${e.kind === "adventure" ? "adventures" : e.kind === "event" ? "events" : "experiences"}/${e.id}`;
   // Same per-kind CTA verb ExperienceDetail.tsx's own booking button uses.
-  const registerLabel = e.kind === "adventure" ? "Book this adventure" : "Register for this experience";
+  const registerLabel = e.kind === "adventure" ? "Book this adventure" : e.kind === "event" ? "Register for this event" : "Register for this experience";
   const where = [e.area, e.county].filter(Boolean).join(", ");
   return (
     <ListingCard
@@ -27,8 +27,8 @@ export function ExperienceSearchCard({ e, chosenWord }: { e: ExperienceSearchRes
       ph={e.kind === "adventure" ? placeholderStripes.green : placeholderStripes.orange}
       icon={<TreeIconSmall size={26} />}
       iconColor={colors.orange}
-      tag={e.kind === "adventure" ? "Adventure" : "Experience"}
-      word={cardWord(e.category, e.kind === "adventure" ? "Adventure" : e.kind === "volunteer" ? "Volunteer" : "Experience", chosenWord)}
+      tag={e.kind === "adventure" ? "Adventure" : e.kind === "event" ? "Event" : "Experience"}
+      word={cardWord(e.category, e.kind === "adventure" ? "Adventure" : e.kind === "volunteer" ? "Volunteer" : e.kind === "event" ? "Event" : "Experience", chosenWord)}
       save={<SaveButton saved={fav} onToggle={toggleFav} />}
       details={[where ? { icon: <PinIcon size={13} />, text: where } : null]}
       facts={priceState(e) === "unknown" ? null : <CardPrice cents={e.priceCents} unit="per person" />}

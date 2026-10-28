@@ -59,6 +59,7 @@ const ClubDetail = lazy(() => import("./pages/ClubDetail").then((m) => ({ defaul
 const BookingFlow = lazy(() => import("./pages/BookingFlow").then((m) => ({ default: m.BookingFlow })));
 const CookiePolicy = lazy(() => import("./pages/CookiePolicy").then((m) => ({ default: m.CookiePolicy })));
 const Adventures = lazy(() => import("./pages/Adventures").then((m) => ({ default: m.Adventures })));
+const Events = lazy(() => import("./pages/Events").then((m) => ({ default: m.Events })));
 const Volunteer = lazy(() => import("./pages/Volunteer").then((m) => ({ default: m.Volunteer })));
 const Programs = lazy(() => import("./pages/Programs").then((m) => ({ default: m.Programs })));
 const ExperienceDetail = lazy(() => import("./pages/ExperienceDetail").then((m) => ({ default: m.ExperienceDetail })));
@@ -398,6 +399,9 @@ export function App() {
                 <Route path="/adventures/:id" element={<ExperienceDetail />} />
                 <Route path="/experiences" element={<Experiences />} />
                 <Route path="/experiences/:id" element={<ExperienceDetail />} />
+                {/* Participation Phase 1 — community events (same detail page). */}
+                <Route path="/events" element={<Events />} />
+                <Route path="/events/:id" element={<ExperienceDetail />} />
                 {/* Search merged into Explore's Results Mode — preserve old
                     /search?q=... links/bookmarks (see SearchRedirect.tsx). */}
                 <Route path="/search" element={<SearchRedirect />} />

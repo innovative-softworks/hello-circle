@@ -1,5 +1,5 @@
 import { getClientId } from "../clientId";
-import type { BookingConfirmation, Centre, Club, ExperienceKind, ProgramSummary, DiscoverFeed, DiscoverItem, ForYouSection, NewHereCircle, Experience, ExperienceBookingConfirmation, ExperienceSearchResult, IntentCount, LocalMomentumSignal, MapMarker, MapMarkerType, MyBooking, MyExperienceBooking, MyIntent, MyProgramEnrollment, MyRegistration, Program, ProgramEnrollmentConfirmation, ProviderProfile, RegistrationConfirmation, Review, SearchParsed, SearchResult } from "../types";
+import type { BookingConfirmation, Centre, Club, ExperienceKind, ProgramSummary, DiscoverFeed, DiscoverItem, ForYouSection, NewHereCircle, Experience, ExperienceBookingConfirmation, ExperienceSearchResult, IntentCount, LocalMomentumSignal, MapMarker, MapMarkerType, MyBooking, MyExperienceBooking, MyIntent, MyProgramEnrollment, MyRegistration, Program, QuotedLine, ProgramEnrollmentConfirmation, ProviderProfile, RegistrationConfirmation, Review, SearchParsed, SearchResult } from "../types";
 import { downloadIcs, request } from "./core";
 
 // Guest-facing browsing + transactions — no account needed. Centres/clubs,
@@ -601,6 +601,8 @@ export function bookExperienceSession(
     meetsMinAge?: boolean;
     acceptedSafety?: boolean;
     acceptedTerms?: boolean;
+    /** Participation Phase 1 — [{ optionId, quantity }] for a listing with options. */
+    lines?: { optionId: string; quantity: number }[];
   }
 ): Promise<{ ref: string; url?: string; totalEuro: number }> {
   return request(`/experiences/${experienceId}/sessions/${sessionId}/checkout`, { method: "POST", body: JSON.stringify(input) });
@@ -631,8 +633,11 @@ export interface BookingQuote {
   couponDiscountCents?: number;
   /** R3A — the resident's credit left after this booking (server-computed). */
   creditBalanceAfterCents?: number | null;
+  /** Participation Phase 1 — the priced options (present when the listing sells options). */
+  lines?: QuotedLine[];
 }
-export function quoteExperienceSession(experienceId: string, sessionId: string, input: { partySize: number; couponCode?: string; useCredits?: boolean }): Promise<BookingQuote> {
+/** Participation Phase 1 — with options, send `lines` (partySize is then ignored). */
+export function quoteExperienceSession(experienceId: string, sessionId: string, input: { partySize: number; couponCode?: string; useCredits?: boolean; lines?: { optionId: string; quantity: number }[] }): Promise<BookingQuote> {
   return request(`/experiences/${experienceId}/sessions/${sessionId}/quote`, { method: "POST", body: JSON.stringify(input) });
 }
 

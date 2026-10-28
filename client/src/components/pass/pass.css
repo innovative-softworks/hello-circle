@@ -14,6 +14,7 @@
 .hc-pass[data-kind="activity"] { --pass-type: #2e7d50; }
 .hc-pass[data-kind="experience"] { --pass-type: #c4370f; }
 .hc-pass[data-kind="adventure"] { --pass-type: #3d6b3f; }
+.hc-pass[data-kind="event"] { --pass-type: #8c3b5e; }
 .hc-pass[data-kind="volunteer"] { --pass-type: #1f7a80; }
 .hc-pass[data-kind="programme"] { --pass-type: #6b4a8a; }
 .hc-pass[data-kind="room"] { --pass-type: #3f5f7d; }

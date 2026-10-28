@@ -1,4 +1,5 @@
 import { Router, type Request } from "express";
+import { experienceHref } from "./participation/eventsVisibility.js";
 import { db } from "./db/index.js";
 import { gameSeatSql, occupiesCapacitySql } from "./bookingIntegrity.js";
 import { canViewGame, getEffectiveGameLifecycle, type GameVisibilityRow } from "./gameVisibility.js";
@@ -120,7 +121,7 @@ async function loadPlans(w: Who, from: string, to: string): Promise<Plan[]> {
       const cancelled = r.status === "cancelled" || r.sessionStatus === "cancelled";
       const status: PlanStatus | null = cancelled ? "cancelled" : r.paymentStatus === "paid" ? "confirmed" : r.paymentStatus === "pending" && Number(r.fresh) === 1 ? "pending_payment" : null;
       if (!status) continue;
-      const base = r.kind === "adventure" ? "adventures" : "experiences";
+      const base = r.kind === "adventure" ? "adventures" : r.kind === "event" ? "events" : "experiences";
       out.push({
         key: `experience:${r.ref}`, placeKind: "experience", ref: r.ref, title: r.title, date: String(r.date).slice(0, 10), time: r.time, durationMinutes: r.duration ? Number(r.duration) : null,
         status, statusLabel: STATUS_LABEL[status], location: r.meeting || r.area || null, organiser: r.vendorName ?? null,
@@ -312,7 +313,7 @@ async function goAgain(p: Plan, w: Who): Promise<GoAgain | null> {
     for (const r of s) {
       const left = r.cap == null ? null : Math.max(0, Number(r.cap) - Number(r.booked));
       if (left === 0) continue;
-      return { kind: "occurrence", title: r.title, date: r.date, time: r.time, href: `/${r.kind === "adventure" ? "adventures" : "experiences"}/${p.experienceId}`, priceCents: Number(r.priceCents), spotsLeft: left };
+      return { kind: "occurrence", title: r.title, date: r.date, time: r.time, href: experienceHref(r.kind, p.experienceId), priceCents: Number(r.priceCents), spotsLeft: left };
     }
     return null;
   }

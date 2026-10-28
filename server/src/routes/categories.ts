@@ -10,7 +10,7 @@ export const categoriesRouter = Router();
 categoriesRouter.get("/", async (req, res) => {
   const family = req.query.family;
   if (family !== undefined && !isFamily(family)) return res.status(400).json({ error: "Unknown family" });
-  const kind = req.query.kind === "adventure" || req.query.kind === "experience" ? req.query.kind : undefined;
+  const kind = req.query.kind === "adventure" || req.query.kind === "experience" || req.query.kind === "event" ? req.query.kind : undefined;
   res.setHeader("Cache-Control", "public, max-age=60");
   res.json(await listPublicCategories(family ?? null, kind));
 });

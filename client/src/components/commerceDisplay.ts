@@ -5,6 +5,7 @@
 
 import type { PayoutAccountState } from "../api";
 import type { CheckoutQuote } from "./booking/checkoutLines";
+import type { OrderLine } from "../types";
 
 export type StatusTone = "ok" | "wait" | "stop" | "neutral";
 
@@ -59,6 +60,8 @@ export interface ReceiptDetail {
   paidOnline: boolean;
   /** Always false until the VAT model is confirmed — never labelled an invoice. */
   isTaxInvoice: false;
+  /** Participation Phase 1 — what was bought, frozen at purchase ([] when not itemised). */
+  lines?: OrderLine[];
 }
 
 export const RECEIPT_KIND_LABELS: Record<ReceiptKind, string> = {

@@ -2,6 +2,21 @@ import path from "node:path";
 
 export const authQaPersonas = ["QA_USER", "QA_USER_B", "QA_HOST", "QA_HOST_B", "QA_VENDOR", "QA_VENDOR_B", "QA_ADMIN"] as const;
 
+/**
+ * The isolated run's loopback ports. QA_PORT_OFFSET (unset or "0" = the
+ * documented 13306 / 4311 / 4312 / 4178) lets a second checkout or worktree
+ * run its own isolated QA environment side by side, without touching another
+ * checkout's container (2026-10-29). Only 0 or a multiple of 10 up to 90 is
+ * accepted; anything else is refused, and every exact-match check below
+ * applies to the shifted values, so a mismatch still aborts.
+ */
+export function qaPorts(env: Record<string, string | undefined> = process.env): { db: number; api: number; geocoder: number; web: number } {
+  const raw = env.QA_PORT_OFFSET ?? "0";
+  if (!/^(0|[1-9]0)$/.test(raw)) throw new Error("QA SAFETY ABORT: QA_PORT_OFFSET must be 0 or a multiple of 10 up to 90.");
+  const offset = Number(raw);
+  return { db: 13306 + offset, api: 4311 + offset, geocoder: 4312 + offset, web: 4178 + offset };
+}
+
 /** Offline policy ONLY. No DB imports, network calls, process launches or mutations. */
 export function authIntegrationConfigIssues(env: Record<string, string | undefined>, repositoryRoot: string): string[] {
   const issues: string[] = [];
@@ -11,17 +26,24 @@ export function authIntegrationConfigIssues(env: Record<string, string | undefin
   const requirePresent = (key: string) => {
     if (!env[key]?.trim()) issues.push(`${key} must be supplied explicitly.`);
   };
+  let ports: ReturnType<typeof qaPorts>;
+  try {
+    ports = qaPorts(env);
+  } catch {
+    issues.push("QA_PORT_OFFSET must be 0 or a multiple of 10 up to 90.");
+    ports = qaPorts({});
+  }
   requireExact("NODE_ENV", "test");
   requireExact("QA_E2E_ENABLED", "true");
   requireExact("QA_PROFILE", "auth");
   requireExact("E2E_ENVIRONMENT", "local");
-  requireExact("E2E_BASE_URL", "http://127.0.0.1:4178");
-  requireExact("E2E_API_URL", "http://127.0.0.1:4311");
-  requireExact("CLIENT_URL", "http://127.0.0.1:4178");
-  requireExact("PUBLIC_ORIGINS", "http://127.0.0.1:4178");
-  requireExact("PORT", "4311");
+  requireExact("E2E_BASE_URL", `http://127.0.0.1:${ports.web}`);
+  requireExact("E2E_API_URL", `http://127.0.0.1:${ports.api}`);
+  requireExact("CLIENT_URL", `http://127.0.0.1:${ports.web}`);
+  requireExact("PUBLIC_ORIGINS", `http://127.0.0.1:${ports.web}`);
+  requireExact("PORT", String(ports.api));
   requireExact("DB_HOST", "127.0.0.1");
-  requireExact("DB_PORT", "13306");
+  requireExact("DB_PORT", String(ports.db));
   requireExact("DB_USER", "hello_circle_qa");
   requirePresent("DB_PASSWORD");
   const runId = env.QA_RUN_ID;
@@ -38,7 +60,7 @@ export function authIntegrationConfigIssues(env: Record<string, string | undefin
   requireExact("MEDIA_LOCAL_PROCESSING_ENABLED", "false");
   requireExact("VITE_MAPBOX_ENABLED", "false");
   requireExact("VITE_LAUNCH_MODE", "public");
-  requireExact("GEOCODER_BASE_URL", "http://127.0.0.1:4312");
+  requireExact("GEOCODER_BASE_URL", `http://127.0.0.1:${ports.geocoder}`);
 
   // The auth-only profile has no permitted external-service credentials, even test Stripe keys.
   for (const [key, value] of Object.entries(env)) {

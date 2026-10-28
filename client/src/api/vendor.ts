@@ -594,6 +594,17 @@ export function updateVendorExperience(id: string, input: Partial<ExperienceInpu
   return request(`/vendor/experiences/${id}`, { method: "PUT", body: JSON.stringify(input) });
 }
 
+/** Participation Phase 1 — a listing's registration options (all of them,
+ * active and inactive), the version to send back, and whether editing is on. */
+export function fetchExperienceOptions(id: string): Promise<{ options: import("../types").VendorOfferingOption[]; version: number; enabled: boolean }> {
+  return request(`/vendor/experiences/${id}/options`);
+}
+
+/** Replaces the whole option set; 409 `stale_options` when someone saved in between. */
+export function saveExperienceOptions(id: string, options: import("../types").VendorOfferingOption[], version: number): Promise<{ options: import("../types").VendorOfferingOption[]; version: number }> {
+  return request(`/vendor/experiences/${id}/options`, { method: "PUT", body: JSON.stringify({ options, version }) });
+}
+
 /** Vendor-triggered 'draft' → 'pending' transition — see publishVendorCentre. */
 export function publishVendorExperience(id: string): Promise<{ id: string }> {
   return request(`/vendor/experiences/${id}/publish`, { method: "POST" });

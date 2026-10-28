@@ -16,13 +16,14 @@ import "./pass.css";
 // code greyed out and never says "booked".
 
 export type PassLook = "wallet" | "ticket" | "lanyard";
-export type PassKind = "activity" | "experience" | "adventure" | "volunteer" | "programme" | "room" | "club" | "circle" | "pass";
+export type PassKind = "activity" | "experience" | "adventure" | "event" | "volunteer" | "programme" | "room" | "club" | "circle" | "pass";
 export type PassTone = "ok" | "warn" | "hot" | "live" | "bad" | "wait" | "ended" | "host";
 
 export const KIND_LABEL: Record<PassKind, string> = {
   activity: "Activity",
   experience: "Experience",
   adventure: "Adventure",
+  event: "Event",
   volunteer: "Volunteering",
   programme: "Programme",
   room: "Room booking",

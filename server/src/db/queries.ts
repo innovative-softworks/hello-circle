@@ -1,4 +1,5 @@
 import { db } from "./index.js";
+import { eventsVisible, experienceHref, hiddenEventsSql } from "../participation/eventsVisibility.js";
 import { orgActiveSql } from "../orgSql.js";
 import { haversineKm, type RadiusFilter } from "../geo.js";
 import { irelandWallTimeToUtc } from "../irelandTime.js";
@@ -465,6 +466,7 @@ export async function listMapMarkers(bounds: MapBounds, types: ReadonlySet<MapMa
 
   if (types.has("experience")) {
     const expClauses = ["status = 'approved'", orgActiveSql("vendor_id"), "lat IS NOT NULL", "lng IS NOT NULL", "lat BETWEEN ? AND ?", "lng BETWEEN ? AND ?"];
+    if (!(await eventsVisible())) expClauses.push("kind != 'event'");
     const expParams: (string | number)[] = [south, north, west, east];
     if (q) {
       expClauses.push("title LIKE ?");
@@ -484,7 +486,7 @@ export async function listMapMarkers(bounds: MapBounds, types: ReadonlySet<MapMa
       .all(...expParams)) as {
       id: string;
       slug: string | null;
-      kind: "adventure" | "experience";
+      kind: "adventure" | "experience" | "event";
       title: string;
       area: string;
       county: string;
@@ -504,7 +506,7 @@ export async function listMapMarkers(bounds: MapBounds, types: ReadonlySet<MapMa
         area: r.area,
         county: r.county,
         image: r.image_url,
-        href: `/${r.kind === "adventure" ? "adventures" : "experiences"}/${r.slug ?? r.id}`,
+        href: experienceHref(r.kind, r.slug ?? r.id),
         priceCents: r.price_cents,
         locationSource: r.location_source,
       }))
@@ -1389,7 +1391,7 @@ export async function listScheduledActivities(opts: { county?: string; from: Dat
                 e.location_source, e.duration_minutes, e.circle_id, e.capacity, es.capacity as session_capacity,
                 (SELECT COALESCE(SUM(eb.party_size), 0) FROM experience_bookings eb WHERE eb.session_id = es.id AND eb.payment_status = 'paid' AND eb.status != 'cancelled') as booked
          FROM experience_sessions es JOIN experiences e ON e.id = es.experience_id
-         WHERE e.status = 'approved' AND ${orgActiveSql("e.vendor_id")} AND es.status = 'scheduled' AND es.date >= ? AND es.date <= ? ${county ? "AND e.county = ?" : ""}`
+         WHERE e.status = 'approved' AND ${orgActiveSql("e.vendor_id")}${await hiddenEventsSql("e")} AND es.status = 'scheduled' AND es.date >= ? AND es.date <= ? ${county ? "AND e.county = ?" : ""}`
       )
       .all(...(county ? [fromIso, toIso, county] : [fromIso, toIso]))) as {
       id: string; date: string; time: string; experience_id: string; slug: string | null; title: string; kind: string; price_cents: number; image_url: string;
