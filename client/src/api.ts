@@ -20,5 +20,6 @@ export * from "./api/adminAccess";
 export * from "./api/categories";
 export * from "./api/circleExperience";
 export * from "./api/experience";
+export * from "./api/trust";
 
 export type { Role };

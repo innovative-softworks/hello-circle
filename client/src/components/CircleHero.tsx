@@ -90,11 +90,9 @@ export function CircleHero({ circle, activeThisWeek, compact }: { circle: Circle
           >
             {circle.name}
           </h1>
-          {circle.hostVerified && (
-            <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 22, height: 22, borderRadius: "50%", background: colors.green, color: "#fff", fontSize: 12, fontWeight: 800, flex: "none" }} title="Verified organiser">
-              ✓
-            </span>
-          )}
+          {/* Trust & Retention batch 1 — no tick beside a Circle's name: it read
+              as "verified Circle", which nothing checks. The organiser line
+              carries the organiser's own specific checks. */}
         </div>
         {circle.about && (
           <p style={{ margin: "0 0 14px", fontSize: 15.5, color: "rgba(255,255,255,.88)", lineHeight: 1.45, maxWidth: 520 }}>

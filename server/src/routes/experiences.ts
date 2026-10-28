@@ -1,4 +1,6 @@
 import { taxonomyFields, taxonomyFilter } from "../taxonomy.js";
+import { businessCheckedSql } from "../verification.js";
+import { withCardLabels } from "../categoryLabels.js";
 import { customerPaymentCase } from "../payments/paymentReview.js";
 import { sweepSpotAlerts } from "../spotAlerts.js";
 import { Router } from "express";
@@ -74,7 +76,7 @@ export interface ExperienceRow {
   terrain_type: string;
   vendor_business_name: string;
   vendor_name: string;
-  vendor_provider_tier: string;
+  vendor_business_checked: number | string;
 }
 
 async function toExperienceJson(row: ExperienceRow) {
@@ -123,6 +125,7 @@ async function toExperienceJson(row: ExperienceRow) {
     transportInfo: row.transport_info,
     safetyInfo: row.safety_info,
     accessibilityInfo: row.accessibility_info || null,
+    newcomerWelcome: (row as { newcomer_welcome?: string | null }).newcomer_welcome ?? null,
     // Release 5 — volunteer listings only (empty/null otherwise).
     skillsRequired: row.skills_required || null,
     cause: row.cause || null,
@@ -151,7 +154,7 @@ async function toExperienceJson(row: ExperienceRow) {
     // itself can show/link to it without a second round trip.
     vendorId: row.vendor_id,
     vendorName: row.vendor_business_name || row.vendor_name,
-    vendorVerified: row.vendor_provider_tier !== "standard",
+    vendorVerified: !!Number(row.vendor_business_checked),
   };
 }
 
@@ -180,12 +183,12 @@ experiencesRouter.get("/", async (req, res) => {
   if (tax) { conditions.push(tax.sql); params.push(...tax.params); }
   const rows = (await db
     .prepare(
-      `SELECT e.*, u.business_name as vendor_business_name, u.name as vendor_name, u.provider_tier as vendor_provider_tier
+      `SELECT e.*, u.business_name as vendor_business_name, u.name as vendor_name, ${businessCheckedSql("e.vendor_id")} as vendor_business_checked
        FROM experiences e JOIN users u ON u.id = e.vendor_id
        WHERE ${conditions.join(" AND ")} ORDER BY e.featured DESC, e.created_at DESC`
     )
     .all(...params)) as ExperienceRow[];
-  res.json(await Promise.all(rows.map(toExperienceJson)));
+  res.json(await withCardLabels(await Promise.all(rows.map(toExperienceJson)), (e) => ({ type: "experience", id: e.id })));
 });
 
 // Same "approved only" contract as getApprovedCentre/getApprovedClub — a
@@ -196,7 +199,7 @@ experiencesRouter.get("/", async (req, res) => {
 experiencesRouter.get("/:id", async (req, res) => {
   const row = (await db
     .prepare(
-      `SELECT e.*, u.business_name as vendor_business_name, u.name as vendor_name, u.provider_tier as vendor_provider_tier
+      `SELECT e.*, u.business_name as vendor_business_name, u.name as vendor_name, ${businessCheckedSql("e.vendor_id")} as vendor_business_checked
        FROM experiences e JOIN users u ON u.id = e.vendor_id
        WHERE (e.slug = ? OR e.id = ?) AND e.status = 'approved' AND ${orgActiveSql("e.vendor_id")}`
     )

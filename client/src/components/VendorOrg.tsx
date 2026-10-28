@@ -1,4 +1,5 @@
 import { EarningsSections } from "./EarningsSummary";
+import { BusinessCheckPanel } from "./trust/BusinessCheckPanel";
 import { TraderProfileForm } from "./TraderProfileForm";
 import { useEffect, useRef, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
@@ -692,8 +693,8 @@ export function PaymentsPanel() {
   );
 }
 
-type OrgSection = "settings" | "trader" | "staff" | "participants" | "insights";
-const ORG_SECTIONS: OrgSection[] = ["settings", "trader", "staff", "participants", "insights"];
+type OrgSection = "settings" | "trader" | "check" | "staff" | "participants" | "insights";
+const ORG_SECTIONS: OrgSection[] = ["settings", "trader", "check", "staff", "participants", "insights"];
 
 export function VendorOrgTab() {
   const [profile, setProfile] = useState<OrgProfile | null>(null);
@@ -731,6 +732,7 @@ export function VendorOrgTab() {
           options={[
             { key: "settings", label: "Settings" },
             { key: "trader", label: "Trader details" },
+            { key: "check", label: "Business check" },
             { key: "staff", label: "Staff & roles" },
             { key: "insights", label: "Insights", icon: <TrendUpIcon size={13} /> },
           ]}
@@ -745,6 +747,11 @@ export function VendorOrgTab() {
       {subTab === "trader" && (
         <div className="ws-settings">
           <TraderProfileForm scope="vendor" />
+        </div>
+      )}
+      {subTab === "check" && (
+        <div className="ws-settings">
+          <BusinessCheckPanel />
         </div>
       )}
       {subTab === "staff" && <StaffPanel profile={profile} reload={load} onOpenMember={(id) => openRecord(`member:${id}`)} />}

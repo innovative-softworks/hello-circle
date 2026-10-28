@@ -62,6 +62,7 @@ export function ExperienceGetReady({ experienceId }: { experienceId: string }) {
       <Facts
         facts={[
           { label: "Where to meet", value: e.meetingPoint },
+          { label: "Who welcomes newcomers", value: e.newcomerWelcome ?? null },
           { label: "How long", value: duration(e.durationMinutes) },
           { label: "Difficulty", value: e.difficulty },
           { label: "Fitness", value: e.fitnessRequirements },
@@ -96,6 +97,7 @@ export function GameGetReady({ game }: { game: Game }) {
       <Facts
         facts={[
           { label: "Where to meet", value: game.meetingInstructions || game.centreName || game.locationText },
+          { label: "Who welcomes newcomers", value: game.newcomerWelcome ?? null },
           { label: "How long", value: duration(game.durationMinutes ?? null) },
           { label: "What to bring", value: game.equipmentNeeded },
           { label: "Experience", value: game.experienceRequired ?? null },

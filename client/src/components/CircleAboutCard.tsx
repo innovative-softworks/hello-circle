@@ -18,9 +18,8 @@ export function CircleAboutCard({ circle }: { circle: Circle }) {
   const [profile, setProfile] = useState<HostProfile | null>(null);
 
   useEffect(() => {
-    if (!circle.hostVerified) return;
-    fetchHostProfile(circle.createdByResidentId).then(setProfile).catch(() => {});
-  }, [circle.createdByResidentId, circle.hostVerified]);
+    fetchHostProfile(circle.createdByResidentId).then(setProfile).catch(() => setProfile(null));
+  }, [circle.createdByResidentId]);
 
   const bullets = [circle.whatWeDo, circle.whoCanJoin, circle.values].filter((v): v is string => !!v);
 
@@ -52,7 +51,7 @@ export function CircleAboutCard({ circle }: { circle: Circle }) {
               <div style={{ display: "flex", alignItems: "center", gap: 5, fontWeight: 700, fontSize: 14 }}>
                 <span>{circle.hostName}</span>
                 {circle.hostVerified && (
-                  <span title="Verified" style={{ display: "inline-flex", color: colors.greenText }}>
+                  <span title="Host application approved" aria-label="Host application approved" style={{ display: "inline-flex", color: colors.greenText }}>
                     <AwardIcon size={13} />
                   </span>
                 )}
@@ -62,7 +61,7 @@ export function CircleAboutCard({ circle }: { circle: Circle }) {
               </div>
             </div>
           </div>
-          {circle.hostVerified && (
+          {profile && (
             <RouteLinkButton variant="ghost" to={`/host/${circle.createdByResidentId}`} style={{ marginTop: 10, width: "100%" }}>
               View profile
             </RouteLinkButton>

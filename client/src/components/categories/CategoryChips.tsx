@@ -3,7 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { DISCOVERY_TAG_LABELS, fetchCategories, type CategoryFamily, type DiscoveryTag, type ListingTaxonomy, type PublicCategory } from "../../api";
 import { colors } from "../../theme";
 import { Chip } from "../Chip";
-import { DropdownCheckbox } from "../FilterDropdown";
+import { DropdownCheckbox, DropdownOption, FilterDropdown } from "../FilterDropdown";
 
 // Category system — public discovery. One hook + chips shared by every list
 // page. URL state: ?category=<slug>&sub=<slug> (query parameters only, per
@@ -179,6 +179,48 @@ export function CategoryChips({
         {state.label ? `Showing ${state.label}` : ""}
       </span>
     </div>
+  );
+}
+
+/** Every category as one dropdown, biggest first, with counts — Explore's
+ * toolbar instead of a chip row (owner, 2026-10-28). The label is the chosen
+ * category's name, or "Category". */
+export function CategoryDropdown({ state, floating }: { state: CategoryFilterState; floating?: boolean }) {
+  const { selected, setCategory } = state;
+  if (state.categories.length === 0) return null;
+  const byCount = [...state.categories].sort((a, b) => b.count - a.count);
+  return (
+    <FilterDropdown label={<span>{selected ? selected.name : "Category"}</span>} active={!!selected} closeOnSelect floating={floating}>
+      <DropdownOption label="All categories" active={!selected} onClick={() => setCategory(null)} />
+      {byCount.map((c) => (
+        <DropdownOption
+          key={c.id}
+          label={<span style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>{c.name}<span style={{ color: colors.mutedLight, fontWeight: 500 }}>{c.count}</span></span>}
+          active={selected?.id === c.id}
+          onClick={() => setCategory(c.slug)}
+        />
+      ))}
+    </FilterDropdown>
+  );
+}
+
+/** The chosen category's types as one dropdown ("Type: Hiking") — Explore's
+ * results bar, instead of a second chip row. Nothing when there's no choice. */
+export function CategoryTypeDropdown({ state }: { state: CategoryFilterState }) {
+  const { selected, selectedSub, setSub } = state;
+  if (!selected || selected.subcategories.length <= 1) return null;
+  return (
+    <FilterDropdown label={selectedSub ? `Type: ${selectedSub.name}` : "Type"} active={!!selectedSub} closeOnSelect>
+      <DropdownOption label={`All ${selected.name.toLowerCase()}`} active={!selectedSub} onClick={() => setSub(null)} />
+      {selected.subcategories.map((s) => (
+        <DropdownOption
+          key={s.id}
+          label={<span style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>{s.name}<span style={{ color: colors.mutedLight, fontWeight: 500 }}>{s.count}</span></span>}
+          active={selectedSub?.id === s.id}
+          onClick={() => setSub(s.slug)}
+        />
+      ))}
+    </FilterDropdown>
   );
 }
 

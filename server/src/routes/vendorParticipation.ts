@@ -1,4 +1,5 @@
 import { Router, type Request, type Response } from "express";
+import { parseNewcomerWelcome } from "../newcomerWelcome.js";
 import { assertPlatformRole } from "../auth.js";
 import { db } from "../db/index.js";
 import { getListingAttributes, setListingAttributes } from "../listingAttributes.js";
@@ -18,13 +19,19 @@ export const vendorParticipationRouter = Router();
 type VendorListingType = "program" | "experience" | "club";
 
 // Which what-to-expect columns each type accepts through this editor.
-const FIELDS: Record<VendorListingType, { key: "arrivalInstructions" | "accessibilityInfo"; column: string }[]> = {
+// Trust & Retention — every type also takes "who welcomes newcomers"
+// (newcomerWelcome.ts: public, short, no contact details).
+const FIELDS: Record<VendorListingType, { key: "arrivalInstructions" | "accessibilityInfo" | "newcomerWelcome"; column: string }[]> = {
   program: [
     { key: "arrivalInstructions", column: "arrival_instructions" },
     { key: "accessibilityInfo", column: "accessibility_info" },
+    { key: "newcomerWelcome", column: "newcomer_welcome" },
   ],
-  experience: [{ key: "accessibilityInfo", column: "accessibility_info" }],
-  club: [],
+  experience: [
+    { key: "accessibilityInfo", column: "accessibility_info" },
+    { key: "newcomerWelcome", column: "newcomer_welcome" },
+  ],
+  club: [{ key: "newcomerWelcome", column: "newcomer_welcome" }],
 };
 const TABLE: Record<VendorListingType, string> = { program: "programs", experience: "experiences", club: "clubs" };
 
@@ -85,7 +92,9 @@ vendorParticipationRouter.put("/participation/:type/:id", async (req, res) => {
   const type = parseType(req.params.type);
   if (!type) return res.status(400).json({ error: "type must be program, experience or club" });
   if (!(await authorize(req, res, type, req.params.id))) return;
-  const b = req.body as { attributes?: unknown; arrivalInstructions?: string; accessibilityInfo?: string; circleId?: string | null };
+  const b = req.body as { attributes?: unknown; arrivalInstructions?: string; accessibilityInfo?: string; newcomerWelcome?: string; circleId?: string | null };
+  const welcome = parseNewcomerWelcome(b.newcomerWelcome);
+  if (!welcome.ok) return res.status(400).json({ error: welcome.error });
 
   if (b.circleId !== undefined) {
     if (b.circleId !== null && !(await linkableCircles(req.vendorIds!)).some((c) => c.id === b.circleId)) {
@@ -100,7 +109,7 @@ vendorParticipationRouter.put("/participation/:type/:id", async (req, res) => {
   if (sent.length) {
     await db
       .prepare(`UPDATE ${TABLE[type]} SET ${sent.map((f) => `${f.column} = ?`).join(", ")} WHERE id = ?`)
-      .run(...sent.map((f) => (b[f.key] as string).trim().slice(0, 2000) || null), req.params.id);
+      .run(...sent.map((f) => (f.key === "newcomerWelcome" ? (welcome.value ?? null) : (b[f.key] as string).trim().slice(0, 2000) || null)), req.params.id);
   }
   res.json({ attributes: await getListingAttributes(type, req.params.id), ...(await readFields(type, req.params.id)) });
 });

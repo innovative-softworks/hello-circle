@@ -24,12 +24,15 @@ export function FollowButton({
   initialFollowing,
   initialLevel = "highlights",
   followerCount,
+  quiet = false,
 }: {
   followedType: FollowedType;
   followedId: string;
   initialFollowing: boolean;
   initialLevel?: NotificationLevel;
   followerCount?: number;
+  /** A secondary action in a list (My Life, after a review): outlined, so it never competes with the row's main action. */
+  quiet?: boolean;
 }) {
   const navigate = useNavigate();
   const { resident } = useGuest();
@@ -85,7 +88,7 @@ export function FollowButton({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
-      <Button variant={following ? "ghost" : "primary"} onClick={toggleFollow} disabled={busy} style={{ padding: "10px 18px", fontSize: 13.5 }}>
+      <Button variant={following || quiet ? "ghost" : "primary"} onClick={toggleFollow} disabled={busy} style={quiet ? { padding: "6px 14px", fontSize: 13, minWidth: 0 } : { padding: "10px 18px", fontSize: 13.5 }}>
         {following ? (
           <>
             <CheckIcon size={14} /> Following

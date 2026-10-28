@@ -20,6 +20,7 @@ const vendorId = `test-vendor-reviews-${crypto.randomUUID()}`;
 const centreId = `test-centre-reviews-${crypto.randomUUID()}`;
 const clubId = `test-club-reviews-${crypto.randomUUID()}`;
 const programId = `test-program-reviews-${crypto.randomUUID()}`;
+const pastSessionId = `test-sess-${crypto.randomUUID()}`;
 
 beforeAll(async () => {
   const app = express();
@@ -45,6 +46,9 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await new Promise<void>((resolve) => server.close(() => resolve()));
+  await db.prepare(`DELETE FROM attendance WHERE ref LIKE 'test-%'`).run();
+  await db.prepare(`DELETE FROM attendance_corrections WHERE ref LIKE 'test-%'`).run();
+  await db.prepare(`DELETE FROM reviews WHERE listing_id IN (?, ?, ?)`).run(centreId, clubId, programId);
   await db.prepare(`DELETE FROM bookings WHERE centre_id = ?`).run(centreId);
   await db.prepare(`DELETE FROM registrations WHERE club_id = ?`).run(clubId);
   await db.prepare(`DELETE FROM program_enrollments WHERE program_id = ?`).run(programId);
@@ -55,6 +59,10 @@ afterAll(async () => {
   await db.prepare(`DELETE FROM users WHERE id = ?`).run(vendorId);
 });
 
+/** The organiser accepts this person's "I attended" request (see reviewEligibility.ts). */
+const confirmPerson = (kind: string, ref: string, clientId: string) =>
+  db.prepare(`INSERT INTO attendance_corrections (kind, ref, client_id, status) VALUES (?, ?, ?, 'accepted')`).run(kind, ref, clientId);
+
 async function checkEligible(clientId: string, listingType: string, listingId: string): Promise<boolean> {
   const res = await fetch(`${baseUrl}/eligible?listingType=${listingType}&listingId=${listingId}`, { headers: { "X-Client-Id": clientId } });
   const body = (await res.json()) as { eligible: boolean };
@@ -64,12 +72,19 @@ async function checkEligible(clientId: string, listingType: string, listingId: s
 describe("Centre review eligibility", () => {
   it("true for a paid, confirmed, past booking", async () => {
     const clientId = `test-client-${crypto.randomUUID()}`;
+    const ref = `test-bkg-${crypto.randomUUID()}`;
     await db
       .prepare(
         `INSERT INTO bookings (ref, client_id, centre_id, room_id, date, time, duration, event_type, guests, name, email, phone, notes, total_cents, status, payment_status)
          VALUES (?, ?, ?, 'test-room', '2020-01-01', '18:00', 1, 'Event', 2, 'Guest', 'guest@example.test', '0850000000', '', 1000, 'confirmed', 'paid')`
       )
-      .run(`test-bkg-${crypto.randomUUID()}`, clientId, centreId);
+      .run(ref, clientId, centreId);
+    // Trust & Retention — paid and past isn't enough, and neither is a door
+    // check-in of the booking: the venue must confirm this person attended.
+    expect(await checkEligible(clientId, "centre", centreId)).toBe(false);
+    await db.prepare(`INSERT INTO attendance (kind, ref, status) VALUES ('booking', ?, 'present')`).run(ref);
+    expect(await checkEligible(clientId, "centre", centreId)).toBe(false);
+    await confirmPerson("booking", ref, clientId);
     expect(await checkEligible(clientId, "centre", centreId)).toBe(true);
   });
 
@@ -115,12 +130,19 @@ describe("Centre review eligibility", () => {
 describe("Club review eligibility", () => {
   it("true for a paid, confirmed registration", async () => {
     const clientId = `test-client-${crypto.randomUUID()}`;
+    const regRef = `test-reg-${crypto.randomUUID()}`;
     await db
       .prepare(
         `INSERT INTO registrations (ref, client_id, club_id, team, child_first, child_last, dob, g_first, g_last, email, phone, address, ec_name, ec_phone, ec_rel, medical, consent, trial, total_cents, status, payment_status)
          VALUES (?, ?, ?, 'Team', 'Test', 'Child', '2015-01-01', 'Test', 'Guardian', 'guardian@example.test', '0850000000', '1 Test St', 'Contact', '0850000001', 'Parent', '', 1, 0, 1000, 'confirmed', 'paid')`
       )
-      .run(`test-reg-${crypto.randomUUID()}`, clientId, clubId);
+      .run(regRef, clientId, clubId);
+    // Trust & Retention — a child's registration (the default registrant_type)
+    // never opens a review for the parent, even once the club confirms it.
+    await confirmPerson("registration", regRef, clientId);
+    expect(await checkEligible(clientId, "club", clubId)).toBe(false);
+    // An adult's own registration does, once the club confirms them.
+    await db.prepare(`UPDATE registrations SET registrant_type = 'adult' WHERE ref = ?`).run(regRef);
     expect(await checkEligible(clientId, "club", clubId)).toBe(true);
   });
 
@@ -162,10 +184,15 @@ describe("Program review eligibility", () => {
     const clientId = `test-client-${crypto.randomUUID()}`;
     await db
       .prepare(`INSERT INTO program_sessions (id, program_id, date, time, status) VALUES (?, ?, '2020-01-01', '10:00', 'scheduled')`)
-      .run(`test-sess-${crypto.randomUUID()}`, programId);
-    await db
+      .run(pastSessionId, programId);
+    const pe = await db
       .prepare(`INSERT INTO program_enrollments (ref, program_id, client_id, participant_name, email, payment_status, status) VALUES (?, ?, ?, 'Test Child', 'guardian@example.test', 'paid', 'confirmed')`)
       .run(`test-pe-${crypto.randomUUID()}`, programId, clientId);
+    // Trust & Retention — a register entry for the place isn't enough (the
+    // participant may be someone else); the organiser confirms this person.
+    await db.prepare(`INSERT INTO attendance (kind, ref, status) VALUES ('program_session', ?, 'present')`).run(`${pastSessionId}:${pe.lastInsertRowid}`);
+    expect(await checkEligible(clientId, "program", programId)).toBe(false);
+    await confirmPerson("program_session", `${pastSessionId}:${pe.lastInsertRowid}`, clientId);
     expect(await checkEligible(clientId, "program", programId)).toBe(true);
   });
 
@@ -212,9 +239,10 @@ describe("Program review eligibility", () => {
 
   it("an eligible participant can actually submit a program review end to end", async () => {
     const clientId = `test-client-${crypto.randomUUID()}`;
-    await db
+    const pe = await db
       .prepare(`INSERT INTO program_enrollments (ref, program_id, client_id, participant_name, email, payment_status, status) VALUES (?, ?, ?, 'Test Child', 'guardian@example.test', 'paid', 'confirmed')`)
       .run(`test-pe-${crypto.randomUUID()}`, programId, clientId);
+    await confirmPerson("program_session", `${pastSessionId}:${pe.lastInsertRowid}`, clientId);
 
     const res = await fetch(`${baseUrl}/`, {
       method: "POST",

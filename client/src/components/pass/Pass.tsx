@@ -19,7 +19,7 @@ export type PassLook = "wallet" | "ticket" | "lanyard";
 export type PassKind = "activity" | "experience" | "adventure" | "volunteer" | "programme" | "room" | "club" | "circle" | "pass";
 export type PassTone = "ok" | "warn" | "hot" | "live" | "bad" | "wait" | "ended" | "host";
 
-const KIND_LABEL: Record<PassKind, string> = {
+export const KIND_LABEL: Record<PassKind, string> = {
   activity: "Activity",
   experience: "Experience",
   adventure: "Adventure",
@@ -66,7 +66,7 @@ export interface PassProps {
 }
 
 /** The booking reference as an SVG code (qrcode library). */
-function useCodeSvg(text: string | null | undefined): string | null {
+export function useCodeSvg(text: string | null | undefined): string | null {
   const [svg, setSvg] = useState<string | null>(null);
   useEffect(() => {
     if (!text) return setSvg(null);

@@ -31,7 +31,7 @@ export const REVIEW_ONLY_REPORT_TYPES: readonly ReportTargetType[] = ["program",
 export type ReportTargetType = (typeof REPORT_TARGET_TYPES)[number];
 export const isReportTargetType = (v: unknown): v is ReportTargetType => typeof v === "string" && (REPORT_TARGET_TYPES as readonly string[]).includes(v);
 /** Types whose "suspend" action needs a recorded reason. */
-export const REASON_REQUIRED: readonly ReportTargetType[] = ["chat_message", "game", "centre", "club", "experience", "circle_memory", "circle_plan"];
+export const REASON_REQUIRED: readonly ReportTargetType[] = ["review", "chat_message", "game", "centre", "club", "experience", "circle_memory", "circle_plan"];
 
 export class ModerationError extends Error {
   status: number;
@@ -137,9 +137,22 @@ export async function applyReportAction(report: { id: number; targetType: string
     return { action: "circle_closed", summary: "circle closed" };
   }
   if (type === "review") {
-    const r = await db.prepare(`UPDATE reviews SET hidden = 1 WHERE id = ? AND hidden = 0`).run(id);
+    const r = await db.prepare(`UPDATE reviews SET hidden = 1, hidden_reason = ?, hidden_by = ?, hidden_at = NOW() WHERE id = ? AND hidden = 0`).run(reason!.explanation.slice(0, 1000), actorUserId, id);
     if (r.changes !== 1) throw new ModerationError("This review is already hidden (or no longer exists)");
     await audit("suspend_by_report", { hidden: false }, { hidden: true });
+    // Trust & Retention — the author is told why and how to ask for reconsideration (existing appeal route).
+    const author = (await db.prepare(`SELECT resident_id as residentId FROM reviews WHERE id = ?`).get(id)) as { residentId: string | null } | undefined;
+    if (author?.residentId) {
+      await notifyResident({
+        residentId: author.residentId,
+        kind: "moderation",
+        title: "HelloCircle hid one of your reviews",
+        body: `${reason!.explanation}\n\nIf you think this is wrong, ask us to reconsider: open Complaints & appeals and quote case R-${String(report.id).padStart(6, "0")}.`.slice(0, 2000),
+        listingType: "account",
+        listingId: author.residentId,
+        ref: String(report.id),
+      });
+    }
     return { action: "review_hidden", summary: "review hidden" };
   }
   if (type === "chat_message") {

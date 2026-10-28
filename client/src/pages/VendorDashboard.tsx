@@ -1,4 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { AttendeeConfirmPanel } from "../components/trust/AttendeeConfirmPanel";
+import { AttendanceRequestsPanel } from "../components/trust/AttendanceRequestsPanel";
 import { VendorCustomersTab } from "../components/VendorCustomers";
 import { PlanRewardsPanel } from "../components/PlanRewardsPanel";
 import { useNavigate } from "react-router-dom";
@@ -254,7 +256,13 @@ export function VendorDashboard() {
       )}
 
       {activeTab === "messages" && <MessagesTab onRead={loadUnreadCount} listings={listings} composeOpen={composeOpen} onCloseCompose={() => setComposeOpen(false)} />}
-      {activeTab === "bookings" && <BookingsTab />}
+      {activeTab === "bookings" && (
+        <>
+          <AttendanceRequestsPanel />
+          <AttendeeConfirmPanel />
+          <BookingsTab />
+        </>
+      )}
       {activeTab === "customers" && <VendorCustomersTab onOpenBooking={canSee("bookings") ? (ref) => navigate(`/vendor?tab=bookings&record=booking:${ref}`) : undefined} />}
       {activeTab === "earnings" && <PaymentsPanel />}
       {activeTab === "reviews" && <VendorReviewsTab />}

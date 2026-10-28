@@ -12,6 +12,8 @@ export interface Room {
 }
 
 export interface Centre {
+  /** Trust & Retention — who meets newcomers on arrival; null = not provided. */
+  newcomerWelcome?: string | null;
   /** Category system (2026-10-22) — present on public detail responses. */
   taxonomy?: ListingTaxonomy | null;
   tags?: string[];
@@ -92,6 +94,8 @@ export interface RoomBlock {
 }
 
 export interface Club {
+  /** Trust & Retention — who meets newcomers on arrival; null = not provided. */
+  newcomerWelcome?: string | null;
   /** Category system (2026-10-22) — present on public detail responses. */
   taxonomy?: ListingTaxonomy | null;
   tags?: string[];
@@ -159,6 +163,8 @@ export interface MyBooking {
   image: string;
   status: BookingStatus;
   vendorId: string;
+  /** Trust & Retention batch 1 — the venue, for its review section. */
+  centreId?: string;
   /** Front-door check-in (attendance table): "present" once the vendor
    * checked this booking in, null when nobody did — null is "unknown", not
    * "absent" (Release 1). Optional: older servers don't send it. */
@@ -432,6 +438,16 @@ export interface Review {
   /** Host Manage spec §16 — only ever set for centre/club reviews. */
   vendorReply: string | null;
   vendorRepliedAt: string | null;
+  /** Trust & Retention — "person" while an authorised organiser's record (or
+   * an accepted attendance request) confirms this reviewer attended; null for
+   * older reviews and any whose confirmation no longer holds. */
+  attendanceBasis?: "person" | null;
+  /** The date of the occurrence reviewed (older reviews: null). */
+  occurrenceDate?: string | null;
+  tags?: ("welcoming_host" | "good_organisation" | "accurate_description" | "good_value")[];
+  updatedAt?: string | null;
+  /** True when the viewer wrote it (they may edit or delete it). */
+  mine?: boolean;
 }
 
 export interface VendorListingSummary {
@@ -545,7 +561,7 @@ export interface Favourite {
 
 export interface ResidentNotification {
   id: number;
-  kind: "booking" | "registration" | "program" | "experience" | "waitlist" | "game" | "intent_match" | "circle" | "invite" | "invite_withdrawn" | "moderation";
+  kind: "booking" | "registration" | "program" | "experience" | "waitlist" | "game" | "intent_match" | "circle" | "invite" | "invite_withdrawn" | "moderation" | "review_invite";
   title: string;
   body: string;
   /** Platform Pre-Launch Polish — Changeset 2. Widened to match the
@@ -616,6 +632,10 @@ export interface MyIntent {
 // --- Join a Game (MVP) / paid games (NEXT) ---------------------------------
 
 export interface Game {
+  /** Trust & Retention — who welcomes newcomers (a role or first name, where to find them); null = not provided. */
+  newcomerWelcome?: string | null;
+  /** Card word source (list endpoints only). See CategoryLabel. */
+  categoryLabel?: CategoryLabel | null;
   /** Category system (2026-10-22) — present on public detail responses. */
   taxonomy?: ListingTaxonomy | null;
   tags?: string[];
@@ -1318,8 +1338,10 @@ export interface ProviderProfile {
   id: string;
   name: string;
   description: string;
+  /** Trust & Retention batch 1 — true only while a business-details check holds (never the commercial tier). */
   verified: boolean;
   providerTier: string;
+  checks?: VerificationLabel[];
   county: string;
   logo: string | null;
   /** Host Manage spec §25/§26 — previously no field/editor existed for
@@ -1378,6 +1400,28 @@ export interface HostProfile {
   followerCount: number;
   isFollowing: boolean;
   followNotificationLevel: "highlights" | "everything";
+  /** Trust & Retention batch 1. */
+  hostingSince?: string | null;
+  activitiesOffered?: string[];
+  areas?: string[];
+  checks?: VerificationLabel[];
+  reviewSummary?: ReviewSummary;
+}
+
+/** A completed check, shown on a profile only while it holds. */
+export interface VerificationLabel {
+  key: "email_confirmed" | "host_application_approved" | "business_details_checked" | "identity_checked" | "organiser_identity_checked";
+  label: string;
+  meaning: string;
+  checkedAt: string | null;
+  expiresAt?: string | null;
+}
+
+export interface ReviewSummary {
+  average: number | null;
+  count: number;
+  /** Index 0 = 1 star … index 4 = 5 stars. */
+  distribution: [number, number, number, number, number];
 }
 
 // --- Participation Chat (implementation plan Phase 11) ----------------------
@@ -1468,7 +1512,18 @@ export interface SearchParsed {
   timeOfDay: "morning" | "afternoon" | "evening" | null;
 }
 
+/** A listing's category names for the Bold card's word over the photo
+ * (search + discover responses, 2026-10-28). null when none is assigned. */
+export interface CategoryLabel {
+  name: string;
+  sub: string | null;
+  /** "assigned" = the listing's category; "title" = one live category named
+   * in its own title (display only). See server/src/categoryLabels.ts. */
+  source?: "assigned" | "title";
+}
+
 export interface ExperienceSearchResult {
+  category?: CategoryLabel | null;
   id: string;
   kind: ExperienceKind;
   title: string;
@@ -1490,13 +1545,15 @@ export interface SearchResult {
    * activities — see server/src/routes/search.ts's comment. */
   experiences: ExperienceSearchResult[];
   /** Category system (2026-10-22) — additive; older servers omit them. */
-  programmes?: { id: string; title: string; parentName: string | null; area: string | null; county: string | null; nextSessionDate: string | null; priceCents: number | null; imageUrl: string | null }[];
-  circles?: { id: string; slug: string | null; name: string; activityLabel: string; area: string; county: string; members: number }[];
+  programmes?: { category?: CategoryLabel | null; id: string; title: string; parentName: string | null; area: string | null; county: string | null; nextSessionDate: string | null; priceCents: number | null; imageUrl: string | null }[];
+  circles?: { category?: CategoryLabel | null; id: string; slug: string | null; name: string; activityLabel: string; area: string; county: string; members: number }[];
 }
 
 // --- homepage discovery feeds (Phase 5) ---------------------------------
 
 export interface DiscoverItem {
+  /** Category names for the Bold card (search + discover responses). */
+  category?: CategoryLabel | null;
   kind: "game" | "program_session" | "club_session";
   id: string;
   title: string;
@@ -1618,6 +1675,9 @@ export interface ActivitySummary extends Omit<DiscoverItem, "kind" | "matchReaso
 export interface DiscoverFeed {
   today: DiscoverItem[];
   weekend: DiscoverItem[];
+  /** The whole 7-day window, soonest first (Explore's Tomorrow / This week).
+   * Optional: older servers don't send it. */
+  week?: DiscoverItem[];
   /** A radius found nothing with a confirmed location, so this is the
    * county it was measured from instead (no distance claim). */
   radiusFallback?: { county: string };
@@ -1866,6 +1926,12 @@ export interface ReportRecord {
   reason: string;
   status: string;
   createdAt: string;
+  /** Trust & Retention batch 1 — "R-000123", what the reporter quotes to support. */
+  caseRef?: string;
+  category?: "content" | "safety";
+  decidedAt?: string | null;
+  /** A decided report can be taken to HelloCircle for reconsideration. */
+  canAppeal?: boolean;
 }
 
 // --- Community-contributed places (master-prompt punch list #4) -----------
@@ -1923,6 +1989,10 @@ export interface NotificationPrefs {
    * enough other residents wanting the same thing), not something the
    * resident themself just did, so it gets a real opt-out from day one. */
   intentMatches: boolean;
+  /** Trust & Retention — one in-app review invitation after the organiser
+   * confirms you attended (server: notifications.ts PREF_KEY_BY_KIND
+   * review_invite → reviewInvites). Absent means on. */
+  reviewInvites?: boolean;
 }
 
 export const ACCESSIBILITY_OPTIONS = ["Wheelchair access", "Step-free access", "Accessible changing", "Accessible parking", "Hearing loop", "Sensory-friendly"];
@@ -1977,6 +2047,8 @@ export interface WaitlistOfferStatus {
 /** GET /programs (no venue) — one card on the /programs browse page. Only
  * published programs at approved venues with an upcoming session. */
 export interface ProgramSummary {
+  /** Card word source (list endpoints only). See CategoryLabel. */
+  categoryLabel?: CategoryLabel | null;
   id: string;
   title: string;
   description: string;
@@ -2024,6 +2096,8 @@ export interface SessionAttendanceEntry {
 }
 
 export interface Program {
+  /** Trust & Retention — who welcomes newcomers (a role or first name, where to find them); null = not provided. */
+  newcomerWelcome?: string | null;
   /** Category system (2026-10-22) — present on public detail responses. */
   taxonomy?: ListingTaxonomy | null;
   tags?: string[];
@@ -2099,6 +2173,10 @@ export interface ExperienceSessionSlot {
 }
 
 export interface Experience {
+  /** Trust & Retention — who welcomes newcomers (a role or first name, where to find them); null = not provided. */
+  newcomerWelcome?: string | null;
+  /** Card word source (list endpoints only). See CategoryLabel. */
+  categoryLabel?: CategoryLabel | null;
   /** Category system (2026-10-22) — present on public detail responses. */
   taxonomy?: ListingTaxonomy | null;
   tags?: string[];
@@ -2388,6 +2466,8 @@ export interface ModerationReport {
   /** Trust & Safety investigation notes (IA spec §16). */
   adminNotes: string | null;
   createdAt: string;
+  /** Trust & Retention batch 1 — "safety" reports are listed first. */
+  category?: "content" | "safety";
 }
 
 export interface ReportCase {

@@ -44,7 +44,7 @@ export function CircleDiscoveryCard({ circle, joined, onJoin, onLeave, busy }: {
         details={[
           where ? { icon: <PinIcon size={13} />, text: where } : null,
           plan ? { icon: <CalendarIcon size={13} />, text: `Next meetup ${dateLabel(plan.date)} · ${plan.time} · ${formatCircleAvailability(plan.spotsLeft)}`, tone: plan.spotsLeft <= 3 ? "hot" : "default" } : null,
-          circle.hostVerified ? { icon: <AwardIcon size={13} />, text: "Verified host" } : null,
+          circle.hostVerified ? { icon: <AwardIcon size={13} />, text: "Approved host" } : null,
         ]}
         facts={
           <>

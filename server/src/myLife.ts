@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { myLifePlansRouter } from "./myLifePlans.js";
 import { db } from "./db/index.js";
 import { listScheduledActivities, type ScheduledActivity } from "./db/queries.js";
 import { featureOn, requireFeature } from "./circleFeatures.js";
@@ -14,6 +15,8 @@ import { dayOfWeekOf, routineMatches, unseen, validDismissKey } from "./myLifeRu
 // person.
 
 export const myLifeRouter = Router();
+// Trust & Retention — "Your next plan" (GET /plans); signed-in or guest (client id).
+myLifeRouter.use(myLifePlansRouter);
 
 type Fav = { listingType: string; listingId: string; createdAt: string };
 type Routine = { id: string; activityLabel: string; dayOfWeek: number; time: string };

@@ -22,7 +22,11 @@ async function main() {
   // Full validation 2026-10-14 — role matrices, listing lifecycle, suspension
   // and workspace UX. Same guards; one fresh backend per file (login limiter).
   const validation = args[0] === "validation";
-  if (authorization || gate || lifecycle || booking || stripeMode || product || browsers || revenue || validation) args.shift();
+  // Trust & Retention (docs/trust-retention/05-*) — admin trust pages and the
+  // venue/club "What to expect" pages. Only this suite's venue batch turns on
+  // VITE_VENUE_PAGES_PUBLIC, in its own child environment.
+  const trust = args[0] === "trust";
+  if (authorization || gate || lifecycle || booking || stripeMode || product || browsers || revenue || validation || trust) args.shift();
   // Phase 10A — cross-browser critical journeys. Only these three engine
   // names are accepted; anything else falls back to Chromium.
   const qaBrowser = ["firefox", "webkit"].includes(process.env.QA_BROWSER ?? "") ? process.env.QA_BROWSER! : "chromium";
@@ -97,7 +101,12 @@ async function main() {
     // Phase 7 product-lifecycle suites: same guards, one fresh backend per
     // file so each batch stays within the real 10-login password limiter.
     // Phase 8 booking-integrity suites (no payment provider), same guards.
-    const batches = validation ? [
+    const batches = trust ? [
+      ["trust-admin", "trust-admin\\.spec\\.ts$"],
+      ["trust-venue", "trust-venue\\.spec\\.ts$"],
+      ["trust-confirm", "trust-confirm\\.spec\\.ts$"],
+      ["trust-journey", "trust-journey\\.spec\\.ts$"],
+    ] : validation ? [
       ["validation-staff", "hc-validation-staff\\.spec\\.ts$"],
       ["validation-admin", "hc-validation-admin\\.spec\\.ts$"],
       ["validation-ux", "hc-validation-ux\\.spec\\.ts$"],
@@ -348,7 +357,7 @@ async function main() {
       console.log(`Real auth batch: ${batch}`);
       const code = await new Promise<number>((resolve, reject) => {
         const child = spawn(process.execPath, ["node_modules/@playwright/test/cli.js", "test", "--config", "tests/integration/playwright.config.ts", ...(args.length ? ["--pass-with-no-tests"] : []), files, ...args], {
-          cwd: repositoryRoot, env: { ...childEnvironment(current.env, current.manifest), QA_AUTH_BATCH: batch, QA_BROWSER: qaBrowser, ...(prodBuild ? { QA_PROD_BUILD: "1" } : {}), ...(batch === "booking-provider" || batch.startsWith("revenue-") ? { QA_PAYMENT_PROVIDER_STUB: "1" } : {}), ...stripeEnv }, stdio: "inherit",
+          cwd: repositoryRoot, env: { ...childEnvironment(current.env, current.manifest), QA_AUTH_BATCH: batch, QA_BROWSER: qaBrowser, ...(prodBuild ? { QA_PROD_BUILD: "1" } : {}), ...(batch === "booking-provider" || batch.startsWith("revenue-") ? { QA_PAYMENT_PROVIDER_STUB: "1" } : {}), ...(batch === "trust-venue" ? { VITE_VENUE_PAGES_PUBLIC: "true" } : {}), ...stripeEnv }, stdio: "inherit",
         });
         child.once("error", reject);
         child.once("exit", (status) => resolve(status ?? 1));

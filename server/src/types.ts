@@ -12,6 +12,8 @@ export interface Room {
 }
 
 export interface Centre {
+  /** Trust & Retention — who meets newcomers on arrival; null = not provided. */
+  newcomerWelcome?: string | null;
   id: string;
   name: string;
   area: string;
@@ -61,6 +63,8 @@ export interface Centre {
 }
 
 export interface Club {
+  /** Trust & Retention — who meets newcomers on arrival; null = not provided. */
+  newcomerWelcome?: string | null;
   id: string;
   name: string;
   sport: string;
@@ -118,9 +122,14 @@ export interface Review {
   rating: number;
   comment: string;
   createdAt: string;
-  /** Host Manage spec §16 — only ever set for centre/club reviews. */
+  /** Host Manage spec §16 — partner/host reply. */
   vendorReply: string | null;
   vendorRepliedAt: string | null;
+  attendanceBasis?: "person" | "booking" | "self_reported" | null;
+  occurrenceDate?: string | null;
+  tags?: string[];
+  updatedAt?: string | null;
+  mine?: boolean;
 }
 
 export interface Registration {

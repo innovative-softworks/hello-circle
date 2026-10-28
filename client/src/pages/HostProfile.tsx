@@ -1,33 +1,35 @@
 import { usePageTitle } from "../pageTitle";
 import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
+import { ChevronRight } from "lucide-react";
 import { fetchHostProfile, isNotFound } from "../api";
-import { AwardIcon, CalendarIcon, RepeatIcon, StarIcon } from "../components/icons";
 import { FollowButton } from "../components/FollowButton";
-import { PageTitle } from "../components/PageTitle";
 import { Reviews } from "../components/Reviews";
 import { ShareButton } from "../components/ShareButton";
 import { ReportContentButton } from "../components/ReportContentButton";
-import { Avatar, Button, Card, EmptyState, PageSpinner } from "../components/ui";
-import { colors, fonts, radius } from "../theme";
+import { VerificationLabels } from "../components/trust/VerificationLabels";
+import { Avatar, LoadErrorState, Skeleton } from "../components/ui";
 import type { HostProfile } from "../types";
+import "../components/trust/trust.css";
 
-// Host public profile (IA spec §5/§15) — only ever resolves for a verified
-// host, and only shows participation-relevant info (activities hosted,
-// verification, hosting experience). Follow feature: this page previously
-// had no followers/likes/social popularity by deliberate original design —
-// that decision is now explicitly reversed for Follow specifically (a
-// standing "keep me in the loop" relationship, not a like/popularity
-// metric), per direct instruction. Follower count still stays a small
-// secondary line, never a headline stat (see FollowButton.tsx).
+// Host public profile (Trust & Retention batch 1, docs/trust-retention/).
+// Available for anyone who hosts in public, not only approved hosts — the
+// server decides (residents.ts GET /:id/host-profile) and only returns what
+// the public can already see: discoverable Sessions, open Circles, the
+// general area (never a meeting address), specific completed checks with what
+// each means, and reviews. With no reviews yet the page says "New to
+// HelloCircle" rather than implying a track record. Follow stays a quiet
+// secondary action (see FollowButton.tsx).
+
+const DATE = new Intl.DateTimeFormat("en-IE", { day: "numeric", month: "short", year: "numeric", timeZone: "Europe/Dublin" });
+const MONTH = new Intl.DateTimeFormat("en-IE", { month: "long", year: "numeric", timeZone: "Europe/Dublin" });
+const day = (iso: string) => DATE.format(new Date(`${iso}T12:00:00Z`));
 
 export function HostProfilePage() {
   const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
   const [profile, setProfile] = useState<HostProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
-  // PUB-14: only a 404 means "not available"; other failures can be retried.
   const [loadError, setLoadError] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   usePageTitle(notFound ? "Host not found" : profile?.name);
@@ -36,109 +38,180 @@ export function HostProfilePage() {
     if (!id) return;
     setLoading(true);
     setLoadError(false);
+    setNotFound(false);
     fetchHostProfile(id)
       .then(setProfile)
       .catch((e) => (isNotFound(e) ? setNotFound(true) : setLoadError(true)))
       .finally(() => setLoading(false));
   }, [id, reloadKey]);
 
-  if (loading) return <PageSpinner />;
+  if (loading) {
+    return (
+      <div className="tr-profile" aria-busy="true">
+        <Skeleton height={84} />
+        <div style={{ height: 24 }} />
+        <Skeleton height={240} />
+      </div>
+    );
+  }
   if (loadError) {
     return (
-      <section className="section-pad" style={{ maxWidth: 560, margin: "0 auto", padding: "80px 24px", textAlign: "center" }}>
-        <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(24px, 2.4vw, 30px)", margin: "0 0 10px" }}>We couldn't load this host profile.</h1>
-        <p style={{ color: colors.mutedLight, margin: "0 0 16px" }}>Check your connection and try again.</p>
-        <Button onClick={() => setReloadKey((k) => k + 1)}>Try again</Button>
-      </section>
+      <div className="tr-profile">
+        <LoadErrorState title="We couldn't load this host profile." detail="Check your connection and try again." onRetry={() => setReloadKey((k) => k + 1)} />
+      </div>
     );
   }
   if (notFound || !profile) {
     return (
-      <section className="section-pad" style={{ maxWidth: 640, margin: "0 auto", padding: "60px 24px", textAlign: "center" }}>
-        <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: "clamp(24px, 2.4vw, 30px)", margin: "0 0 8px" }}>Host profile not available</h1>
-        <p style={{ color: colors.mutedLight }}>This host profile isn't available.</p>
-      </section>
+      <div className="tr-profile" style={{ maxWidth: 640 }}>
+        <h1 style={{ fontSize: 28, margin: "0 0 8px" }}>Host profile not available</h1>
+        <p className="tr-muted">This person doesn't host anything in public on HelloCircle right now.</p>
+        <Link to="/explore">Explore activities</Link>
+      </div>
     );
   }
 
-  return (
-    <div className="fade-panel">
-      <section className="section-pad" style={{ maxWidth: 640, margin: "0 auto", padding: "36px 24px 80px" }}>
-        <Card style={{ marginBottom: 24 }}>
-          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 14 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-              <Avatar name={profile.name} size={52} src={profile.avatarUrl} />
-              <div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <PageTitle level="section" style={{ margin: 0 }}>{profile.name}</PageTitle>
-                  <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11.5, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: radius.pill, padding: "3px 10px" }}>
-                    <AwardIcon size={12} /> Verified Host
-                  </span>
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
-                  <span style={{ color: colors.mutedLight, fontSize: 13.5 }}>Has hosted {profile.gamesHostedTotal} session{profile.gamesHostedTotal === 1 ? "" : "s"}</span>
-                  {profile.reviews > 0 && (
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 13, color: colors.muted }}>
-                      <StarIcon size={13} style={{ color: colors.gold }} /> {profile.rating} ({profile.reviews})
-                    </span>
-                  )}
-                </div>
-              </div>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <ShareButton entityType="host" entityId={profile.id} />
-              <ReportContentButton targetType="host" targetId={profile.id} what="this host" />
-              <FollowButton followedType="host" followedId={profile.id} initialFollowing={profile.isFollowing} initialLevel={profile.followNotificationLevel} followerCount={profile.followerCount} />
-            </div>
-          </div>
-          {profile.bio && <p style={{ margin: "16px 0 0", color: colors.textSoft, fontSize: 15, lineHeight: 1.55 }}>{profile.bio}</p>}
-        </Card>
+  const summary = profile.reviewSummary;
+  const isNew = !summary || summary.count === 0;
+  const checks = profile.checks ?? [];
+  const first = profile.name.split(" ")[0];
 
-        <h2 style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 12px" }}>
-          <CalendarIcon size={14} /> Upcoming sessions
-        </h2>
-        {profile.upcomingGames.length === 0 ? (
-          <EmptyState icon={<CalendarIcon size={20} />} title="Nothing scheduled right now" />
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 24 }}>
-            {profile.upcomingGames.map((g) => (
-              <button
-                key={g.id}
-                onClick={() => navigate(`/games/${g.id}`)}
-                style={{ textAlign: "left", background: "#fff", border: `1px solid ${colors.border}`, borderRadius: radius.control, padding: "12px 14px", cursor: "pointer", display: "flex", justifyContent: "space-between" }}
-              >
-                <span style={{ fontWeight: 600, fontSize: 14 }}>{g.activityLabel}</span>
-                <span style={{ fontSize: 12.5, color: colors.mutedLight }}>{g.date} · {g.time}</span>
-              </button>
+  return (
+    <div className="tr-profile">
+      <header className="tr-profile-head">
+        <Avatar name={profile.name} size={72} src={profile.avatarUrl} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <p className="tr-review-meta" style={{ margin: "0 0 6px", textTransform: "uppercase", letterSpacing: ".06em", fontWeight: 700 }}>
+            Host
+          </p>
+          <h1>{profile.name}</h1>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", marginTop: 12 }}>
+            {isNew ? (
+              <span className="tr-chip is-new">New to HelloCircle</span>
+            ) : (
+              <span className="tr-chip">
+                {summary!.average?.toFixed(1)} from {summary!.count} review{summary!.count === 1 ? "" : "s"}
+              </span>
+            )}
+            {checks.map((c) => (
+              <span key={c.key} className="tr-chip">
+                {c.label}
+              </span>
             ))}
           </div>
-        )}
-
-        {profile.circles.length > 0 && (
-          <>
-            <h2 style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 12px" }}>
-              <RepeatIcon size={14} /> Circles started
-            </h2>
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {profile.circles.map((c) => (
-                <button
-                  key={c.id}
-                  onClick={() => navigate(`/circles/${c.slug ?? c.id}`)}
-                  style={{ textAlign: "left", background: "#fff", border: `1px solid ${colors.border}`, borderRadius: radius.control, padding: "12px 14px", cursor: "pointer" }}
-                >
-                  <span style={{ fontWeight: 600, fontSize: 14 }}>{c.name}</span>
-                  {c.activityLabel && <span style={{ fontSize: 12.5, color: colors.mutedLight, marginLeft: 8 }}>{c.activityLabel}</span>}
-                </button>
-              ))}
-            </div>
-          </>
-        )}
-
-        {/* Reviews renders its own "Reviews" heading (audit DP-28). */}
-        <div style={{ marginTop: 24 }}>
-          <Reviews listingType="host" listingId={profile.id} accent="green" />
         </div>
-      </section>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <ShareButton entityType="host" entityId={profile.id} />
+          <FollowButton followedType="host" followedId={profile.id} initialFollowing={profile.isFollowing} initialLevel={profile.followNotificationLevel} followerCount={profile.followerCount} />
+        </div>
+      </header>
+
+      <div className="tr-profile-grid">
+        <main>
+          <section className="tr-section" style={{ borderTop: "none", paddingTop: 0, marginTop: 0 }} aria-labelledby="host-intro">
+            <h2 id="host-intro">About {first}</h2>
+            {profile.bio ? (
+              <p style={{ margin: 0, fontSize: 16, lineHeight: 1.65, color: "var(--color-text-soft)", whiteSpace: "pre-line" }}>{profile.bio}</p>
+            ) : (
+              <p className="tr-note">{first} hasn't written an introduction yet.</p>
+            )}
+            {isNew && (
+              <p className="tr-note" style={{ marginTop: 14 }}>
+                {first} is new to HelloCircle: there are no reviews from people who've been to their activities yet. Look at the Session details and ask the host any questions before you go.
+              </p>
+            )}
+          </section>
+
+          {!!profile.activitiesOffered?.length && (
+            <section className="tr-section" aria-labelledby="host-activities">
+              <h2 id="host-activities">Activities</h2>
+              <div className="tr-tags" style={{ marginTop: 0 }}>
+                {profile.activitiesOffered.map((a) => (
+                  <span key={a} className="tr-tag" style={{ fontSize: 13.5, padding: "4px 10px" }}>
+                    {a}
+                  </span>
+                ))}
+              </div>
+            </section>
+          )}
+
+          <section className="tr-section" aria-labelledby="host-upcoming">
+            <h2 id="host-upcoming">Upcoming Sessions</h2>
+            {profile.upcomingGames.length === 0 ? (
+              <p className="tr-note">Nothing public is scheduled right now. Follow {first} to hear when they host next.</p>
+            ) : (
+              <ul className="tr-rows">
+                {profile.upcomingGames.map((g) => (
+                  <li key={g.id}>
+                    <Link to={`/games/${g.id}`}>
+                      <span>
+                        <strong>{g.activityLabel}</strong>
+                        <span className="tr-review-meta" style={{ display: "block" }}>
+                          {day(g.date)} · {g.time}
+                        </span>
+                      </span>
+                      <ChevronRight size={18} aria-hidden="true" />
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          {profile.circles.length > 0 && (
+            <section className="tr-section" aria-labelledby="host-circles">
+              <h2 id="host-circles">Circles {first} organises</h2>
+              <ul className="tr-rows">
+                {profile.circles.map((c) => (
+                  <li key={c.id}>
+                    <Link to={`/circles/${c.slug ?? c.id}`}>
+                      <span>
+                        <strong>{c.name}</strong>
+                        {c.activityLabel && (
+                          <span className="tr-review-meta" style={{ display: "block" }}>
+                            {c.activityLabel}
+                          </span>
+                        )}
+                      </span>
+                      <ChevronRight size={18} aria-hidden="true" />
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
+          <Reviews listingType="host" listingId={profile.id} title={`Reviews of ${first} as a host`} />
+        </main>
+
+        <aside className="tr-aside" aria-label="About this host">
+          <div>
+            <h2>What HelloCircle has checked</h2>
+            <VerificationLabels checks={checks} subject="host" />
+          </div>
+          <div>
+            <h2>Hosting on HelloCircle</h2>
+            <dl className="tr-facts is-stacked">
+              <dt>Sessions hosted</dt>
+              <dd>{profile.gamesHostedTotal === 0 ? "None yet" : `${profile.gamesHostedTotal} public Session${profile.gamesHostedTotal === 1 ? "" : "s"}`}</dd>
+              <dt>Hosting since</dt>
+              <dd className={profile.hostingSince ? "" : "is-missing"}>{profile.hostingSince ? MONTH.format(new Date(`${profile.hostingSince}T12:00:00Z`)) : "Not yet"}</dd>
+              <dt>General area</dt>
+              <dd className={profile.areas?.length ? "" : "is-missing"}>{profile.areas?.length ? profile.areas.join(" · ") : "Not provided"}</dd>
+            </dl>
+          </div>
+          <div>
+            <h2>Questions or concerns</h2>
+            <p className="tr-note" style={{ marginBottom: 12 }}>
+              Ask {first} about a Session from its page once you've joined. For anything else, HelloCircle support can help.
+            </p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, alignItems: "flex-start" }}>
+              <Link to="/contact">Contact HelloCircle support</Link>
+              <ReportContentButton targetType="host" targetId={profile.id} what="this host" />
+            </div>
+          </div>
+        </aside>
+      </div>
     </div>
   );
 }

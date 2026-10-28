@@ -568,7 +568,7 @@ bookingsRouter.get("/", async (req, res) => {
         .prepare(
           `SELECT b.ref, b.date, b.time, b.total_cents as totalCents, b.created_at as createdAt, b.status,
                   b.payment_status as paymentStatus, b.stripe_session_id IS NOT NULL as paidOnline,
-                  c.name as centreName, c.ph as ph, c.image_url as image, r.name as roomName, c.vendor_id as vendorId,
+                  c.name as centreName, c.ph as ph, c.image_url as image, r.name as roomName, c.vendor_id as vendorId, b.centre_id as centreId,
                   (SELECT a.status FROM attendance a WHERE a.kind = 'booking' AND a.ref = b.ref) as attendance
            FROM bookings b
            JOIN centres c ON c.id = b.centre_id
@@ -581,7 +581,7 @@ bookingsRouter.get("/", async (req, res) => {
         .prepare(
           `SELECT b.ref, b.date, b.time, b.total_cents as totalCents, b.created_at as createdAt, b.status,
                   b.payment_status as paymentStatus, b.stripe_session_id IS NOT NULL as paidOnline,
-                  c.name as centreName, c.ph as ph, c.image_url as image, r.name as roomName, c.vendor_id as vendorId,
+                  c.name as centreName, c.ph as ph, c.image_url as image, r.name as roomName, c.vendor_id as vendorId, b.centre_id as centreId,
                   (SELECT a.status FROM attendance a WHERE a.kind = 'booking' AND a.ref = b.ref) as attendance
            FROM bookings b
            JOIN centres c ON c.id = b.centre_id

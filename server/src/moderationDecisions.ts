@@ -41,6 +41,14 @@ export const REASON_CATEGORIES = {
     safety: "Safety concern",
     other: "Other",
   },
+  // Trust & Retention batch 1 — declining or withdrawing a verification check.
+  verification: {
+    details_mismatch: "Details didn't match the record",
+    insufficient_evidence: "Not enough information to confirm",
+    no_longer_accurate: "No longer accurate",
+    expired: "Check has expired",
+    other: "Other",
+  },
 } as const;
 
 export type ReasonKind = keyof typeof REASON_CATEGORIES;
@@ -55,7 +63,7 @@ export interface DecisionReason {
   internalNote: string | null;
 }
 
-export type DecisionObjectType = "centre" | "club" | "experience" | "vendor" | "claim" | "host_application" | "place_suggestion" | "organisation" | "game" | "chat_message";
+export type DecisionObjectType = "centre" | "club" | "experience" | "vendor" | "claim" | "host_application" | "place_suggestion" | "organisation" | "game" | "chat_message" | "verification_check";
 
 /**
  * Reads `reasonCategory`, `explanation` and `internalNote` from a request
@@ -93,6 +101,7 @@ export function categoryLabel(kind: ReasonKind, category: string | null | undefi
 function kindForAction(action: string): ReasonKind {
   if (action.startsWith("partner.")) return "suspension";
   if (action.startsWith("listing.")) return "listing_rejection";
+  if (action.startsWith("verification.")) return "verification";
   return "application_rejection";
 }
 

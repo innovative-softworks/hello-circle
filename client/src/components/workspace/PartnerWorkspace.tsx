@@ -40,7 +40,8 @@ export const STAFF_ROLE_LABEL: Record<string, string> = {
 
 export function partnerAccountLine(user: Pick<AuthedUser, "invitedStaff" | "platformRole" | "businessName" | "name" | "email" | "providerTier">) {
   const role = user.invitedStaff ? (STAFF_ROLE_LABEL[user.platformRole ?? ""] ?? "Staff") : "Owner";
-  return `${role} · ${user.businessName || user.name} · ${user.email}${user.providerTier !== "standard" ? " · Verified partner" : ""}`;
+  // Trust & Retention batch 1 — the commercial tier isn't a verification, so it isn't called one.
+  return `${role} · ${user.businessName || user.name} · ${user.email}`;
 }
 
 /** A page inside the partner workspace that isn't the dashboard itself (an

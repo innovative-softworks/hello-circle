@@ -480,6 +480,8 @@ export interface CreateGameInput {
   surfaceType?: string;
   indoorOutdoor?: "indoor" | "outdoor" | "mixed";
   meetingInstructions?: string;
+  /** Trust & Retention — who welcomes newcomers (public; "" clears on edit). */
+  newcomerWelcome?: string;
   /** Release 6 — created from a Host Opportunity (analytics only). */
   fromDemand?: string;
   /** Release 2 — what-to-expect gaps ("" clears on update). */
@@ -1230,8 +1232,9 @@ export function fetchFeedbackStatus(kind: string, ref: string): Promise<Feedback
   return request(`/feedback/status?kind=${kind}&ref=${encodeURIComponent(ref)}`);
 }
 
-export function submitReport(targetType: string, targetId: string, reason: string): Promise<{ ok: boolean }> {
-  return request(`/reports`, { method: "POST", body: JSON.stringify({ targetType, targetId, reason }) });
+/** category "safety" marks a concern that someone may be at risk (prioritised by moderators). */
+export function submitReport(targetType: string, targetId: string, reason: string, category: "content" | "safety" = "content"): Promise<{ ok: boolean; id?: number; caseRef?: string }> {
+  return request(`/reports`, { method: "POST", body: JSON.stringify({ targetType, targetId, reason, category }) });
 }
 
 // --- Community-contributed places (master-prompt punch list #4) -----------

@@ -597,3 +597,28 @@
     letter-spacing: 0.04em;
   }
 }
+
+/* The Bold typography word (owner, 2026-10-28): the listing's category set
+   large and half see-through across the top of the photo, on the normal
+   card. Sized to fit the photo width whatever its length (--chars). */
+.lc-word {
+  position: absolute;
+  top: 10px;
+  left: 0;
+  right: 0;
+  z-index: 1;
+  overflow: hidden;
+  padding: 0 14px;
+  font-family: "Bricolage Grotesque Variable", "Bricolage Grotesque", system-ui, sans-serif;
+  /* Half the original Bold size (owner, 2026-10-28). */
+  font-size: min(48px, calc((100cqw - 28px) / (var(--chars, 6) * 1.44)));
+  font-weight: 800;
+  line-height: 0.9;
+  letter-spacing: -0.03em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  /* More see-through (owner, 2026-10-28): 30% white. */
+  color: rgba(255, 255, 255, 0.3);
+  text-shadow: 0 2px 24px rgba(0, 0, 0, 0.12);
+  pointer-events: none;
+}

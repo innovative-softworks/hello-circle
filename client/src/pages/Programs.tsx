@@ -3,6 +3,7 @@ import { fetchProgramBrowse } from "../api";
 import { BrowseLayout, type BrowseConfig, type BrowseItem } from "../components/BrowseLayout";
 import { GridIcon } from "../components/icons";
 import type { ProgramSummary } from "../types";
+import { cardWord } from "../cardWord";
 
 // Programs browse (/programs) — multi-week courses and series from
 // community centres and clubs, on the same BrowseLayout as Adventures/
@@ -36,6 +37,7 @@ export function programToBrowseItem(p: ProgramSummary): BrowseItem {
     ctaLabel: "View programme",
     // Favourites don't cover programs yet, so no save button.
     save: null,
+    word: cardWord(p.categoryLabel, "Programme"),
   };
 }
 

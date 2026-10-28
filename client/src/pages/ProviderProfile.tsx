@@ -1,4 +1,5 @@
 import { Chip } from "../components/Chip";
+import { VerificationLabels } from "../components/trust/VerificationLabels";
 import { UnavailableListing, isUnavailable, type Unavailable } from "../components/UnavailableListing";
 import { usePageTitle } from "../pageTitle";
 import { useEffect, useState, type ReactNode } from "react";
@@ -249,7 +250,7 @@ export function ProviderProfilePage() {
             {profile.verified && (
               <div style={{ marginBottom: 10 }}>
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: radius.pill, padding: "4px 11px" }}>
-                  <AwardIcon size={12} /> Verified provider
+                  <AwardIcon size={12} /> Business details checked
                 </span>
               </div>
             )}
@@ -415,6 +416,12 @@ export function ProviderProfilePage() {
                 </div>
               </div>
             )}
+
+            {/* Trust & Retention batch 1 — the specific checks, each with what it means. */}
+            <div style={sectionDividerStyle}>
+              <SectionHeading>What HelloCircle has checked</SectionHeading>
+              <VerificationLabels checks={profile.checks ?? []} subject="provider" />
+            </div>
 
             {/* 6. Trust */}
             <div style={sectionDividerStyle}>

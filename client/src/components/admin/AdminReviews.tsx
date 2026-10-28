@@ -41,7 +41,17 @@ import {
 // columns (SELECT *), so the old list printed "undefined · undefined" for
 // the listing — read both spellings here rather than changing the API.
 
-type AdminReview = Review & { hidden: number; listing_type?: string; listing_id?: string; created_at?: string };
+type AdminReview = Review & { hidden: number; listing_type?: string; listing_id?: string; created_at?: string; hidden_reason?: string | null };
+
+/** The reason kept in the audit history for a hide or restore. */
+function ReasonField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <label style={{ display: "block", marginTop: 4 }}>
+      <span style={{ display: "block", fontWeight: 700, fontSize: 13, marginBottom: 6 }}>Reason (kept in the audit history) *</span>
+      <textarea className="adm-input" rows={3} value={value} maxLength={1000} onChange={(e) => onChange(e.target.value)} style={{ width: "100%", boxSizing: "border-box" }} />
+    </label>
+  );
+}
 
 const LISTING_TYPE: Record<string, string> = { centre: "Community centre", club: "Sports club", game: "Game", host: "Host", experience: "Experience", program: "Program" };
 
@@ -74,13 +84,16 @@ function ReviewsBox() {
   const [q, setQ] = useState("");
   const [view, setView] = useState<"all" | "visible" | "hidden">("all");
   const [rating, setRating] = useState("all");
+  // Trust & Retention batch 1 — hiding and restoring both record a reason.
   const [confirmHide, setConfirmHide] = useState<AdminReview | null>(null);
+  const [confirmShow, setConfirmShow] = useState<AdminReview | null>(null);
+  const [reason, setReason] = useState("");
   const all = state.data ?? [];
   const base = all.filter((r) => (rating === "all" || String(r.rating) === rating) && matches(q, r.name, r.comment, reviewTarget(r).id));
   const rows = base.filter((r) => view === "all" || (view === "hidden" ? !!r.hidden : !r.hidden));
   const paged = usePaged(rows, 20, `${q}|${view}|${rating}`);
-  const act = (r: AdminReview, hide: boolean) =>
-    run(`${r.id}`, () => (hide ? hideReview(r.id) : unhideReview(r.id)), { success: hide ? "Review hidden" : "Review visible again" }).then((ok) => ok && state.reload());
+  const act = (r: AdminReview, hide: boolean, why: string) =>
+    run(`${r.id}`, () => (hide ? hideReview(r.id, why) : unhideReview(r.id, why)), { success: hide ? "Review hidden" : "Review visible again" }).then((ok) => ok && state.reload());
   // Bulk hide / unhide: the same calls as each row's button, once per review.
   const canModerate = can("reviews.moderate");
   const sel = useRowSelection(canModerate ? paged.slice.map((r) => String(r.id)) : []);
@@ -94,13 +107,14 @@ function ReviewsBox() {
     let done = 0;
     for (const r of list) {
       try {
-        await (bulk === "hide" ? hideReview(r.id) : unhideReview(r.id));
+        await (bulk === "hide" ? hideReview(r.id, reason.trim()) : unhideReview(r.id, reason.trim()));
         done++;
       } catch {
         // counted below
       }
     }
     setBulk(null);
+    setReason("");
     sel.clear();
     state.reload();
     if (done === list.length) toast.success(`${done} review${done === 1 ? "" : "s"} ${bulk === "hide" ? "hidden" : "visible again"}`);
@@ -168,6 +182,7 @@ function ReviewsBox() {
                               <Stars rating={r.rating} />
                             </div>
                             {r.comment && <div style={{ fontSize: 13, marginTop: 3, maxWidth: 520 }}>{r.comment}</div>}
+                            {!!r.hidden && r.hidden_reason && <div className="adm-cell-sub" style={{ marginTop: 3 }}>Hidden: {r.hidden_reason}</div>}
                           </td>
                           <td data-label="About">
                             <div>{t.label || "—"}</div>
@@ -180,7 +195,7 @@ function ReviewsBox() {
                           <td>
                             <div className="adm-cell-actions">
                               {!can("reviews.moderate") ? null : r.hidden ? (
-                                <AdminButton size="sm" disabled={!!busy} onClick={() => act(r, false)} aria-label={`Unhide review by ${r.name}`}>
+                                <AdminButton size="sm" disabled={!!busy} onClick={() => setConfirmShow(r)} aria-label={`Unhide review by ${r.name}`}>
                                   Unhide
                                 </AdminButton>
                               ) : (
@@ -190,7 +205,7 @@ function ReviewsBox() {
                               )}
                               <RowMenu
                                 name={`review by ${r.name}`}
-                                items={canModerate ? [r.hidden ? { label: "Unhide", onSelect: () => act(r, false) } : { label: "Hide…", danger: true, onSelect: () => setConfirmHide(r) }] : []}
+                                items={canModerate ? [r.hidden ? { label: "Unhide…", onSelect: () => setConfirmShow(r) } : { label: "Hide…", danger: true, onSelect: () => setConfirmHide(r) }] : []}
                                 copy={{ label: "Copy listing reference", value: t.id }}
                               />
                             </div>
@@ -207,25 +222,46 @@ function ReviewsBox() {
         }
       </Loaded>
       <ConfirmDialog
-        open={!!confirmHide}
-        title="Hide this review?"
-        message="It disappears from the public listing page immediately. You can unhide it again later from this page."
-        confirmLabel="Hide"
-        onConfirm={() => {
-          if (confirmHide) act(confirmHide, true);
+        open={!!confirmHide || !!confirmShow}
+        title={confirmHide ? "Hide this review?" : "Show this review again?"}
+        message={
+          confirmHide
+            ? "It disappears from the public page and the rating straight away. Hide reviews that break the rules (abuse, personal information, spam) — not honest criticism."
+            : "It shows on the public page and counts in the rating again."
+        }
+        confirmLabel={confirmHide ? "Hide" : "Show again"}
+        tone={confirmHide ? undefined : "neutral"}
+        confirmDisabled={reason.trim().length < 5}
+        onConfirm={async () => {
+          const r = confirmHide ?? confirmShow;
+          if (r) await act(r, !!confirmHide, reason.trim());
           setConfirmHide(null);
+          setConfirmShow(null);
+          setReason("");
         }}
-        onCancel={() => setConfirmHide(null)}
-      />
+        onCancel={() => {
+          setConfirmHide(null);
+          setConfirmShow(null);
+          setReason("");
+        }}
+      >
+        <ReasonField value={reason} onChange={setReason} />
+      </ConfirmDialog>
       <ConfirmDialog
         open={bulk !== null}
         title={bulk === "hide" ? `Hide ${toHide.length} review${toHide.length === 1 ? "" : "s"}?` : `Unhide ${toShow.length} review${toShow.length === 1 ? "" : "s"}?`}
         message={bulk === "hide" ? "They disappear from the public listing pages immediately. You can unhide them again later from this page." : "They show on the public listing pages again."}
         confirmLabel={bulk === "hide" ? `Hide ${toHide.length}` : `Unhide ${toShow.length}`}
         tone={bulk === "hide" ? undefined : "neutral"}
+        confirmDisabled={reason.trim().length < 5}
         onConfirm={runBulk}
-        onCancel={() => setBulk(null)}
-      />
+        onCancel={() => {
+          setBulk(null);
+          setReason("");
+        }}
+      >
+        <ReasonField value={reason} onChange={setReason} />
+      </ConfirmDialog>
     </Box>
   );
 }
@@ -260,7 +296,7 @@ function suspendAction(type: string, t: Record<string, unknown> | null): { label
     case "circle_plan":
       return { label: "Remove plan", done: "Plan removed", impact: "Takes the suggested plan down. Members are told why. Bookings on the listing it points at are not affected.", needsReason: true, audience: "applicant" };
     case "review":
-      return { label: "Hide review", done: "Review hidden", impact: "Hides the review from the listing page.", needsReason: false, audience: "applicant" };
+      return { label: "Hide review", done: "Review hidden", impact: "Hides the review from the listing page and its rating. Keep honest criticism visible; hide only what breaks the rules.", needsReason: true, audience: "applicant" };
     default:
       return null;
   }
@@ -592,7 +628,14 @@ function ReportsBox({ onCountsChanged }: { onCountsChanged?: () => void }) {
                     {paged.slice.map((r) => (
                       <tr key={r.id}>
                         {canDecide && <SelectCell sel={sel} rowKey={String(r.id)} label={`Select report ${r.id}`} disabled={r.status !== "pending"} />}
-                        <td data-label="Reason" style={{ maxWidth: 420 }}>{r.reason}</td>
+                        <td data-label="Reason" style={{ maxWidth: 420 }}>
+                          {r.category === "safety" && (
+                            <>
+                              <Badge tone="bad">Safety concern</Badge>{" "}
+                            </>
+                          )}
+                          {r.reason}
+                        </td>
                         <td data-label="Reported item">
                           <div style={{ textTransform: "capitalize" }}>{r.targetType}</div>
                           <div className="adm-cell-sub adm-mono">{r.targetId.length > 14 ? `${r.targetId.slice(0, 8)}…` : r.targetId}</div>

@@ -3,6 +3,7 @@ import { fetchExperiences } from "../api";
 import { TreeIconSmall } from "./icons";
 import { BrowseLayout, type BrowseConfig, type BrowseItem } from "./BrowseLayout";
 import type { Experience, ExperienceKind } from "../types";
+import { cardWord } from "../cardWord";
 
 // Adventures, Experiences and Volunteer browse pages (pages/Adventures.tsx,
 // Experiences.tsx, Volunteer.tsx) — same `experiences` table/fetch, split
@@ -38,6 +39,7 @@ export function experienceToBrowseItem(e: Experience): BrowseItem {
     save: { kind: "experience", id: e.id },
     durationMinutes: e.durationMinutes || null,
     skill: e.difficulty ? e.difficulty[0].toUpperCase() + e.difficulty.slice(1) : null,
+    word: cardWord(e.categoryLabel, e.kind === "adventure" ? "Adventure" : e.kind === "volunteer" ? "Volunteer" : "Experience"),
   };
 }
 

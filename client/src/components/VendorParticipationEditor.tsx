@@ -15,13 +15,24 @@ import { ErrorMessage } from "./admin/adminUi";
 // never overwrite, or be overwritten by, the main form's Save. Its button
 // says so. Fields shown depend on what each type was missing.
 
-const FIELDS: Record<VendorParticipationType, { key: "arrivalInstructions" | "accessibilityInfo"; label: string; placeholder: string }[]> = {
+// Trust & Retention — "Who welcomes newcomers" on every type: a role or first
+// name and where to find them. Public, so the server refuses phone numbers
+// and email addresses.
+const NEWCOMER = {
+  key: "newcomerWelcome" as const,
+  label: "Who welcomes newcomers",
+  placeholder: "e.g. Our coach Ciara meets first-timers at the front desk 10 minutes before the start.",
+  help: "Shown publicly. Use a role or first name and where to find them — no phone numbers or email addresses.",
+  maxLength: 300,
+};
+const FIELDS: Record<VendorParticipationType, { key: "arrivalInstructions" | "accessibilityInfo" | "newcomerWelcome"; label: string; placeholder: string; help?: string; maxLength?: number }[]> = {
   program: [
     { key: "arrivalInstructions", label: "Arrival instructions", placeholder: "e.g. Come to the main reception 10 minutes early for your first session." },
+    NEWCOMER,
     { key: "accessibilityInfo", label: "Accessibility", placeholder: "e.g. Studio is on the ground floor; accessible changing room available." },
   ],
-  experience: [{ key: "accessibilityInfo", label: "Accessibility", placeholder: "e.g. Suitable for all-terrain wheelchairs on the first 2 km; accessible parking at the start." }],
-  club: [],
+  experience: [NEWCOMER, { key: "accessibilityInfo", label: "Accessibility", placeholder: "e.g. Suitable for all-terrain wheelchairs on the first 2 km; accessible parking at the start." }],
+  club: [NEWCOMER],
 };
 
 export function VendorParticipationEditor({ type, id }: { type: VendorParticipationType; id: string }) {
@@ -104,14 +115,22 @@ export function VendorParticipationEditor({ type, id }: { type: VendorParticipat
       <AttributePicker value={data.attributes} onChange={(attributes) => update({ attributes })} />
       {FIELDS[type].map((f) => (
         <div key={f.key}>
-          <label style={labelStyle}>{f.label} (optional)</label>
+          <label htmlFor={`participation-${type}-${f.key}`} style={labelStyle}>{f.label} (optional)</label>
           <textarea
+            id={`participation-${type}-${f.key}`}
             value={data[f.key] ?? ""}
             onChange={(e) => update({ [f.key]: e.target.value })}
             placeholder={f.placeholder}
+            maxLength={f.maxLength}
+            aria-describedby={f.help ? `participation-${type}-${f.key}-help` : undefined}
             rows={2}
             style={{ ...inputStyle, resize: "vertical" }}
           />
+          {f.help && (
+            <p id={`participation-${type}-${f.key}-help`} style={{ fontSize: 12, color: colors.mutedLight, margin: "4px 0 0" }}>
+              {f.help}
+            </p>
+          )}
         </div>
       ))}
       <div>

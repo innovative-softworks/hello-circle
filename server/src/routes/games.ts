@@ -1,4 +1,7 @@
 import { viewerGameState } from "../gameCardFacts.js";
+import { scheduleReviewInvitation } from "../myLifePlans.js";
+import { parseNewcomerWelcome } from "../newcomerWelcome.js";
+import { withCardLabels } from "../categoryLabels.js";
 import { applyListingCategory, categoryFromBody, setListingTags, taxonomyFields, taxonomyFilter } from "../taxonomy.js";
 import { heldRefsFor, shortenReviewHolds } from "../payments/paymentReview.js";
 import { moveBookingSlot, slotRuleError } from "../bookingMove.js";
@@ -169,6 +172,7 @@ interface GameRow {
   surface_type: string;
   indoor_outdoor: string;
   meeting_instructions: string | null;
+  newcomer_welcome?: string | null;
   experience_required: string | null;
   accessibility_info: string | null;
   cancellation_policy: string | null;
@@ -283,6 +287,8 @@ async function toGameJson(row: GameRow) {
      * specific Circle's plan (via the "Create plan" deep-link). */
     circleId: row.circle_id,
     partnerCircle,
+    // Trust & Retention — public: a role or first name and where to find them.
+    newcomerWelcome: row.newcomer_welcome ?? null,
     circleName: circle?.name ?? null,
     circleSlug: circle?.slug ?? null,
     // meeting_instructions is deliberately NOT included here — see GET /:id,
@@ -363,7 +369,7 @@ gamesRouter.get("/", async (req, res) => {
   const last = pageRows[pageRows.length - 1];
   setNextCursor(res, more && last ? [String(last.date), String(last.time), String(last.id)] : null);
   const games = await Promise.all(pageRows.map(toGameJson));
-  res.json(await withViewerState(games, req.resident?.id ?? null));
+  res.json(await withCardLabels(await withViewerState(games, req.resident?.id ?? null), (g) => ({ type: "game", id: g.id })));
 });
 
 /** The signed-in viewer's own state on each listed activity, for the
@@ -958,6 +964,16 @@ gamesRouter.post("/:id/participants/:residentId/check-in", requireResident, asyn
     .prepare(`UPDATE game_participants SET checked_in_at = NOW() WHERE game_id = ? AND resident_id = ? AND status = 'joined'`)
     .run(req.params.id, req.params.residentId);
   if (info.changes === 0) return res.status(404).json({ error: "That participant isn't joined to this session" });
+  // Trust & Retention batch 1 — a host check-in is the organiser's own record
+  // that this person came (self check-in below is not), so it also goes into
+  // the shared attendance table that review eligibility reads.
+  await db
+    .prepare(
+      `INSERT INTO attendance (kind, ref, checked_in_by, status, source) VALUES ('game', ?, ?, 'present', 'host_manual')
+       ON DUPLICATE KEY UPDATE checked_in_at = NOW(), checked_in_by = VALUES(checked_in_by), status = 'present', source = 'host_manual'`
+    )
+    .run(`${req.params.id}:${req.params.residentId}`, req.resident!.id);
+  await scheduleReviewInvitation("game", `${req.params.id}:${req.params.residentId}`);
 
   res.json({ ok: true });
 });
@@ -1266,6 +1282,8 @@ gamesRouter.put("/:id", requireResident, async (req, res) => {
   if (!b.activityLabel || !b.date || !b.time || !b.capacity) {
     return res.status(400).json({ error: "Activity, date, time and capacity are required" });
   }
+  const welcome = parseNewcomerWelcome(b.newcomerWelcome);
+  if (!welcome.ok) return res.status(400).json({ error: welcome.error });
   if (!b.centreId && !b.locationText) {
     return res.status(400).json({ error: "A venue or a location is required" });
   }
@@ -1357,6 +1375,7 @@ gamesRouter.put("/:id", requireResident, async (req, res) => {
     );
   // Booking UX Phase 5 — the venue booking travels with the venue; an address clears it.
   await db.prepare(`UPDATE games SET booking_ref = ? WHERE id = ?`).run(b.centreId ? b.bookingRef ?? row.booking_ref ?? null : null, req.params.id);
+  if (welcome.value !== undefined) await db.prepare(`UPDATE games SET newcomer_welcome = ? WHERE id = ?`).run(welcome.value, req.params.id);
   await syncGameAttributes(req.params.id, b);
   await applyListingCategory("game", req.params.id, category, "host");
   await setListingTags("game", req.params.id, (req.body as { tags?: unknown }).tags);
@@ -1494,6 +1513,8 @@ interface CreateGameInput {
   indoorOutdoor?: "indoor" | "outdoor" | "mixed";
   meetingInstructions?: string;
   cancellationPolicy?: string;
+  /** Trust & Retention — who welcomes newcomers (newcomerWelcome.ts). "" clears; omitted leaves it. */
+  newcomerWelcome?: string | null;
   /** Release 2 — what-to-expect gaps. "" clears on update; omitted leaves it. */
   experienceRequired?: string;
   accessibilityInfo?: string;
@@ -1615,6 +1636,8 @@ export async function createGameRow(input: CreateGameInput & { hostResidentId: s
       });
     // The host is automatically a participant — they take one of the capacity spots.
     await tx.prepare(`INSERT INTO game_participants (game_id, resident_id) VALUES (?, ?)`).run(id, input.hostResidentId);
+    const welcome = parseNewcomerWelcome(input.newcomerWelcome);
+    if (welcome.ok && welcome.value) await tx.prepare(`UPDATE games SET newcomer_welcome = ? WHERE id = ?`).run(welcome.value, id);
     if (input.seriesId) await tx.prepare(`UPDATE games SET series_id = ? WHERE id = ?`).run(input.seriesId, id);
 
     // Phase 2 "Circles V2" — atomically flip the plan-idea to
@@ -1668,17 +1691,19 @@ export async function createGameRow(input: CreateGameInput & { hostResidentId: s
       date: row.date,
     });
 
-    // Follow feature — only a verified Host's followers get notified (an
-    // unverified resident hosting a one-off game isn't the "keep me in the
-    // loop on this host" relationship Follow represents).
-    const hostRow = (await db.prepare(`SELECT host_status as hostStatus FROM residents WHERE id = ?`).get(input.hostResidentId)) as { hostStatus: string } | undefined;
-    if (hostRow?.hostStatus === "verified") {
+    // Follow — the host's followers hear about a new public activity (any host
+    // whose public profile they could follow). For a repeating series this is
+    // its first date; later dates go to "Everything" followers only (below).
+    if (row.visibility === "public") {
       await notifyHostFollowers(input.hostResidentId, { title: "New activity", body: `${row.activity_label} — ${row.date} at ${row.time}.`, ref: id });
     }
     if (row.centre_id) {
       await notifyCentreFollowers(row.centre_id, { title: "New activity at this venue", body: `${row.activity_label} — ${row.date} at ${row.time}.`, ref: id });
     }
     await notifyCircleMembersOfPlan(row);
+  } else if (input.quiet && input.seriesId && row.visibility === "public" && getEffectiveGameLifecycle(row) === "active") {
+    // Trust & Retention — host follow levels: "Everything" also gets each further date of a series.
+    await notifyHostFollowers(input.hostResidentId, { title: "Another date added", body: `${row.activity_label} — ${row.date} at ${row.time}.`, ref: id }, "everything");
   }
 
   return row;
@@ -1691,6 +1716,8 @@ async function validateNewGame(b: CreateGameInput, residentId: string): Promise<
   if (!b.activityLabel || !b.date || !b.time || !b.capacity) {
     return fail(400, { error: "Activity, date, time and capacity are required" });
   }
+  const welcome = parseNewcomerWelcome(b.newcomerWelcome);
+  if (!welcome.ok) return fail(400, { error: welcome.error });
   if (!b.centreId && !b.locationText) {
     return fail(400, { error: "A venue or a location is required" });
   }

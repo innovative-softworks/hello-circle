@@ -1,4 +1,5 @@
 import { withGameCardFacts } from "../gameCardFacts.js";
+import { activityRef, withCategoryLabels } from "../categoryLabels.js";
 import { orgActiveSql } from "../orgSql.js";
 import { Router } from "express";
 import { logEvent } from "../analytics.js";
@@ -261,5 +262,13 @@ searchRouter.get("/", async (req, res) => {
   // Category system — which categories the query resolved to, so reports can group by id.
   const tax = categoriesForSearch(await loadTaxonomy(), q);
   void logEvent("search_performed", { residentId: req.resident?.id ?? null, clientId, metadata: { query: q, categoryIds: tax.categoryIds, subcategoryIds: tax.subcategoryIds } });
-  res.json({ ...result, activities: await withGameCardFacts(result.activities, req.resident?.id ?? null) });
+  // Category names for the Bold card's word over the photo (owner, 2026-10-28).
+  const activities = await withCategoryLabels(await withGameCardFacts(result.activities, req.resident?.id ?? null), activityRef);
+  res.json({
+    ...result,
+    activities,
+    experiences: await withCategoryLabels(result.experiences, (e) => ({ type: "experience", id: e.id })),
+    programmes: await withCategoryLabels(result.programmes, (p) => ({ type: "program", id: p.id })),
+    circles: await withCategoryLabels(result.circles, (c) => ({ type: "circle", id: c.id })),
+  });
 });

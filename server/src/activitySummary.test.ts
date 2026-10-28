@@ -174,7 +174,7 @@ describe("experienceToActivitySummary + listUpcomingExperienceSessionRows", () =
       booked: 2,
       vendor_business_name: "",
       vendor_name: "Test Vendor",
-      vendor_provider_tier: "verified",
+      vendor_business_checked: 1,
     };
     const summary = experienceToActivitySummary({ ...row, experience_capacity: 8 });
     expect(summary.kind).toBe("experience_session");
@@ -184,7 +184,8 @@ describe("experienceToActivitySummary + listUpcomingExperienceSessionRows", () =
     expect(summary.hostVerified).toBe(true);
   });
 
-  it("treats a standard-tier vendor as unverified", () => {
+  // Trust & Retention batch 1 — "verified" means a completed business check, never the commercial tier.
+  it("treats a vendor without a business check as unverified", () => {
     const row: ExperienceSessionRow = {
       id: testSessionId,
       date: "2099-06-01",
@@ -201,7 +202,7 @@ describe("experienceToActivitySummary + listUpcomingExperienceSessionRows", () =
       booked: 0,
       vendor_business_name: "",
       vendor_name: "Test Vendor",
-      vendor_provider_tier: "standard",
+      vendor_business_checked: 0,
     };
     const summary = experienceToActivitySummary(row);
     expect(summary.hostVerified).toBe(false);

@@ -1,4 +1,5 @@
 import { assertCreatorStillMember } from "../orgStatus.js";
+import { parseNewcomerWelcome, saveNewcomerWelcome } from "../newcomerWelcome.js";
 import crypto from "node:crypto";
 import { Router } from "express";
 import { requirePlatformRole } from "../auth.js";
@@ -196,6 +197,8 @@ interface CentreInput {
 }
 
 vendorListingsRouter.post("/centres", requirePlatformRole("centre_manager"), async (req, res) => {
+  const welcome = parseNewcomerWelcome((req.body as { newcomerWelcome?: unknown } | undefined)?.newcomerWelcome);
+  if (!welcome.ok) return res.status(400).json({ error: welcome.error });
   const b = req.body as CentreInput;
   // Only the name is required at creation — the Guided Flow creation
   // wizard's "Basics" step (Form System Audit, Phase 5) creates this row
@@ -258,10 +261,13 @@ vendorListingsRouter.post("/centres", requirePlatformRole("centre_manager"), asy
     ).run(crypto.randomUUID(), id, b.capacity ?? 0, b.from ?? 0, b.paymentMethod ?? "online");
   });
   writeAudit({ actorUserId: req.user!.id, action: "centre.created", objectType: "centre", objectId: id, newValue: { name: b.name, county: b.county } });
+  await saveNewcomerWelcome(db, "centres", id, welcome.value);
   res.status(201).json(await getCentre(id));
 });
 
 vendorListingsRouter.put("/centres/:id", requirePlatformRole("centre_manager"), async (req, res) => {
+  const welcome = parseNewcomerWelcome((req.body as { newcomerWelcome?: unknown } | undefined)?.newcomerWelcome);
+  if (!welcome.ok) return res.status(400).json({ error: welcome.error });
   if (!(await ownsCentre(req.vendorIds!, req.params.id))) return res.status(403).json({ error: "Not your listing" });
   const b = req.body as Partial<CentreInput>;
   const coordError = invalidCoordinateReason(b.lat, b.lng);
@@ -327,6 +333,7 @@ vendorListingsRouter.put("/centres/:id", requirePlatformRole("centre_manager"), 
     }
   });
   writeAudit({ actorUserId: req.user!.id, action: "centre.updated", objectType: "centre", objectId: req.params.id, previousValue: before, newValue: b });
+  await saveNewcomerWelcome(db, "centres", req.params.id, welcome.value);
   res.json(await getCentre(req.params.id));
 });
 

@@ -8,7 +8,7 @@ import { AttributePicker } from "../components/AttributePicker";
 import { CategoryPicker, TagPicker, type CategoryValue } from "../components/categories/CategoryPicker";
 import type { ListingTaxonomy } from "../types";
 import { GuidedFlow } from "../components/GuidedFlow";
-import { NumberStepper, useUnsavedChangesGuard } from "../components/form";
+import { NumberStepper, RadioGroup, useUnsavedChangesGuard } from "../components/form";
 import { ShareButton } from "../components/ShareButton";
 import { SingleImageUpload } from "../components/SingleImageUpload";
 import { CheckCircleIcon } from "../components/icons";
@@ -39,6 +39,15 @@ function isoToDatetimeLocal(iso: string): string {
 // step 1's "Continue" is pure client-side validation.
 
 const STEP_LABELS = ["Basics", "Details"];
+
+type PricingChoice = "" | "free" | "paid";
+
+/** What the form sends: 0 for Free, the amount for Paid, nothing until chosen. */
+function formPriceCents(form: { pricing: PricingChoice; priceCents: string }): number | undefined {
+  if (form.pricing === "free") return 0;
+  if (form.pricing === "paid" && Number(form.priceCents) > 0) return Math.round(parseFloat(form.priceCents) * 100);
+  return undefined;
+}
 
 export function HostGamePage() {
   const navigate = useNavigate();
@@ -112,7 +121,10 @@ export function HostGamePage() {
     date: initialDate,
     time: initialTime,
     capacity: qp("capacity") ? Number(qp("capacity")) : 4,
-    priceCents: initialPriceCents ? String(Number(initialPriceCents) / 100) : "",
+    priceCents: Number(initialPriceCents) > 0 ? String(Number(initialPriceCents) / 100) : "",
+    // Free or paid is always said out loud: a blank price is never read as
+    // Free (owner, 2026-10-28). "" until the host picks one.
+    pricing: (initialPriceCents === "" ? "" : Number(initialPriceCents) > 0 ? "paid" : "free") as PricingChoice,
     // Release 2 — replaces the single soloFriendly checkbox; "come_alone"
     // is kept in sync with games.solo_friendly server-side.
     participationAttributes: [] as string[],
@@ -129,6 +141,7 @@ export function HostGamePage() {
     surfaceType: qp("surfaceType"),
     indoorOutdoor: (initialIndoorOutdoor === "indoor" || initialIndoorOutdoor === "outdoor" || initialIndoorOutdoor === "mixed" ? initialIndoorOutdoor : "") as "" | "indoor" | "outdoor" | "mixed",
     meetingInstructions: qp("meetingInstructions"),
+    newcomerWelcome: "",
     cancellationPolicy: qp("cancellationPolicy"),
     experienceRequired: "",
     accessibilityInfo: "",
@@ -202,6 +215,8 @@ export function HostGamePage() {
           time: game.time,
           capacity: game.capacity,
           priceCents: game.priceCents ? String(game.priceCents / 100) : "",
+          // An older game saved with no price has neither chosen yet.
+          pricing: game.priceCents == null ? "" : game.priceCents > 0 ? "paid" : "free",
           participationAttributes: game.participationAttributes ?? (game.soloFriendly ? ["come_alone"] : []),
           category: game.taxonomy ? { categoryId: game.taxonomy.categoryId, subcategoryId: game.taxonomy.subcategoryId } : null,
           tags: game.tags ?? [],
@@ -215,6 +230,7 @@ export function HostGamePage() {
           surfaceType: game.surfaceType ?? "",
           indoorOutdoor: (game.indoorOutdoor as "" | "indoor" | "outdoor" | "mixed") ?? "",
           meetingInstructions: game.meetingInstructions ?? "",
+          newcomerWelcome: game.newcomerWelcome ?? "",
           cancellationPolicy: game.cancellationPolicy ?? "",
           experienceRequired: game.experienceRequired ?? "",
           accessibilityInfo: game.accessibilityInfo ?? "",
@@ -234,6 +250,8 @@ export function HostGamePage() {
     if (!form.date) return setStepError("Pick a date");
     if (form.date < todayIso && form.date !== originalDate) return setStepError("Pick a date that hasn't passed");
     if (!form.time) return setStepError("Pick a time");
+    if (!priceLocked && !form.pricing) return setStepError("Say whether it's free or paid");
+    if (!priceLocked && form.pricing === "paid" && !(Number(form.priceCents) > 0)) return setStepError("Add the price per player, or choose Free");
     setStepError(null);
     setStep(2);
   };
@@ -253,7 +271,7 @@ export function HostGamePage() {
         locationText: form.centreId ? undefined : form.locationText,
         time: form.time,
         capacity: form.capacity,
-        priceCents: form.priceCents ? Math.round(parseFloat(form.priceCents) * 100) : undefined,
+        priceCents: formPriceCents(form),
         soloFriendly: form.participationAttributes.includes("come_alone"),
         participationAttributes: form.participationAttributes,
         categoryId: form.category?.categoryId ?? "",
@@ -271,6 +289,8 @@ export function HostGamePage() {
         surfaceType: form.surfaceType || undefined,
         indoorOutdoor: form.indoorOutdoor || undefined,
         meetingInstructions: form.meetingInstructions || undefined,
+        // "" clears it on edit; the server refuses contact details.
+        newcomerWelcome: form.newcomerWelcome,
         cancellationPolicy: form.cancellationPolicy || undefined,
         circleId,
         shareToCircleId,
@@ -372,7 +392,7 @@ export function HostGamePage() {
       date: form.date,
       time: form.time,
       capacity: form.capacity,
-      priceCents: form.priceCents ? Math.round(parseFloat(form.priceCents) * 100) : undefined,
+      priceCents: formPriceCents(form),
       soloFriendly: form.participationAttributes.includes("come_alone"),
       participationAttributes: form.participationAttributes,
       experienceRequired: form.experienceRequired,
@@ -386,6 +406,8 @@ export function HostGamePage() {
       surfaceType: form.surfaceType || undefined,
       indoorOutdoor: form.indoorOutdoor || undefined,
       meetingInstructions: form.meetingInstructions || undefined,
+      // "" clears it on edit; the server refuses contact details.
+      newcomerWelcome: form.newcomerWelcome,
       cancellationPolicy: form.cancellationPolicy || undefined,
       imageUrl: url ?? "",
     });
@@ -585,18 +607,38 @@ export function HostGamePage() {
                   onChange={(n) => setForm((f) => ({ ...f, capacity: n }))}
                   min={2}
                 />
-                <div>
-                  <label htmlFor="game-price-per-player" style={labelStyle}>Price per player (optional)</label>
-                  <input id="game-price-per-player"
-                    value={form.priceCents}
-                    onChange={(e) => setForm((f) => ({ ...f, priceCents: e.target.value }))}
-                    placeholder="e.g. 5"
-                    style={{ ...inputStyle, maxWidth: 140 }}
-                    disabled={priceLocked}
-                  />
-                  {priceLocked && <p style={{ fontSize: 11.5, color: colors.mutedLight, margin: "4px 0 0" }}>Locked — someone has already joined at this price.</p>}
-                  <PaidClosedPriceNotice amount={form.priceCents} />
-                </div>
+                {priceLocked ? (
+                  <div>
+                    <span style={labelStyle}>Price per player</span>
+                    <p style={{ fontSize: 14, fontWeight: 600, margin: "2px 0 0" }}>{form.pricing === "paid" ? `€${form.priceCents}` : form.pricing === "free" ? "Free" : "Not set"}</p>
+                    <p style={{ fontSize: 11.5, color: colors.mutedLight, margin: "4px 0 0" }}>Locked — someone has already joined at this price.</p>
+                  </div>
+                ) : (
+                  <div>
+                    <RadioGroup<PricingChoice>
+                      label="Is it free or paid? *"
+                      value={form.pricing}
+                      onChange={(v) => setForm((f) => ({ ...f, pricing: v, priceCents: v === "free" ? "" : f.priceCents }))}
+                      options={[
+                        { value: "free", label: "Free" },
+                        { value: "paid", label: "Paid" },
+                      ]}
+                    />
+                    {form.pricing === "paid" && (
+                      <div style={{ marginTop: 10 }}>
+                        <label htmlFor="game-price-per-player" style={labelStyle}>Price per player (€) *</label>
+                        <input id="game-price-per-player"
+                          value={form.priceCents}
+                          onChange={(e) => setForm((f) => ({ ...f, priceCents: e.target.value }))}
+                          placeholder="e.g. 5"
+                          inputMode="decimal"
+                          style={{ ...inputStyle, maxWidth: 140 }}
+                        />
+                        <PaidClosedPriceNotice amount={form.priceCents} />
+                      </div>
+                    )}
+                  </div>
+                )}
                 <div>
                   <label htmlFor="game-skill-level" style={labelStyle}>Skill level (optional)</label>
                   <select id="game-skill-level" value={form.skillLevel} onChange={(e) => setForm((f) => ({ ...f, skillLevel: e.target.value }))} style={inputStyle}>
@@ -745,6 +787,22 @@ export function HostGamePage() {
                     rows={2}
                     style={{ ...inputStyle, resize: "vertical" }}
                   />
+                </div>
+                {/* Trust & Retention — public, unlike the meeting instructions above. */}
+                <div style={{ marginBottom: 12 }}>
+                  <label htmlFor="game-newcomer-welcome" style={labelStyle}>Who welcomes newcomers (optional)</label>
+                  <textarea id="game-newcomer-welcome"
+                    value={form.newcomerWelcome}
+                    onChange={(e) => setForm((f) => ({ ...f, newcomerWelcome: e.target.value }))}
+                    placeholder="e.g. I'll be at the gate in a red jacket and introduce first-timers before we start."
+                    maxLength={300}
+                    aria-describedby="game-newcomer-welcome-help"
+                    rows={2}
+                    style={{ ...inputStyle, resize: "vertical" }}
+                  />
+                  <p id="game-newcomer-welcome-help" style={{ fontSize: 11.5, color: colors.mutedLight, margin: "4px 0 0" }}>
+                    Shown publicly. Use your first name or role — no phone numbers or email addresses.
+                  </p>
                 </div>
                 <div style={{ marginBottom: 12 }}>
                   <label htmlFor="game-accessibility" style={labelStyle}>Accessibility (optional)</label>

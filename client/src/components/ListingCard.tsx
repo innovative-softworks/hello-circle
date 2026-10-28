@@ -62,6 +62,7 @@ export function ListingCard({
   fallbackLine,
   kicker,
   dateOn,
+  word,
 }: {
   href: string;
   title: string;
@@ -109,6 +110,10 @@ export function ListingCard({
   /** The big date on the photo, bottom left (My Life style): pass a label,
    * the big day and the time. Shown with a dark fade under it. */
   dateOn?: ReactNode;
+  /** The listing's category set large across the top of the photo (owner,
+   * 2026-10-28: the Bold typography on every listing card, the card itself
+   * unchanged). Decorative — the same category is in the text below. */
+  word?: string | null;
 }) {
   const typographic = !image && noPhoto === "typographic";
   const tone = status?.tone ?? "hot";
@@ -121,9 +126,14 @@ export function ListingCard({
         ph={typographic ? noPhotoTone(ph) : ph}
         icon={typographic ? undefined : icon}
         iconColor={iconColor}
-        style={{ aspectRatio: cardImageRatio.discovery }}
+        style={{ aspectRatio: cardImageRatio.discovery, ...(word ? { containerType: "inline-size" } : null) }}
       >
-        {typographic ? <NoPhotoText kind={fallbackKind ?? (typeof tag === "string" ? tag : null)} title={title} line={fallbackLine ?? null} /> : null}
+        {typographic ? <NoPhotoText kind={word ? null : fallbackKind ?? (typeof tag === "string" ? tag : null)} title={title} line={fallbackLine ?? null} /> : null}
+        {word ? (
+          <span className="lc-word" aria-hidden="true" style={{ ["--chars" as string]: Math.max(4, word.length) }}>
+            {word}
+          </span>
+        ) : null}
         {status ? (
           <span className="lc-status" data-tone={tone}>
             {STATUS_ICON[tone]}

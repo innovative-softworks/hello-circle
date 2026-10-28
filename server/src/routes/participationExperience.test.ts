@@ -180,7 +180,7 @@ describe("vendor participation editor", () => {
   it("lets the owning vendor set attributes and only their type's fields", async () => {
     const res = await call("PUT", `/vendor/participation/club/${club.id}`, { attributes: ["small_group", "family_friendly"], accessibilityInfo: "ignored for clubs" }, asVendor(club.vendorId));
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ attributes: ["small_group", "family_friendly"], circleId: null });
+    expect(await res.json()).toEqual({ attributes: ["small_group", "family_friendly"], newcomerWelcome: "", circleId: null }); // clubs now take "who welcomes newcomers"
 
     const exp = await (await call("PUT", `/vendor/participation/experience/${experience.id}`, { attributes: ["accessible"], accessibilityInfo: "Step-free first 2 km" }, asVendor(experience.vendorId))).json();
     expect(exp).toMatchObject({ attributes: ["accessible"], accessibilityInfo: "Step-free first 2 km" });

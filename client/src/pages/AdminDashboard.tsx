@@ -28,6 +28,7 @@ import { AdminListingsPage } from "../components/admin/AdminListings";
 import { AdminInsightsPage, AdminNotificationTemplatesPage, AdminOrganisationsPage } from "../components/admin/AdminMisc";
 import { AdminOverviewPage } from "../components/admin/AdminOverview";
 import { AdminClaimsPage, AdminHostApplicationsPage, AdminPlaceSuggestionsPage } from "../components/admin/AdminQueues";
+import { AdminAttendanceCorrectionsPage, AdminVerificationPage } from "../components/admin/AdminVerification";
 import { AdminReviewsPage } from "../components/admin/AdminReviews";
 import { AdminSettingsPage } from "../components/admin/AdminSettings";
 import { AdminShell } from "../components/admin/AdminShell";
@@ -192,6 +193,10 @@ export function AdminDashboard() {
         return <AdminClaimsPage onOpenVendor={openVendorAccount} onOpenListing={openListingInReview} onCountsChanged={refreshCounts} />;
       case "hostApplications":
         return <AdminHostApplicationsPage onCountsChanged={refreshCounts} />;
+      case "verification":
+        return <AdminVerificationPage />;
+      case "attendance":
+        return <AdminAttendanceCorrectionsPage />;
       case "placeSuggestions":
         return <AdminPlaceSuggestionsPage onOpenListing={openListingInReview} onCountsChanged={refreshCounts} />;
       case "reviews":
