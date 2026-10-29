@@ -203,3 +203,127 @@ vendorReportsRouter.get("/reports/participation.csv", requirePlatformRole(...REP
   res.setHeader("Content-Disposition", `attachment; filename="participation-${r.from}-to-${r.to}.csv"`);
   res.send(lines.join("\r\n"));
 });
+
+// --- Phase L, detail: filters, trends, per listing, check-ins, repeat participation ---
+
+export interface ReportFilters { listingType?: "experience" | "centre" | "club" | "program"; listingId?: string; sessionId?: string }
+const TYPE_LABEL = { experience: "Events and experiences", centre: "Hall bookings", club: "Club registrations", program: "Programme enrolments" } as const;
+const DETAIL_LIMIT = 20000;
+
+/** Monday of the week of a YYYY-MM-DD date. */
+const weekOf = (iso: string) => {
+  const d = new Date(`${iso.slice(0, 10)}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+  return d.toISOString().slice(0, 10);
+};
+
+export async function participationDetail(vendorIds: string[], from: string, to: string, f: ReportFilters) {
+  const ids = inClause(vendorIds);
+  const parts: string[] = [];
+  const params: unknown[] = [];
+  const want = (t: keyof typeof TYPE_LABEL) => !f.listingType || f.listingType === t;
+  const listingCond = (col: string) => (f.listingId ? ` AND ${col} = ?` : "");
+  const push = (sql: string, extra: unknown[]) => {
+    parts.push(sql);
+    params.push(...extra);
+  };
+  const lp = f.listingId ? [f.listingId] : [];
+  if (want("experience"))
+    push(
+      `SELECT 'experience' AS t, e.id AS lid, e.title, eb.ref, COALESCE(eb.resident_id, LOWER(eb.email)) AS person, es.date AS day, eb.status, eb.party_size AS people, eb.session_id AS sid
+       FROM experience_bookings eb JOIN experience_sessions es ON es.id = eb.session_id JOIN experiences e ON e.id = eb.experience_id
+       WHERE e.vendor_id IN (${ids}) AND eb.payment_status IN ('paid', 'refunded') AND es.date BETWEEN ? AND ?${listingCond("e.id")}${f.sessionId ? " AND eb.session_id = ?" : ""}`,
+      [...vendorIds, from, to, ...lp, ...(f.sessionId ? [f.sessionId] : [])]
+    );
+  if (want("centre"))
+    push(
+      `SELECT 'centre' AS t, c.id AS lid, c.name AS title, b.ref, COALESCE(b.resident_id, LOWER(b.email)) AS person, b.date AS day, b.status, b.guests AS people, NULL AS sid
+       FROM bookings b JOIN centres c ON c.id = b.centre_id WHERE c.vendor_id IN (${ids}) AND b.payment_status IN ('paid', 'refunded') AND b.date BETWEEN ? AND ?${listingCond("c.id")}`,
+      [...vendorIds, from, to, ...lp]
+    );
+  if (want("club"))
+    push(
+      `SELECT 'club' AS t, c.id AS lid, c.name AS title, r.ref, COALESCE(r.resident_id, LOWER(r.email)) AS person, DATE(r.created_at) AS day, r.status, 1 AS people, NULL AS sid
+       FROM registrations r JOIN clubs c ON c.id = r.club_id WHERE c.vendor_id IN (${ids}) AND r.payment_status IN ('paid', 'refunded') AND DATE(r.created_at) BETWEEN ? AND ?${listingCond("c.id")}`,
+      [...vendorIds, from, to, ...lp]
+    );
+  if (want("program"))
+    push(
+      `SELECT 'program' AS t, p.id AS lid, p.title, pe.ref, COALESCE(pe.resident_id, LOWER(pe.email)) AS person, DATE(pe.created_at) AS day, pe.status, 1 AS people, NULL AS sid
+       FROM program_enrollments pe JOIN programs p ON p.id = pe.program_id WHERE p.vendor_id IN (${ids}) AND pe.payment_status IN ('paid', 'refunded') AND DATE(pe.created_at) BETWEEN ? AND ?${listingCond("p.id")}`,
+      [...vendorIds, from, to, ...lp]
+    );
+  type Row = { t: keyof typeof TYPE_LABEL; lid: string; title: string; ref: string; person: string | null; day: string | Date; status: string; people: number; sid: string | null };
+  const rows = parts.length ? ((await db.prepare(`${parts.join(" UNION ALL ")} LIMIT ${DETAIL_LIMIT + 1}`).all(...params)) as Row[]) : [];
+  const truncated = rows.length > DETAIL_LIMIT;
+  const list = rows.slice(0, DETAIL_LIMIT).map((r) => ({ ...r, day: r.day instanceof Date ? r.day.toISOString().slice(0, 10) : String(r.day).slice(0, 10), people: Number(r.people ?? 1) }));
+
+  // Registrations over time, by week and type (a trend: worth a chart).
+  const weeks = new Map<string, Record<string, number>>();
+  for (const r of list) {
+    const w = weekOf(r.day);
+    const m = weeks.get(w) ?? {};
+    m[r.t] = (m[r.t] ?? 0) + 1;
+    weeks.set(w, m);
+  }
+  const overTime = [...weeks.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([week, byType]) => ({ week, total: Object.values(byType).reduce((a, b) => a + b, 0), byType }));
+
+  // Per listing (programme enrolment, club participation, event performance, hall use).
+  const per = new Map<string, { type: string; listingId: string; title: string; orders: number; cancelled: number; people: number; refs: string[] }>();
+  for (const r of list) {
+    const k = `${r.t}:${r.lid}`;
+    const p = per.get(k) ?? { type: TYPE_LABEL[r.t], listingId: r.lid, title: r.title, orders: 0, cancelled: 0, people: 0, refs: [] };
+    p.orders++;
+    if (r.status === "cancelled") p.cancelled++;
+    else {
+      p.people += r.people;
+      p.refs.push(r.ref);
+    }
+    per.set(k, p);
+  }
+  // Attendance per listing: door check-ins (people) for experiences; check-in per order for halls and clubs.
+  const attended = new Map<string, number>();
+  const refsAll = list.filter((r) => r.status !== "cancelled").map((r) => r.ref);
+  for (let i = 0; i < refsAll.length; i += 500) {
+    const chunk = refsAll.slice(i, i + 500);
+    const q = chunk.map(() => "?").join(", ");
+    for (const row of (await db.prepare(`SELECT source_ref AS ref, COUNT(*) AS n FROM attendee_checkins WHERE source_type = 'experience' AND source_ref IN (${q}) GROUP BY source_ref`).all(...chunk)) as { ref: string; n: number }[]) attended.set(row.ref, Number(row.n));
+    for (const row of (await db.prepare(`SELECT ref, 1 AS n FROM attendance WHERE kind IN ('booking', 'registration') AND status <> 'no_show' AND ref IN (${q})`).all(...chunk)) as { ref: string; n: number }[]) attended.set(row.ref, Math.max(attended.get(row.ref) ?? 0, 1));
+  }
+  const perListing = [...per.values()]
+    .map(({ refs, ...p }) => ({ ...p, attended: refs.reduce((a, ref) => a + (attended.get(ref) ?? 0), 0) }))
+    .sort((a, b) => b.orders - a.orders);
+
+  // Check-in activity by day (door check-ins and per-booking check-ins), for the selection.
+  const byDay = new Map<string, number>();
+  for (let i = 0; i < refsAll.length; i += 500) {
+    const chunk = refsAll.slice(i, i + 500);
+    const q = chunk.map(() => "?").join(", ");
+    const rowsA = (await db.prepare(`SELECT DATE(checked_in_at) AS d, COUNT(*) AS n FROM attendee_checkins WHERE source_ref IN (${q}) GROUP BY DATE(checked_in_at)`).all(...chunk)) as { d: Date | string; n: number }[];
+    const rowsB = (await db.prepare(`SELECT DATE(checked_in_at) AS d, COUNT(*) AS n FROM attendance WHERE kind IN ('booking', 'registration', 'experience') AND status <> 'no_show' AND ref IN (${q}) GROUP BY DATE(checked_in_at)`).all(...chunk)) as { d: Date | string; n: number }[];
+    for (const r of [...rowsA, ...rowsB]) {
+      const d = r.d instanceof Date ? r.d.toISOString().slice(0, 10) : String(r.d).slice(0, 10);
+      byDay.set(d, (byDay.get(d) ?? 0) + Number(r.n));
+    }
+  }
+  const checkins = [...byDay.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([day, count]) => ({ day, count }));
+
+  // Repeat participation: people (signed-in resident or the same email) with more than one confirmed booking in the period.
+  const counts = new Map<string, number>();
+  for (const r of list) if (r.status !== "cancelled" && r.person) counts.set(r.person, (counts.get(r.person) ?? 0) + 1);
+  const repeat = { people: counts.size, returning: [...counts.values()].filter((n) => n > 1).length };
+
+  return { overTime, perListing, checkins, repeat, truncated };
+}
+
+vendorReportsRouter.get("/reports/participation/detail", requirePlatformRole(...REPORT_ROLES), async (req, res) => {
+  const r = range(req);
+  if (!r) return res.status(400).json({ error: "Choose a date range of up to a year" });
+  const t = req.query.listingType;
+  const filters: ReportFilters = {
+    listingType: t === "experience" || t === "centre" || t === "club" || t === "program" ? t : undefined,
+    listingId: typeof req.query.listingId === "string" && req.query.listingId ? req.query.listingId.slice(0, 191) : undefined,
+    sessionId: typeof req.query.sessionId === "string" && req.query.sessionId ? req.query.sessionId.slice(0, 191) : undefined,
+  };
+  res.json({ from: r.from, to: r.to, filters, ...(await participationDetail(req.vendorIds!, r.from, r.to, filters)) });
+});

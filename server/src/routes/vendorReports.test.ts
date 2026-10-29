@@ -155,3 +155,22 @@ describe("Phase L — answers export", () => {
     expect((await as(`/vendor/forms/club/${clubId}/answers.csv`, [vendorB])).status).toBe(403);
   });
 });
+
+describe("Phase L — report detail and filters", () => {
+  it("per listing, trend, check-ins and repeat people — filtered to one listing, and never another organisation's", async () => {
+    const all = (await json(`/vendor/reports/participation/detail${Q}`, [vendorA])).body;
+    const titles = all.perListing.map((p: { title: string }) => p.title).sort();
+    expect(titles).toEqual(["RP Club", "RP Event", "RP Hall"]);
+    const event = all.perListing.find((p: { title: string }) => p.title === "RP Event");
+    expect(event).toMatchObject({ orders: 1, people: 2, attended: 1 });
+    expect(all.overTime.reduce((a: number, w: { total: number }) => a + w.total, 0)).toBe(4);
+    expect(all.checkins.reduce((a: number, d: { count: number }) => a + d.count, 0)).toBeGreaterThanOrEqual(2);
+    // The same email booked the hall, the club and the event: one person, returning.
+    expect(all.repeat).toEqual({ people: 1, returning: 1 });
+    const hall = (await json(`/vendor/reports/participation/detail${Q}&listingType=centre&listingId=${centreId}`, [vendorA])).body;
+    expect(hall.perListing).toEqual([expect.objectContaining({ title: "RP Hall", orders: 2, cancelled: 1, attended: 1 })]);
+    const foreign = (await json(`/vendor/reports/participation/detail${Q}&listingId=${centreId}`, [vendorB])).body;
+    expect(foreign.perListing).toEqual([]);
+    expect(JSON.stringify(all)).not.toMatch(/secret@|Secret Booker|Medium/);
+  });
+});

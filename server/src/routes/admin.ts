@@ -1,3 +1,4 @@
+import { governanceSummary } from "../governance.js";
 import { adminCategoriesRouter, categoriesConfigRouter } from "./adminCategories.js";
 import { answersPastRetention, CLASS_LABELS, cleanPolicy, DATA_CLASSES, fieldPolicy, FieldPolicyError, INPUT_TYPES, LIBRARY, PLATFORM_LOCKED, TYPE_LABELS } from "../fieldRegistry.js";
 import { specialCategoryQuestionsOn } from "../participation/options.js";
@@ -1659,6 +1660,12 @@ adminRouter.post("/moderation/chat-messages/:id/unhide", requireAdminPermission(
 });
 
 // --- audit log (moved from platformAdmin.ts) ----------------------------
+
+// Phase L — governance summary over the audit log, retention counts and open privacy decisions (read only).
+adminRouter.get("/governance", requireAdminPermission("audit.view"), async (req, res) => {
+  const days = [7, 30, 90, 365].includes(Number(req.query.days)) ? Number(req.query.days) : 30;
+  res.json(await governanceSummary(days));
+});
 
 adminRouter.get("/audit", requireAdminPermission("audit.view"), async (req, res) => {
   const actorUserId = typeof req.query.actorUserId === "string" ? req.query.actorUserId : undefined;

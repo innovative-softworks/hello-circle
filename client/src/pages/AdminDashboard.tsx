@@ -1,3 +1,4 @@
+import { AdminGovernancePage } from "../components/admin/AdminGovernance";
 import { AdminCategoriesPage } from "../components/admin/AdminCategories";
 import { AdminPrivacyPage } from "../components/admin/AdminPrivacy";
 import { useCallback, useEffect, useState } from "react";
@@ -217,6 +218,8 @@ export function AdminDashboard() {
         return <AdminHostsPage onNavigate={(t, extra) => go(t, extra)} />;
       case "audit":
         return <AdminAuditPage onNavigate={(t, extra) => go(t, extra)} />;
+      case "governance":
+        return <AdminGovernancePage onNavigate={(t, extra) => go(t, extra)} />;
       case "coupons":
         return <AdminCouponsPage />;
       case "commerce":

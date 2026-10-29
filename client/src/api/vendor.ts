@@ -1174,3 +1174,17 @@ export function downloadParticipationReport(from: string, to: string): Promise<v
 export function downloadFormAnswers(ref: Exclude<FormRef, string>): Promise<void> {
   return downloadJson(`${formBase(ref)}/answers.csv`, `answers-${ref.listingType}-${ref.id}.csv`);
 }
+export interface ParticipationDetail {
+  from: string;
+  to: string;
+  overTime: { week: string; total: number; byType: Record<string, number> }[];
+  perListing: { type: string; listingId: string; title: string; orders: number; cancelled: number; people: number; attended: number }[];
+  checkins: { day: string; count: number }[];
+  repeat: { people: number; returning: number };
+  truncated: boolean;
+}
+export function fetchParticipationDetail(from: string, to: string, f: { listingType?: string; listingId?: string; sessionId?: string }): Promise<ParticipationDetail> {
+  const q = new URLSearchParams({ from, to });
+  for (const [k, v] of Object.entries(f)) if (v) q.set(k, v);
+  return request(`/vendor/reports/participation/detail?${q.toString()}`);
+}

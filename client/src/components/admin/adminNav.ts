@@ -67,6 +67,7 @@ export type AdminTab =
   | "reviews"
   | "policies"
   | "audit"
+  | "governance"
   | "notificationTemplates"
   | "media"
   | "privacy"
@@ -148,6 +149,7 @@ export const ADMIN_NAV: AdminNavGroup[] = [
       { key: "attendance", label: "Attendance corrections", icon: ClipboardList, summary: "Disputed attendance records — organisers decide first, support settles disputes.", permissions: ["complaints.handle"] },
       { key: "policies", label: "Policies & trust", icon: ShieldCheck, summary: "Policy documents, company details, complaints and trader checks.", permissions: ["policies.manage", "complaints.handle", "traders.view"] },
       { key: "audit", label: "Audit log", icon: ScrollText, summary: "Who changed what, and when.", permissions: ["audit.view"] },
+      { key: "governance", label: "Governance", icon: ShieldCheck, summary: "Configuration, field-policy, export and permission changes at a glance, retention counts and open privacy decisions.", permissions: ["audit.view"] },
       { key: "notificationTemplates", label: "Notification templates", icon: Mail, summary: "Wording of booking and registration confirmation and cancellation messages.", permissions: ["templates.view"] },
       { key: "privacy", label: "Privacy requests", icon: FileLock2, summary: "Requests people made about their data, and the consent choices on record.", permissions: ["privacy.requests"] },
       { key: "media", label: "Media", icon: Images, summary: "Upload switches and the editorial image library.", permissions: ["media.view"] },

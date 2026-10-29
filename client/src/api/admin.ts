@@ -1423,3 +1423,18 @@ export function saveFieldPolicy(input: { version: number; library?: Record<strin
   return request(`/admin/fields/policy`, { method: "PUT", body: JSON.stringify(input) });
 }
 
+
+// --- Phase L: governance summary (audit log by theme, retention counts, open privacy decisions) ---
+export interface GovernanceSummary {
+  days: number;
+  themes: { key: string; label: string; count: number; latest: { action: string; objectType: string; objectId: string; actorKind: string | null; actorEmail: string | null; at: string }[] }[];
+  indicators: { kind: string; text: string }[];
+  retention: {
+    medical: { columnPresent: boolean; registrations: number; withNote: number; byYear: { year: number; withNote: number }[]; firstMonth: string | null; lastMonth: string | null };
+    answersPastRetention: { class: string; retentionDays: number; answers: number }[] | string;
+  };
+  privacyReview: { key: string; label: string; status: string }[];
+}
+export function fetchGovernance(days: number): Promise<GovernanceSummary> {
+  return request(`/admin/governance?days=${days}`);
+}
