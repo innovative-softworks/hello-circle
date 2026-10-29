@@ -52,10 +52,21 @@ export async function checkFormAnswers(
   const questions = await activeQuestions(listingType, listingId);
   if (!questions.length) return { version: 0, answers: [] };
   const version = await questionsVersion(listingId, db, listingType);
+  // Phase M — a client that sends no form at all (an older app, or a page
+  // loaded before the form was published) is told so plainly.
+  if (body.questionsVersion === undefined || body.questionsVersion === null) throw new QuestionError(FORM_REQUIRED, 409, "form_required");
   if (body.questionsVersion !== version) {
     throw new QuestionError("The organiser changed the registration questions — please check your answers", 409, "questions_changed");
   }
   return { version, answers: cleanAnswers(questions, body.answers, person ? [{ attendeeNo: 1, personType: person.personType, name: person.name }] : []) };
+}
+
+export const FORM_REQUIRED = "This listing now asks registration questions — reload the page to answer them (on the app, update it first)";
+
+/** Phase M — whether a listing's live form asks anything (so an entry point that can't show it must not book it). */
+export async function hasLiveForm(listingType: FormListingType, listingId: string, vendorId: string | null | undefined): Promise<boolean> {
+  if (!(await formQuestionsOn(vendorId))) return false;
+  return (await activeQuestions(listingType, listingId)).some((q) => q.inputType !== "info");
 }
 
 /** Writes checked answers with the order, inside the order's own transaction. */

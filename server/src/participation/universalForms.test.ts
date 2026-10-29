@@ -209,7 +209,8 @@ describe("Phase H — club registration", () => {
   });
 
   it("refuses a stale or incomplete registration, then stores the answers with it", async () => {
-    expect((await call("POST", "/api/registrations/checkout", regBody({ childFirst: "Stale" }))).body.code).toBe("questions_changed");
+    expect((await call("POST", "/api/registrations/checkout", regBody({ childFirst: "Stale" }))).body.code).toBe("form_required");
+    expect((await call("POST", "/api/registrations/checkout", regBody({ childFirst: "Stale", questionsVersion: version - 1 }))).body.code).toBe("questions_changed");
     const missing = await call("POST", "/api/registrations/checkout", regBody({ childFirst: "Missing", questionsVersion: version, answers: { booking: { q1: "Friend" } } }));
     expect(missing.status).toBe(400);
     const keys = (await call("GET", F("club", clubId), undefined, "ownerA")).body.questions.map((q: { key: string }) => q.key);
@@ -269,7 +270,7 @@ describe("Phase H — hall booking", () => {
     expect(pub.status).toBe(200);
     const form = (await call("GET", `/api/centres/${centreId}`)).body.registrationForm;
     expect(form.questions).toHaveLength(1);
-    expect((await call("POST", "/api/bookings/checkout", hallBody({ time: "11:00" }))).body.code).toBe("questions_changed");
+    expect((await call("POST", "/api/bookings/checkout", hallBody({ time: "11:00" }))).body.code).toBe("form_required");
     const ok = await call("POST", "/api/bookings/checkout", hallBody({ time: "12:00", questionsVersion: form.questionsVersion, answers: { booking: { [form.questions[0].key]: true } } }));
     expect(ok.status).toBe(201);
     expect(await db.prepare(`SELECT attendee_no, value_text FROM registration_answers WHERE source_type = 'booking' AND source_ref = ?`).get(ok.body.ref)).toEqual({ attendee_no: 0, value_text: "yes" });

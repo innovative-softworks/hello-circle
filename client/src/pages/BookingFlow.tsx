@@ -243,7 +243,7 @@ export function BookingFlow() {
       setError(e instanceof Error ? e.message : fallbackCopy.generic);
       setSubmitting(false);
       // The venue changed its questions since the page loaded: show the new ones.
-      if (e instanceof ApiError && e.body.code === "questions_changed" && centreId) fetchCentre(centreId).then(setCentre).catch(() => {});
+      if (e instanceof ApiError && (e.body.code === "questions_changed" || e.body.code === "form_required") && centreId) fetchCentre(centreId).then(setCentre).catch(() => {});
       if (centre) {
         fetchCentres(centre.county)
           .then((rows) => setSimilarCentres(rows.filter((c) => c.id !== centre.id).slice(0, 3)))

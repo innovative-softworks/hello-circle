@@ -1,3 +1,4 @@
+import { hasLiveForm } from "../participation/formAnswers.js";
 import { Router } from "express";
 import { DEPOSIT_CENTS, MAX_OPEN_SPOTS, createBookingInternal, hireCost } from "./bookings.js";
 import { listCentres } from "../db/queries.js";
@@ -73,6 +74,9 @@ async function findCandidates(body: SearchBody): Promise<Candidate[]> {
     // can never actually be confirmed; excluded from candidates entirely
     // rather than surfaced and then failing at /confirm.
     if (!centre.openBookingEnabled) continue;
+    // Phase M — Make It Happen can't ask a venue's booking questions, so a
+    // venue with a live booking form isn't offered (confirm refuses it too).
+    if (await hasLiveForm("centre", centre.id, centre.vendorId ?? null)) continue;
     const opensHour = parseInt(centre.opensAt.slice(0, 2), 10);
     const closesHour = parseInt(centre.closesAt.slice(0, 2), 10);
     if (startHour < opensHour || reqEnd > closesHour) continue;
@@ -186,6 +190,6 @@ makeItHappenRouter.post("/confirm", requireResident, async (req, res) => {
     residentId: req.resident!.id,
     clientId,
   });
-  if (!result.ok) return res.status(result.status).json({ error: result.error });
+  if (!result.ok) return res.status(result.status).json({ error: result.error, ...(result.code ? { code: result.code } : {}) });
   res.status(201).json({ ref: result.ref, url: result.url, totalEuro: result.totalEuro });
 });

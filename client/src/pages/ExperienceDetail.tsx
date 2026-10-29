@@ -328,7 +328,7 @@ export function ExperienceDetail() {
       // the customer can review it and try again.
       const code = e instanceof ApiError ? e.body.code : undefined;
       // The organiser changed the questions while the form was open: load them again.
-      if (code === "questions_changed") load();
+      if (code === "questions_changed" || code === "form_required") load();
       if (typeof code === "string" && (code.startsWith("quote_") || code === "price_changed")) {
         quoteExperienceSession(experience.id, selectedSession.id, { partySize, useCredits, couponCode: appliedCoupon ?? undefined, ...linesInput }).then(setQuote).catch(() => setQuote(null));
       }

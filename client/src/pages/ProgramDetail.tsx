@@ -228,7 +228,7 @@ export function ProgramDetail() {
       } else {
         setError(e instanceof Error ? e.message : "Couldn't complete enrollment");
         // The organiser changed the questions since the page loaded: show the new ones.
-        if (e instanceof ApiError && e.body.code === "questions_changed") fetchProgram(id).then((p) => { if (!isUnavailable(p)) setProgram(p); }).catch(() => {});
+        if (e instanceof ApiError && (e.body.code === "questions_changed" || e.body.code === "form_required")) fetchProgram(id).then((p) => { if (!isUnavailable(p)) setProgram(p); }).catch(() => {});
       }
     } finally {
       setSubmitting(false);

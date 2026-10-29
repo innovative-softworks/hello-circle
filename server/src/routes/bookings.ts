@@ -1,4 +1,4 @@
-import { checkFormAnswers, saveFormAnswers, type CheckedAnswers } from "../participation/formAnswers.js";
+import { checkFormAnswers, hasLiveForm, saveFormAnswers, type CheckedAnswers } from "../participation/formAnswers.js";
 import { QuestionError } from "../participation/questions.js";
 import { customerPaymentCase, hasOpenReview } from "../payments/paymentReview.js";
 import crypto from "node:crypto";
@@ -248,6 +248,11 @@ export async function createBookingInternal(input: CreateBookingInternalInput): 
   if (!priced.ok) return priced;
   const { centre, room, startHour, reqEnd, isCash, discountCents, couponCode, pricing } = priced;
   let form: CheckedAnswers | null = null;
+  // Phase M — an entry point that can't show the venue's questions (Make It
+  // Happen) can't book a venue that asks them.
+  if (!input.form && (await hasLiveForm("centre", centre.id, priced.vendorId))) {
+    return { ok: false, status: 409, error: "This venue asks booking questions — book it from the venue's own page", code: "form_required" };
+  }
   if (input.form) {
     try {
       form = await checkFormAnswers("centre", centre.id, priced.vendorId, input.form, null);

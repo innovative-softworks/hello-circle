@@ -242,7 +242,7 @@ export function RegistrationFlow() {
       if (e instanceof ApiError && e.body.full) setClubFull(true);
       else setError(e instanceof Error ? e.message : fallbackCopy.generic);
       // The club changed its questions since the page loaded: show the new ones.
-      if (e instanceof ApiError && e.body.code === "questions_changed" && clubId) fetchClub(clubId).then(setClub).catch(() => {});
+      if (e instanceof ApiError && (e.body.code === "questions_changed" || e.body.code === "form_required") && clubId) fetchClub(clubId).then(setClub).catch(() => {});
     } finally {
       setSubmitting(false);
     }

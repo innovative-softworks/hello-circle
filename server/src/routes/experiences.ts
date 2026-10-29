@@ -1,3 +1,4 @@
+import { FORM_REQUIRED } from "../participation/formAnswers.js";
 import { taxonomyFields, taxonomyFilter } from "../taxonomy.js";
 import { businessCheckedSql } from "../verification.js";
 import { withCardLabels } from "../categoryLabels.js";
@@ -500,6 +501,8 @@ experiencesRouter.post("/:id/sessions/:sessionId/checkout", async (req, res) => 
         seatNames = people.map((p) => p.name);
       }
       if (questions.length) {
+        // Phase M — no form sent at all (an older app, or a page from before the form was published).
+        if (body.questionsVersion === undefined || body.questionsVersion === null) return res.status(409).json({ error: FORM_REQUIRED, code: "form_required" });
         if (body.questionsVersion !== answeredVersion) return res.status(409).json({ error: "The organiser changed the registration questions — please check your answers", code: "questions_changed" });
         const who = people ?? (seatNames ?? Array.from({ length: partySize }, (_, i) => (i === 0 ? body.participantName : `Person ${i + 1}`))).map((name, i) => ({ attendeeNo: i + 1, personType: "adult" as const, name }));
         answers = cleanAnswers(questions, body.answers, who);
