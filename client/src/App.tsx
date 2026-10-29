@@ -128,6 +128,7 @@ const HostRewardsPage = lazy(() => import("./pages/RewardsHistoryPage").then((m)
 const ManageCircle = lazy(() => import("./pages/ManageCircle").then((m) => ({ default: m.ManageCircle })));
 const ManageHome = lazy(() => import("./pages/ManageHome").then((m) => ({ default: m.ManageHome })));
 const ReceiptPage = lazy(() => import("./pages/ReceiptPage").then((m) => ({ default: m.ReceiptPage })));
+const VendorOrderPage = lazy(() => import("./pages/VendorOrderPage").then((m) => ({ default: m.VendorOrderPage })));
 const BookingDetailPage = lazy(() => import("./pages/BookingDetailPage").then((m) => ({ default: m.BookingDetailPage })));
 const StartCirclePage = lazy(() => import("./pages/StartCirclePage").then((m) => ({ default: m.StartCirclePage })));
 
@@ -428,6 +429,7 @@ export function App() {
                 <Route path="/vendor/clubs/:id" element={<PartnerOrgGate><VendorClubEditPage /></PartnerOrgGate>} />
                 <Route path="/vendor/programs/:id" element={<PartnerOrgGate><VendorProgramEditPage /></PartnerOrgGate>} />
                 <Route path="/vendor/experiences/:id" element={<PartnerOrgGate><VendorExperienceEditPage /></PartnerOrgGate>} />
+                <Route path="/vendor/orders/:source/:ref" element={<PartnerOrgGate><VendorOrderPage /></PartnerOrgGate>} />
                 <Route path="/vendor/door" element={<PartnerOrgGate><VendorDoorHome /></PartnerOrgGate>} />
                 <Route path="/vendor/door/:sessionId" element={<PartnerOrgGate><VendorDoorScreen /></PartnerOrgGate>} />
                 {/* HelloCircle Manage — /manage is the resident (Host)

@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { useEffect, useMemo, useState } from "react";
 import { ApiError, assignCheckinStaff, fetchAttendanceSummary, fetchCheckinStaff, fetchExperienceAttendees, revokeCheckinStaff } from "../../api";
 import { Button, Card, EmptyState, LoadErrorState, PageSpinner, RouteLinkButton, inputStyle } from "../ui";
@@ -106,7 +107,7 @@ function AttendeeBookingCard({ booking: b }: { booking: VendorAttendeeBooking })
     <Card style={{ padding: 14, opacity: inactive ? 0.75 : 1 }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
         <div>
-          <strong style={{ fontSize: 14.5 }}>{b.participantName}</strong>
+          <Link to={`/vendor/orders/experience/${encodeURIComponent(b.ref)}`} style={{ fontSize: 14.5, fontWeight: 700, color: "inherit" }}>{b.participantName}</Link>
           <span style={{ fontSize: 13, color: colors.muted }}> · {b.ref} · {dateLabel(b.date)} {b.time}</span>
           <div style={{ fontSize: 13, color: colors.muted }}>{[b.email, b.phone].filter(Boolean).join(" · ")}</div>
         </div>

@@ -1085,3 +1085,47 @@ export function setFormTemplateArchived(templateId: string, archived: boolean): 
   return request(`/vendor/form-templates/${encodeURIComponent(templateId)}/${archived ? "archive" : "restore"}`, { method: "POST" });
 }
 
+
+// --- Phase J: one partner record for any participation order ----------------------
+export interface VendorOrderRecord {
+  source: import("../types").OrderSource;
+  listingType: "experience" | "club" | "program" | "centre";
+  listingId: string;
+  title: string;
+  ref: string;
+  /** Programme enrolment id / experience booking id (their action routes use it). */
+  orderId: number | null;
+  date: string | null;
+  time: string | null;
+  status: string;
+  paymentStatus: string;
+  createdAt: string;
+  contact: { name: string; email: string; phone: string };
+  partySize: number;
+  notes: string | null;
+  people: { attendeeNo: number; name: string; personType: "adult" | "child"; lineLabel: string | null; guardianName: string | null; status: "active" | "removed"; checkedInAt: string | null }[];
+  attendance: import("../types").OrderAttendance;
+  /** false = this role can't read registration answers (they exist: answerCount). */
+  answersVisible: boolean;
+  answers: import("../types").StoredAnswer[] | null;
+  answerCount: number;
+  questionsVersion: number;
+  missingAnswers: string[];
+  actions: { cancel: boolean; refund: boolean };
+  history: { label: string; at: string }[];
+}
+export function fetchVendorOrder(source: import("../types").OrderSource, ref: string): Promise<VendorOrderRecord> {
+  return request(`/vendor/orders/${source}/${encodeURIComponent(ref)}`);
+}
+export function cancelVendorEnrollment(programId: string, enrollmentId: number): Promise<ProviderCancelResult> {
+  return request(`/vendor/programs/${encodeURIComponent(programId)}/enrollments/${enrollmentId}/cancel`, { method: "POST" });
+}
+export function refundVendorEnrollment(programId: string, enrollmentId: number): Promise<{ ok: boolean }> {
+  return request(`/vendor/programs/${encodeURIComponent(programId)}/enrollments/${enrollmentId}/refund`, { method: "POST" });
+}
+export function cancelVendorExperienceBooking(experienceId: string, bookingId: number): Promise<ProviderCancelResult> {
+  return request(`/vendor/experiences/${encodeURIComponent(experienceId)}/bookings/${bookingId}/cancel`, { method: "POST" });
+}
+export function refundVendorExperienceBooking(experienceId: string, bookingId: number): Promise<{ ok: boolean }> {
+  return request(`/vendor/experiences/${encodeURIComponent(experienceId)}/bookings/${bookingId}/refund`, { method: "POST" });
+}

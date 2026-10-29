@@ -2,7 +2,7 @@ import { ListFilterBar, NoMatches, useListFilters } from "./workspace/ListFilter
 import { useToast } from "./Toast";
 import { emptyCategoryDraft, ListingCategoryFields, saveListingCategory } from "./categories/ListingCategoryFields";
 import { useEffect, useState, type SetStateAction } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { VendorCategoryEditor } from "./VendorCategoryEditor";
 import { VendorParticipationEditor } from "./VendorParticipationEditor";
 import {
@@ -289,7 +289,10 @@ export function ProgramManager({ programId, onChanged }: { programId: string; on
                 <tbody>
                   {enrollments.map((e) => (
                     <tr key={e.id}>
-                      <td data-label="Participant">{e.participantName}</td>
+                      <td data-label="Participant">
+                        {/* Phase J — the enrolment's record page (answers, attendance, history, actions). */}
+                        {(e as { ref?: string }).ref ? <Link to={`/vendor/orders/program/${encodeURIComponent((e as { ref?: string }).ref!)}`} style={{ color: "inherit", fontWeight: 600 }}>{e.participantName}</Link> : e.participantName}
+                      </td>
                       <td data-label="Email" style={{ color: "var(--adm-muted)" }}>
                         {e.email}
                       </td>

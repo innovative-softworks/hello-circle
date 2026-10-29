@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { ApiError, fetchFormAnswers, type FormRef } from "../../api";
 import { LoadErrorState, PageSpinner } from "../ui";
 import { colors, radius } from "../../theme";
@@ -9,6 +10,8 @@ import { answerLabel } from "./attendeeSlots";
 // registration / enrolment / booking, as they saw the question (wording and
 // version are kept with each answer). Only the listing's managers can read
 // them; anyone else in the organisation sees why, not an error.
+
+const SOURCE = { club: "registration", program: "program", centre: "booking" } as const;
 
 type Order = { ref: string; name: string; at: string; cancelled: boolean; answers: StoredAnswer[] };
 
@@ -46,7 +49,7 @@ export function FormAnswersPanel({ listing }: { listing: Exclude<FormRef, string
           {orders.map((o) => (
             <li key={o.ref} style={{ border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: 12, background: colors.surface }}>
               <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", fontSize: 14 }}>
-                <strong>{o.name}</strong>
+                <Link to={`/vendor/orders/${SOURCE[listing.listingType]}/${encodeURIComponent(o.ref)}`} style={{ fontWeight: 700, color: "inherit" }}>{o.name}</Link>
                 <span style={{ color: colors.muted }}>{o.ref} · {when(o.at)}{o.cancelled ? " · cancelled" : ""}</span>
               </div>
               <dl style={{ margin: "8px 0 0", display: "grid", gap: 4, fontSize: 14 }}>
