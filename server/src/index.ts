@@ -61,6 +61,7 @@ import { orderFormsRouter } from "./routes/orderForms.js";
 import { spotAlertsRouter, sweepSpotAlerts } from "./spotAlerts.js";
 import { myLifeRouter, sweepMyLifeAlerts } from "./myLife.js";
 import { sweepCirclePlanReminders } from "./circlePlanNotices.js";
+import { sweepBookingReminders } from "./participation/bookingReminders.js";
 import { experienceHubRouter } from "./routes/experienceHub.js";
 import { favouritesRouter } from "./routes/favourites.js";
 import { feedbackRouter } from "./routes/feedback.js";
@@ -150,6 +151,8 @@ setInterval(() => void sweepMyLifeAlerts().catch((e) => console.error("[mylife-a
 setInterval(() => void sweepReviewInvitations().catch((e) => console.error("[review-invitations] sweep failed:", e)), 5 * 60 * 1000);
 // Circles 3.0 — day-before reminders for dated Circle plans (once per plan).
 setInterval(() => void sweepCirclePlanReminders().catch((e) => console.error("[circle-plans] reminder sweep failed:", e)), 30 * 60 * 1000);
+// Phase K — day-before booking reminders (participation.reminders, off by default; once per order and day).
+setInterval(() => void sweepBookingReminders().catch((e) => console.error("[booking-reminders] sweep failed:", e)), 30 * 60 * 1000);
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 

@@ -112,6 +112,9 @@ export async function ownedOrder(source: OrderSource, ref: string, clientId: str
   return mine ? loadOrder(source, ref) : null;
 }
 
+/** Phase K — the order by reference for the reminder sweep (server-side only, no caller identity). */
+export const ownedOrderForReminder = (source: OrderSource, ref: string) => loadOrder(source, ref);
+
 /** The order when one of `vendorIds` (the caller's organisation) owns its listing; otherwise null. */
 export async function orgOrder(source: OrderSource, ref: string, vendorIds: string[]): Promise<OrderCore | null> {
   const order = await loadOrder(source, ref);

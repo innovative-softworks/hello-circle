@@ -61,6 +61,8 @@ const PREF_KEY_BY_KIND: Partial<Record<NotifyResidentParams["kind"], string>> = 
   intent_match: "intentMatches",
   // Trust & Retention — one invitation per confirmed visit (myLifePlans.ts).
   review_invite: "reviewInvites",
+  // Phase K — the day-before reminder honours the existing "Booking reminders" setting.
+  reminder: "bookingReminders",
 };
 
 /** `residents.notification_prefs` was previously collected
@@ -83,7 +85,7 @@ export async function residentAllows(residentId: string, prefKey: string): Promi
 
 interface NotifyResidentParams {
   residentId: string;
-  kind: "booking" | "registration" | "program" | "experience" | "waitlist" | "game" | "intent_match" | "circle" | "provider_update" | "host_update" | "centre_update" | "invite" | "share" | "moderation" | "payment" | "mylife" | "review_invite";
+  kind: "booking" | "registration" | "program" | "experience" | "waitlist" | "game" | "intent_match" | "circle" | "provider_update" | "host_update" | "centre_update" | "invite" | "share" | "moderation" | "payment" | "mylife" | "review_invite" | "reminder";
   title: string;
   body: string;
   listingType: "centre" | "club" | "game" | "intent" | "circle" | "vendor" | "host" | "experience" | "program" | "place_suggestion" | "account";
@@ -121,7 +123,7 @@ function pushPathFor(params: NotifyResidentParams): string | undefined {
   // OG-05 — a payout or Pro payment problem opens the host's Earnings.
   if (params.kind === "payment") return "/manage?tab=earnings";
   // Trust & Retention — ref is "<kind>/<ref>" of the booking page, which shows the live attendance/review state.
-  if (params.kind === "review_invite") return `/bookings/${params.ref}`;
+  if (params.kind === "review_invite" || params.kind === "reminder") return `/bookings/${params.ref}`;
   if (params.kind === "moderation") return params.listingType === "place_suggestion" ? "/suggest-place" : "/profile?tab=hosting";
   const base = DETAIL_PATH_BY_LISTING_TYPE[params.listingType];
   return base ? `${base}${params.listingId}` : undefined;

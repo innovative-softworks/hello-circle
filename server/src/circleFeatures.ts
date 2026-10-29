@@ -50,6 +50,8 @@ export const FEATURE_SWITCHES: FeatureSwitch[] = [
   // on: attendee details, answers and check-ins already recorded stay visible.
   { key: "participation.attendees", group: "participation", label: "Attendee details and questions", description: "People say who is coming (adult or child, and who looks after each child) and answer the organiser's registration questions when they book. Partners build the questions and see the attendee list." },
   { key: "participation.checkin", group: "participation", label: "Door check-in", description: "Partners check people in one by one at the door, by scanning the pass or searching by name, including part of a group. Check-in-only staff can be assigned to an event or one date." },
+  // Phase K (docs/participation-expansion/20) — off until the owner turns it on.
+  { key: "participation.reminders", group: "participation", label: "Booking reminders", description: "Signed-in people get an in-app reminder (and a push on the app) the day before an event, experience, hall booking or programme session, with where to go and whether the organiser is still waiting for answers. Respects each person's Booking reminders setting." },
   { key: "participation.special_category_questions", group: "participation", label: "Sensitive registration questions", description: "Questions about health, religion, ethnicity or other special-category data. Locked until a privacy policy for them is approved.", locked: true },
 ];
 
