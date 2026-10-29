@@ -139,7 +139,7 @@ function AttendeeBookingCard({ booking: b }: { booking: VendorAttendeeBooking })
                   {answers.map((x) => (
                     <div key={x.key} style={{ display: "contents" }}>
                       <dt>{x.label}</dt>
-                      <dd style={{ margin: 0, color: colors.text }}>{x.inputType === "checkbox" ? "Yes" : x.value}</dd>
+                      <dd style={{ margin: 0, color: colors.text }}>{x.display ?? (x.inputType === "checkbox" ? "Yes" : x.value)}</dd>
                     </div>
                   ))}
                 </dl>
@@ -153,7 +153,7 @@ function AttendeeBookingCard({ booking: b }: { booking: VendorAttendeeBooking })
           {bookingAnswers.map((x) => (
             <div key={x.key} style={{ display: "contents" }}>
               <dt>{x.label}</dt>
-              <dd style={{ margin: 0, color: colors.text }}>{x.inputType === "checkbox" ? "Yes" : x.value}</dd>
+              <dd style={{ margin: 0, color: colors.text }}>{x.display ?? (x.inputType === "checkbox" ? "Yes" : x.value)}</dd>
             </div>
           ))}
         </dl>

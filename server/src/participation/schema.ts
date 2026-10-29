@@ -141,7 +141,7 @@ async function initParticipationPhase2Schema(ensureColumn: EnsureColumn, ensureI
       qkey VARCHAR(40) NOT NULL,
       version INT NOT NULL,
       scope VARCHAR(10) NOT NULL DEFAULT 'booking',
-      input_type VARCHAR(10) NOT NULL DEFAULT 'text',
+      input_type VARCHAR(20) NOT NULL DEFAULT 'text',
       label VARCHAR(200) NOT NULL,
       help VARCHAR(300) NOT NULL DEFAULT '',
       purpose VARCHAR(300) NOT NULL DEFAULT '',
@@ -167,7 +167,7 @@ async function initParticipationPhase2Schema(ensureColumn: EnsureColumn, ensureI
       qkey VARCHAR(40) NOT NULL,
       questions_version INT NOT NULL,
       label_snapshot VARCHAR(200) NOT NULL,
-      input_type_snapshot VARCHAR(10) NOT NULL,
+      input_type_snapshot VARCHAR(20) NOT NULL,
       choices_snapshot TEXT NULL,
       door_visible_snapshot TINYINT NOT NULL DEFAULT 0,
       value_text VARCHAR(1000) NOT NULL,
@@ -210,4 +210,35 @@ async function initParticipationPhase2Schema(ensureColumn: EnsureColumn, ensureI
   await ensureIndex("listing_staff_assignments", "idx_staff_assignments_user", "(user_id, listing_type, listing_id)");
   await ensureIndex("listing_staff_assignments", "idx_staff_assignments_listing", "(listing_type, listing_id)");
   await ensureColumn("experiences", "questions_version", "questions_version INT NOT NULL DEFAULT 0");
+  // Configuration Phase F — field registry properties on each question (all optional).
+  await ensureColumn("registration_questions", "field_key", "field_key VARCHAR(60) NULL");
+  await ensureColumn("registration_questions", "placeholder", "placeholder VARCHAR(120) NULL");
+  await ensureColumn("registration_questions", "default_value", "default_value VARCHAR(200) NULL");
+  await ensureColumn("registration_questions", "min_length", "min_length INT NULL");
+  await ensureColumn("registration_questions", "max_length", "max_length INT NULL");
+  await ensureColumn("registration_questions", "editability", "editability VARCHAR(20) NOT NULL DEFAULT 'until_start'");
+  await ensureColumn("registration_questions", "exportable", "exportable TINYINT NOT NULL DEFAULT 0");
+  // Phase F answer types are up to 12 characters ("multi_select"): widen the two
+  // Phase 2 columns created at VARCHAR(10). Widening keeps every existing value.
+  await widenVarchar("registration_questions", "input_type", 20, "NOT NULL DEFAULT 'text'");
+  await widenVarchar("registration_answers", "input_type_snapshot", 20, "NOT NULL");
+  // The admin field policy: one row, versioned; every change is audited.
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS field_policies (
+      id INT NOT NULL PRIMARY KEY,
+      version INT NOT NULL DEFAULT 0,
+      policy_json TEXT NULL,
+      updated_by VARCHAR(191) NULL,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    );
+  `);
 }
+
+/** Idempotent: widens a VARCHAR column only when it is narrower than `length`. */
+async function widenVarchar(table: string, column: string, length: number, rest: string): Promise<void> {
+  const row = (await db
+    .prepare(`SELECT CHARACTER_MAXIMUM_LENGTH AS len FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`)
+    .get(table, column)) as { len: number } | undefined;
+  if (row && Number(row.len) < length) await db.exec(`ALTER TABLE ${table} MODIFY COLUMN ${column} VARCHAR(${length}) ${rest}`);
+}
+

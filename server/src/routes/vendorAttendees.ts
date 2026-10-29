@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import { requirePlatformRole } from "../auth.js";
 import { assertCapability, capabilityLimit } from "../capabilities.js";
+import { CLASS_LABELS, DATA_CLASSES, fieldPolicy, INPUT_TYPES, LIBRARY } from "../fieldRegistry.js";
 import { writeAudit } from "../audit.js";
 import { db } from "../db/index.js";
 import { ROSTER_ROLES } from "./vendorHelpers.js";
@@ -97,11 +98,16 @@ vendorAttendeesRouter.get("/experiences/:id/attendance-summary", requirePlatform
 vendorAttendeesRouter.get("/experiences/:id/questions", async (req, res) => {
   const exp = await ownedExperience(req, res);
   if (!exp) return;
+  const policy = await fieldPolicy();
   res.json({
     questions: await activeQuestions("experience", exp.id),
     version: await questionsVersion(exp.id),
     enabled: await attendeesOn(),
     specialCategoryEnabled: await specialCategoryQuestionsOn(),
+    // Phase F — what the builder may offer: ready-made fields, allowed answer types, data classes.
+    library: LIBRARY.filter((f) => policy.library[f.key]),
+    allowedTypes: INPUT_TYPES.filter((t) => policy.customTypes[t]),
+    classes: DATA_CLASSES.map((c) => ({ key: c, label: CLASS_LABELS[c], exportable: policy.classes[c].exportable, retentionDays: policy.classes[c].retentionDays })),
   });
 });
 
@@ -114,7 +120,7 @@ vendorAttendeesRouter.put("/experiences/:id/questions", requirePlatformRole(...E
   if (typeof version !== "number" || !Number.isInteger(version) || version < 0) return res.status(400).json({ error: "Send the version you edited" });
   try {
     const before = await activeQuestions("experience", exp.id);
-    const set = cleanQuestionSet(questions, await specialCategoryQuestionsOn());
+    const set = cleanQuestionSet(questions, await specialCategoryQuestionsOn(), await fieldPolicy());
     const max = await capabilityLimit(exp.vendorId, "registration_questions", "max_questions");
     if (set.length > max) return res.status(400).json({ error: `Your organisation can ask at most ${max} questions per listing` });
     const saved = await replaceQuestions(exp.id, set, version, req.user!.id);
@@ -200,4 +206,50 @@ vendorAttendeesRouter.delete("/experiences/:id/checkin-staff/:assignmentId", req
   if (r.changes !== 1) return res.status(404).json({ error: "Assignment not found" });
   await writeAudit({ actorUserId: req.user!.id, action: "experience.checkin_staff_revoked", objectType: "experience", objectId: exp.id, newValue: { assignmentId: req.params.assignmentId } });
   res.json({ ok: true });
+});
+
+// --- export (configuration Phase F) ------------------------------------------------
+// The attendee list as CSV for the roster roles. Only answers to questions the
+// partner marked exportable AND whose data class the platform policy allows to
+// be exported; contact details and special categories are never included.
+// Every export is audited (who, which listing, how many rows).
+
+const csvCell = (v: unknown) => {
+  const t = v === null || v === undefined ? "" : String(v);
+  // Neutralise spreadsheet formulas and quote everything.
+  const safe = /^[=+\-@\t\r]/.test(t) ? `'${t}` : t;
+  return `"${safe.replace(/"/g, '""')}"`;
+};
+
+vendorAttendeesRouter.get("/experiences/:id/attendees.csv", requirePlatformRole(...ROSTER_ROLES), async (req, res) => {
+  const exp = await ownedExperience(req, res);
+  if (!exp) return;
+  const policy = await fieldPolicy();
+  const questions = (await activeQuestions("experience", exp.id)).filter((q) => q.exportable && q.inputType !== "info" && (DATA_CLASSES as readonly string[]).includes(q.category) && policy.classes[q.category as (typeof DATA_CLASSES)[number]].exportable);
+  const rows = (await db
+    .prepare(
+      `SELECT eb.ref, eb.participant_name AS participantName, eb.party_size AS partySize, eb.status, eb.payment_status AS paymentStatus, es.date, es.time
+       FROM experience_bookings eb JOIN experience_sessions es ON es.id = eb.session_id
+       WHERE eb.experience_id = ? AND eb.payment_status = 'paid' ORDER BY es.date, es.time, eb.participant_name`
+    )
+    .all(exp.id)) as { ref: string; participantName: string; partySize: number; status: string; paymentStatus: string; date: string; time: string }[];
+  const people = await readAttendeesFor("experience", rows.map((r) => ({ ref: r.ref, partySize: Number(r.partySize), participantName: r.participantName })));
+  const answers = await readAnswersFor("experience", rows.map((r) => r.ref));
+  const checks = await checkinsFor(rows.map((r) => r.ref));
+  const header = ["Date", "Time", "Booking", "Booking status", "Person", "Adult or child", "Option", "Looked after by", "Checked in", ...questions.map((q) => q.label)];
+  const lines = [header.map(csvCell).join(",")];
+  let count = 0;
+  for (const r of rows) {
+    const own = answers.get(r.ref) ?? [];
+    for (const p of (people.get(r.ref) ?? []).filter((x) => x.status === "active")) {
+      const hit = (checks.get(r.ref) ?? []).find((c) => Number(c.attendee_no) === p.attendeeNo);
+      const cell = (key: string, scope: string) => own.find((a) => a.key === key && a.attendeeNo === (scope === "booking" ? 0 : p.attendeeNo))?.display ?? "";
+      lines.push([r.date, r.time, r.ref, r.status === "cancelled" ? "Cancelled" : "Confirmed", p.name, p.personType === "child" ? "Child" : "Adult", p.lineLabel ?? "", p.guardianName ?? "", hit ? new Date(hit.checked_in_at).toISOString() : "", ...questions.map((q) => cell(q.key, q.scope))].map(csvCell).join(","));
+      count++;
+    }
+  }
+  await writeAudit({ actorUserId: req.user!.id, action: "experience.attendees_exported", objectType: "experience", objectId: exp.id, newValue: { rows: count, questions: questions.map((q) => q.key) } });
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="attendees-${exp.id}.csv"`);
+  res.send(lines.join("\r\n"));
 });

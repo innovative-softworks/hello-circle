@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fitPeople, missingAnswers, personSlots, toAttendeeInput } from "./attendeeSlots";
+import { fitPeople, missingAnswers, personSlots, toAttendeeInput, withDefaults } from "./attendeeSlots";
 import type { RegistrationOption, RegistrationQuestion } from "../../types";
 
 const opt = (id: string, kind: RegistrationOption["kind"], headsPerUnit: number, ageBand: RegistrationOption["ageBand"], label = id): RegistrationOption =>
@@ -32,6 +32,14 @@ describe("attendee slots", () => {
     const qs = [q("age", { appliesTo: "child" }), q("heard", { scope: "booking" }), q("tshirt", { required: false })];
     expect(missingAnswers(qs, people, { booking: {}, attendees: [{}, {}] }).map((m) => m.message)).toEqual(['C: answer "age"', 'Answer "heard"']);
     expect(missingAnswers(qs, people, { booking: { heard: "x" }, attendees: [{}, { age: 7 }] })).toEqual([]);
+  });
+
+  it("pre-filled answers are sent as given, and an empty multi-select or an information line never counts as answered (Phase F)", () => {
+    const people = [{ name: "A", personType: "adult" as const, guardian: "" as const }];
+    const qs = [q("level", { inputType: "radio", choices: ["Beginner", "Expert"], defaultValue: "Beginner" }), q("days", { inputType: "multi_select", choices: ["Sat", "Sun"] }), q("note", { inputType: "info" })];
+    const filled = withDefaults(qs, people, { booking: {}, attendees: [{}] });
+    expect(filled.attendees[0]).toEqual({ level: "Beginner" });
+    expect(missingAnswers(qs, people, { ...filled, attendees: [{ ...filled.attendees[0], days: [] }] }).map((m) => m.message)).toEqual(['A: answer "days"']);
   });
 });
 

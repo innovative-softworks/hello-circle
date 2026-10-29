@@ -161,7 +161,7 @@ export async function doorViews(rows: DoorBookingRow[], session: DoorSession): P
         lineLabel: p.lineLabel,
         guardianName: p.guardianName,
         checkedInAt: hit ? new Date(hit.checked_in_at).toISOString() : null,
-        answers: a.filter((x) => x.attendeeNo === p.attendeeNo).map((x) => ({ label: x.label, value: x.value })),
+        answers: a.filter((x) => x.attendeeNo === p.attendeeNo).map((x) => ({ label: x.label, value: x.display })),
       };
     });
     return {
@@ -170,7 +170,7 @@ export async function doorViews(rows: DoorBookingRow[], session: DoorSession): P
       partySize: r.partySize,
       admit: admitVerdict(r, session, today),
       people: out,
-      bookingAnswers: a.filter((x) => x.attendeeNo === 0).map((x) => ({ label: x.label, value: x.value })),
+      bookingAnswers: a.filter((x) => x.attendeeNo === 0).map((x) => ({ label: x.label, value: x.display })),
       checkedIn: out.filter((p) => p.checkedInAt).length,
     };
   });

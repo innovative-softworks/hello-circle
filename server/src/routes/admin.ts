@@ -1,4 +1,6 @@
 import { adminCategoriesRouter, categoriesConfigRouter } from "./adminCategories.js";
+import { answersPastRetention, CLASS_LABELS, cleanPolicy, DATA_CLASSES, fieldPolicy, FieldPolicyError, INPUT_TYPES, LIBRARY, PLATFORM_LOCKED, TYPE_LABELS } from "../fieldRegistry.js";
+import { specialCategoryQuestionsOn } from "../participation/options.js";
 import { familiesOf, loadTaxonomy } from "../taxonomy.js";
 import { CategoryAccessError, cleanAccess, orgCategoryAccess, orgCategoryUsage, policyOf } from "../categoryPolicy.js";
 import { CAPABILITIES, CapabilityChangeError, TEMPLATES, capability, capabilityUsage, isTemplateKey, orgSettings, planChange, platformStates, resolveStates, templateChange, type CapabilityState } from "../capabilities.js";
@@ -1324,6 +1326,52 @@ adminRouter.put("/organisations/:id/categories", requireAdminPermission("orgs.ma
     res.json(after);
   } catch (e) {
     if (e instanceof CategoryAccessError) return res.status(e.status).json({ error: e.message });
+    throw e;
+  }
+});
+
+// Configuration framework Phase F — the field registry and the admin field
+// policy (which ready-made fields and custom answer types partners may use,
+// retention and export per data class). Read: every admin. Change: Super or
+// Legal (policies.manage), versioned, audited with before and after.
+adminRouter.get("/fields", requireAdminPermission("workspace.view"), async (_req, res) => {
+  const policy = await fieldPolicy();
+  res.json({
+    policy,
+    platformLocked: PLATFORM_LOCKED,
+    library: LIBRARY,
+    types: INPUT_TYPES.map((t) => ({ key: t, label: TYPE_LABELS[t] })),
+    classes: DATA_CLASSES.map((c) => ({ key: c, label: CLASS_LABELS[c] })),
+    specialCategoryQuestions: await specialCategoryQuestionsOn(),
+    pastRetention: await answersPastRetention(policy),
+  });
+});
+
+adminRouter.put("/fields/policy", requireAdminPermission("policies.manage"), async (req, res) => {
+  const { version, reason } = (req.body ?? {}) as { version?: unknown; reason?: unknown };
+  if (typeof version !== "number") return res.status(400).json({ error: "Send the policy version you edited" });
+  try {
+    const result = await db.transaction(async (tx) => {
+      await tx.prepare(`INSERT IGNORE INTO field_policies (id, version, policy_json) VALUES (1, 0, NULL)`).run();
+      const row = (await tx.prepare(`SELECT version FROM field_policies WHERE id = 1 FOR UPDATE`).get()) as { version: number };
+      if (Number(row.version) !== version) throw new FieldPolicyError("Someone changed the field policy since you opened it — reload to see the latest", 409);
+      const before = await fieldPolicy(tx);
+      const next = cleanPolicy(req.body, before);
+      await tx.prepare(`UPDATE field_policies SET version = version + 1, policy_json = ?, updated_by = ? WHERE id = 1`).run(JSON.stringify(next), req.user!.id);
+      return { before, after: { ...next, version: version + 1 } };
+    });
+    await writeAudit({
+      actorUserId: req.user!.id,
+      action: "fields.policy_changed",
+      objectType: "field_policy",
+      objectId: "1",
+      previousValue: result.before,
+      newValue: result.after,
+      reason: typeof reason === "string" && reason.trim() ? reason.trim().slice(0, 500) : undefined,
+    });
+    res.json({ policy: result.after });
+  } catch (e) {
+    if (e instanceof FieldPolicyError) return res.status(e.status).json({ error: e.message });
     throw e;
   }
 });

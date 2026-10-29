@@ -98,15 +98,27 @@ export function AttendeeFields({ slots, people, onPeople, questions, answers, on
   );
 }
 
-export function QuestionInput({ question: q, fieldId, value, onChange, fe }: { question: RegistrationQuestion; fieldId: string; value: AnswerValue | undefined; onChange: (v: AnswerValue) => void; fe: Fe }) {
+export function QuestionInput({ question: q, fieldId, value: given, onChange, fe, locked = false }: { question: RegistrationQuestion; fieldId: string; value: AnswerValue | undefined; onChange: (v: AnswerValue) => void; fe: Fe; locked?: boolean }) {
   const hintId = `${fieldId}-why`;
+  // Phase F — a pre-filled answer shows until the person changes it (and is sent as given).
+  const value = given === undefined && q.defaultValue ? (q.inputType === "number" ? Number(q.defaultValue) : q.defaultValue) : given;
+  if (q.inputType === "info") {
+    return (
+      <div role="note" style={{ fontSize: 14, background: colors.panel, borderRadius: radius.control, padding: "10px 12px" }}>
+        <strong>{q.label}</strong>
+        {q.help && <div style={{ fontSize: 13, color: colors.muted, marginTop: 2 }}>{q.help}</div>}
+      </div>
+    );
+  }
   const label = `${q.label}${q.required ? "" : " (optional)"}`;
   const why = (
     <div id={hintId} style={{ fontSize: 12, color: colors.faint, marginTop: 4 }}>
-      {q.help ? `${q.help} · ` : ""}Why we ask: {q.purpose}{q.doorVisible ? " · Door staff see this answer" : ""}
+      {q.help ? `${q.help} · ` : ""}Why we ask: {q.purpose}
+      {q.doorVisible ? " · Door staff see this answer" : ""}
+      {q.editability === "locked" ? " · Can't be changed after booking" : ""}
     </div>
   );
-  const control = { ...fe.control(fieldId), "aria-describedby": [fe.messageFor(fieldId) ? `${fieldId}-error` : null, hintId].filter(Boolean).join(" ") };
+  const control = { ...fe.control(fieldId), disabled: locked, "aria-describedby": [fe.messageFor(fieldId) ? `${fieldId}-error` : null, hintId].filter(Boolean).join(" ") };
   if (q.inputType === "checkbox") {
     return (
       <div>
@@ -119,20 +131,59 @@ export function QuestionInput({ question: q, fieldId, value, onChange, fe }: { q
       </div>
     );
   }
+  if (q.inputType === "radio" || q.inputType === "multi_select") {
+    const multi = q.inputType === "multi_select";
+    const picked = Array.isArray(value) ? value : typeof value === "string" && value ? [value] : [];
+    return (
+      <fieldset style={{ border: "none", margin: 0, padding: 0 }} aria-describedby={control["aria-describedby"]} aria-invalid={fe.messageFor(fieldId) ? true : undefined}>
+        <legend style={{ ...labelStyle, padding: 0 }} id={fieldId}>{label}</legend>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {q.choices.map((c) => (
+            <label key={c} style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 14, minHeight: 28 }}>
+              <input
+                type={multi ? "checkbox" : "radio"}
+                name={fieldId}
+                disabled={locked}
+                checked={picked.includes(c)}
+                onChange={(e) => onChange(multi ? (e.target.checked ? q.choices.filter((x) => x === c || picked.includes(x)) : picked.filter((x) => x !== c)) : c)}
+              />
+              {c}
+            </label>
+          ))}
+        </div>
+        {why}
+        <FieldError fieldId={fieldId} message={fe.messageFor(fieldId)} />
+      </fieldset>
+    );
+  }
+  const text = typeof value === "string" ? value : value === undefined ? "" : String(value);
   return (
     <div>
       <label htmlFor={fieldId} style={labelStyle}>{label}</label>
       {q.inputType === "select" ? (
-        <select {...control} value={typeof value === "string" ? value : ""} onChange={(e) => onChange(e.target.value)} style={inputStyle}>
+        <select {...control} value={text} onChange={(e) => onChange(e.target.value)} style={inputStyle}>
           <option value="">Choose…</option>
           {q.choices.map((c) => <option key={c} value={c}>{c}</option>)}
         </select>
       ) : q.inputType === "number" ? (
-        <input {...control} type="number" inputMode="numeric" min={q.min ?? undefined} max={q.max ?? undefined} value={value === undefined || value === "" ? "" : String(value)} onChange={(e) => onChange(e.target.value === "" ? "" : Number(e.target.value))} style={inputStyle} />
+        <input {...control} type="number" inputMode="numeric" min={q.min ?? undefined} max={q.max ?? undefined} placeholder={q.placeholder || undefined} value={text} onChange={(e) => onChange(e.target.value === "" ? "" : Number(e.target.value))} style={inputStyle} />
       ) : q.inputType === "date" ? (
-        <input {...control} type="date" value={typeof value === "string" ? value : ""} onChange={(e) => onChange(e.target.value)} style={inputStyle} />
+        <input {...control} type="date" value={text} onChange={(e) => onChange(e.target.value)} style={inputStyle} />
+      ) : q.inputType === "long_text" ? (
+        <textarea {...control} rows={3} minLength={q.minLength ?? undefined} maxLength={q.maxLength ?? 1000} placeholder={q.placeholder || undefined} value={text} onChange={(e) => onChange(e.target.value)} style={{ ...inputStyle, minHeight: 80 }} />
       ) : (
-        <input {...control} maxLength={500} value={typeof value === "string" ? value : ""} onChange={(e) => onChange(e.target.value)} style={inputStyle} />
+        <input
+          {...control}
+          type={q.inputType === "email" ? "email" : q.inputType === "tel" ? "tel" : "text"}
+          inputMode={q.inputType === "email" ? "email" : q.inputType === "tel" ? "tel" : undefined}
+          autoComplete="off"
+          minLength={q.minLength ?? undefined}
+          maxLength={q.maxLength ?? 500}
+          placeholder={q.placeholder || undefined}
+          value={text}
+          onChange={(e) => onChange(e.target.value)}
+          style={inputStyle}
+        />
       )}
       {why}
       <FieldError fieldId={fieldId} message={fe.messageFor(fieldId)} />

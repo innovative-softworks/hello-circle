@@ -2213,8 +2213,8 @@ export interface ExperienceRegistration {
 
 // --- Participation Phase 2: attendees, questions, check-in -------------------
 
-export type QuestionInputType = "text" | "number" | "date" | "select" | "checkbox";
-export type QuestionCategory = "general" | "logistics" | "dietary_preference" | "health" | "religion" | "ethnicity" | "other_special";
+export type QuestionInputType = "text" | "long_text" | "number" | "email" | "tel" | "date" | "select" | "multi_select" | "radio" | "checkbox" | "info";
+export type QuestionCategory = "general" | "logistics" | "dietary_preference" | "contact" | "personal" | "health" | "religion" | "ethnicity" | "other_special";
 
 /** A registration question as the person booking sees it. */
 export interface RegistrationQuestion {
@@ -2232,15 +2232,33 @@ export interface RegistrationQuestion {
   appliesTo: "all" | "adult" | "child";
   /** Door staff see this answer at check-in. */
   doorVisible: boolean;
+  /** Configuration Phase F. */
+  placeholder?: string;
+  defaultValue?: string | null;
+  minLength?: number | null;
+  maxLength?: number | null;
+  /** "locked" = can't be changed after booking. */
+  editability?: "until_start" | "locked";
 }
 
 /** A question as the partner edits it. */
 export interface VendorRegistrationQuestion extends RegistrationQuestion {
   id?: string;
   category: QuestionCategory;
+  /** Phase F — a ready-made library field (its wording is HelloCircle's), or null for the partner's own. */
+  fieldKey?: string | null;
+  /** Included in the attendee export (also needs the platform to allow the data class). */
+  exportable?: boolean;
 }
 
-export type AnswerValue = string | number | boolean;
+/** Phase F — what the question builder may offer (GET /vendor/experiences/:id/questions). */
+export interface QuestionBuilderOptions {
+  library: { key: string; fieldClass: string; label: string; purpose: string; help: string; scope: "booking" | "attendee"; inputType: QuestionInputType; choices: string[]; appliesTo: "all" | "adult" | "child"; dataClass: string }[];
+  allowedTypes: QuestionInputType[];
+  classes: { key: string; label: string; exportable: boolean; retentionDays: number | null }[];
+}
+
+export type AnswerValue = string | number | boolean | string[];
 export interface RegistrationAnswersInput {
   booking: Record<string, AnswerValue>;
   attendees: Record<string, AnswerValue>[];
@@ -2274,6 +2292,8 @@ export interface StoredAnswer {
   label: string;
   inputType: QuestionInputType;
   value: string;
+  /** Configuration Phase F — the answer as it reads to a person. */
+  display?: string;
   version: number;
   doorVisible: boolean;
   updatedAt: string;

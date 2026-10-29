@@ -58,10 +58,10 @@ export function missingAnswers(
   people: PersonDraft[],
   answers: { booking: Record<string, AnswerValue>; attendees: Record<string, AnswerValue>[] }
 ): { fieldId: string; message: string }[] {
-  const empty = (v: AnswerValue | undefined) => v === undefined || v === "" || v === false;
+  const empty = (v: AnswerValue | undefined) => v === undefined || v === "" || v === false || (Array.isArray(v) && v.length === 0);
   const out: { fieldId: string; message: string }[] = [];
   for (const q of questions) {
-    if (!q.required) continue;
+    if (!q.required || q.inputType === "info") continue;
     if (q.scope === "booking") {
       if (empty(answers.booking[q.key])) out.push({ fieldId: questionFieldId(q.key, 0), message: `Answer "${q.label}"` });
       continue;
@@ -86,3 +86,25 @@ export const plural = (n: number, one: string, many: string) => `${n} ${n === 1 
 
 /** "Age:" but "How will you travel?" — no colon after a question mark. */
 export const answerLabel = (label: string) => (/[?:]$/.test(label.trim()) ? `${label.trim()} ` : `${label.trim()}: `);
+
+/** Phase F — pre-filled answers the person hasn't changed are sent as given. */
+export function withDefaults(
+  questions: RegistrationQuestion[],
+  people: PersonDraft[],
+  answers: { booking: Record<string, AnswerValue>; attendees: Record<string, AnswerValue>[] }
+): { booking: Record<string, AnswerValue>; attendees: Record<string, AnswerValue>[] } {
+  const booking = { ...answers.booking };
+  const attendees = people.map((_, i) => ({ ...(answers.attendees[i] ?? {}) }));
+  for (const q of questions) {
+    if (!q.defaultValue) continue;
+    const value: AnswerValue = q.inputType === "number" ? Number(q.defaultValue) : q.defaultValue;
+    if (q.scope === "booking") {
+      if (booking[q.key] === undefined) booking[q.key] = value;
+    } else {
+      people.forEach((p, i) => {
+        if (appliesTo(q, p.personType) && attendees[i][q.key] === undefined) attendees[i][q.key] = value;
+      });
+    }
+  }
+  return { booking, attendees };
+}

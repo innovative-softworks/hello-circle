@@ -27,7 +27,7 @@ export function BookingPeople({ bookingRef }: { bookingRef: string }) {
   // Nothing new to show for a one-person booking made before attendee details.
   if (!people.some((a) => a.recorded) && d.answers.length === 0 && d.questions.length === 0 && !anyCheckin && people.length <= 1) return null;
   const bookingAnswers = d.answers.filter((a) => a.attendeeNo === 0);
-  const show = (a: { inputType: string; value: string }) => (a.inputType === "checkbox" ? "Yes" : a.value);
+  const show = (a: { inputType: string; value: string; display?: string }) => a.display ?? (a.inputType === "checkbox" ? "Yes" : a.value);
 
   return (
     <section aria-labelledby="bp-title" style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: 18 }}>
@@ -85,7 +85,18 @@ export function BookingPeople({ bookingRef }: { bookingRef: string }) {
 function EditAnswers({ details: d, onDone }: { details: BookingPeopleDetails; onDone: (next: BookingPeopleDetails | null) => void }) {
   const people = d.attendees.filter((a) => a.status === "active");
   const initial = (): AnswersDraft => {
-    const v = (a: { inputType: string; value: string }): AnswerValue => (a.inputType === "checkbox" ? a.value === "yes" : a.inputType === "number" ? Number(a.value) : a.value);
+    const v = (a: { inputType: string; value: string }): AnswerValue => {
+      if (a.inputType === "checkbox") return a.value === "yes";
+      if (a.inputType === "number") return Number(a.value);
+      if (a.inputType === "multi_select") {
+        try {
+          return JSON.parse(a.value) as string[];
+        } catch {
+          return [];
+        }
+      }
+      return a.value;
+    };
     const booking: Record<string, AnswerValue> = {};
     for (const a of d.answers.filter((x) => x.attendeeNo === 0)) booking[a.key] = v(a);
     const attendees = people.map((p) => Object.fromEntries(d.answers.filter((x) => x.attendeeNo === p.attendeeNo).map((a) => [a.key, v(a)])));
@@ -118,7 +129,18 @@ function EditAnswers({ details: d, onDone }: { details: BookingPeopleDetails; on
     qs.length > 0 && (
       <div key={`${personNo}`} role="group" aria-label={title} style={{ display: "flex", flexDirection: "column", gap: 10, borderTop: `1px solid ${colors.border}`, paddingTop: 10 }}>
         <strong style={{ fontSize: 14 }}>{title}</strong>
-        {qs.map((q) => <QuestionInput key={q.key} question={q} fieldId={questionFieldId(q.key, personNo)} value={values[q.key]} onChange={(v) => set(personNo, q.key, v)} fe={fe} />)}
+        {qs.map((q) => (
+          <QuestionInput
+            key={q.key}
+            question={q}
+            fieldId={questionFieldId(q.key, personNo)}
+            value={values[q.key]}
+            onChange={(v) => set(personNo, q.key, v)}
+            fe={fe}
+            // Phase F — an answer marked "can't be changed after booking" stays as given.
+            locked={q.editability === "locked" && d.answers.some((a) => a.key === q.key && a.attendeeNo === personNo)}
+          />
+        ))}
       </div>
     );
   return (

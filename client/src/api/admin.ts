@@ -1384,3 +1384,42 @@ export async function previewOrgCapabilities(orgId: string, change: import("../t
 export function saveOrgCapabilities(orgId: string, change: import("../types").CapabilityChangeInput & { configVersion: number; reason?: string }): Promise<import("../types").OrgCapabilityView> {
   return request(`/admin/organisations/${orgId}/capabilities`, { method: "PUT", body: JSON.stringify(change) });
 }
+
+// Configuration framework Phase F — field registry and admin field policy.
+export type FieldInputType = "text" | "long_text" | "number" | "email" | "tel" | "date" | "select" | "multi_select" | "radio" | "checkbox" | "info";
+export type FieldDataClass = "general" | "logistics" | "dietary_preference" | "contact" | "personal";
+export interface FieldPolicyView {
+  version: number;
+  library: Record<string, boolean>;
+  customTypes: Record<FieldInputType, boolean>;
+  classes: Record<FieldDataClass, { retentionDays: number | null; exportable: boolean }>;
+}
+export interface LibraryFieldDef {
+  key: string;
+  fieldClass: "admin_configurable" | "vendor_configurable";
+  label: string;
+  purpose: string;
+  help: string;
+  scope: "booking" | "attendee";
+  inputType: FieldInputType;
+  choices: string[];
+  appliesTo: "all" | "adult" | "child";
+  dataClass: FieldDataClass;
+  enabledByDefault: boolean;
+}
+export interface AdminFieldsView {
+  policy: FieldPolicyView;
+  platformLocked: { key: string; label: string; scope: string; dataClass: string }[];
+  library: LibraryFieldDef[];
+  types: { key: FieldInputType; label: string }[];
+  classes: { key: FieldDataClass; label: string }[];
+  specialCategoryQuestions: boolean;
+  pastRetention: Record<string, number>;
+}
+export function fetchAdminFields(): Promise<AdminFieldsView> {
+  return request(`/admin/fields`);
+}
+export function saveFieldPolicy(input: { version: number; library?: Record<string, boolean>; customTypes?: Partial<Record<FieldInputType, boolean>>; classes?: Partial<Record<FieldDataClass, { retentionDays?: number | null; exportable?: boolean }>>; reason?: string }): Promise<{ policy: FieldPolicyView }> {
+  return request(`/admin/fields/policy`, { method: "PUT", body: JSON.stringify(input) });
+}
+

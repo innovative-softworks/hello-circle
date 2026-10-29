@@ -939,13 +939,20 @@ experiencesRouter.put("/bookings/:ref/answers", async (req, res) => {
     if (e instanceof QuestionError) return res.status(e.status).json({ error: e.message, code: e.code });
     throw e;
   }
+  // Phase F — a question marked "can't be changed after booking" keeps the
+  // answer already given, whatever is sent; it can only be answered if it wasn't.
+  const existing = (await readAnswersFor("experience", [row.ref])).get(row.ref) ?? [];
+  const lockedGiven = (key: string, attendeeNo: number) => existing.some((a) => a.key === key && a.attendeeNo === attendeeNo);
+  const lockedKeys = new Set(questions.filter((q) => q.editability === "locked").map((q) => q.key));
+  const toWrite = cleaned.filter((a) => !(lockedKeys.has(a.question.key) && lockedGiven(a.question.key, a.attendeeNo)));
+  const editableKeys = questions.filter((q) => !lockedKeys.has(q.key)).map((q) => q.key);
   await db.transaction(async (tx) => {
-    if (questions.length) {
+    if (editableKeys.length) {
       await tx
-        .prepare(`DELETE FROM registration_answers WHERE source_type = 'experience' AND source_ref = ? AND qkey IN (${questions.map(() => "?").join(", ")})`)
-        .run(row.ref, ...questions.map((q) => q.key));
+        .prepare(`DELETE FROM registration_answers WHERE source_type = 'experience' AND source_ref = ? AND qkey IN (${editableKeys.map(() => "?").join(", ")})`)
+        .run(row.ref, ...editableKeys);
     }
-    await writeAnswers(tx, "experience", row.ref, version, cleaned, req.resident ? "resident" : "booker", false);
+    await writeAnswers(tx, "experience", row.ref, version, toWrite, req.resident ? "resident" : "booker", false);
   });
   await writeAudit({
     actorUserId: null,

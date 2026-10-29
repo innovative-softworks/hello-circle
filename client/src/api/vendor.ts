@@ -995,7 +995,7 @@ export function downloadVendorStatement(month: string): Promise<void> {
 
 // --- Participation Phase 2: attendees, questions, check-in staff, door -----------
 
-export function fetchExperienceQuestions(id: string): Promise<{ questions: import("../types").VendorRegistrationQuestion[]; version: number; enabled: boolean; specialCategoryEnabled: boolean }> {
+export function fetchExperienceQuestions(id: string): Promise<{ questions: import("../types").VendorRegistrationQuestion[]; version: number; enabled: boolean; specialCategoryEnabled: boolean } & Partial<import("../types").QuestionBuilderOptions>> {
   return request(`/vendor/experiences/${id}/questions`);
 }
 /** Replaces the whole question set; 409 when stale, 400 `special_category` for sensitive questions. */

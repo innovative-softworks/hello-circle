@@ -20,7 +20,7 @@ import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { CheckoutBreakdown } from "../components/CheckoutBreakdown";
 import { AnalyticsEvent, trackTypedEvent } from "../analyticsEvents";
 import { AttendeeFields, type AnswersDraft } from "../components/experience/AttendeeFields";
-import { fitPeople, missingAnswers, personSlots, toAttendeeInput, type PersonDraft } from "../components/experience/attendeeSlots";
+import { fitPeople, missingAnswers, personSlots, toAttendeeInput, withDefaults, type PersonDraft } from "../components/experience/attendeeSlots";
 import { ApiError, isNotFound, bookExperienceSession, fetchMyCredits, downloadExperienceBookingIcs, fetchExperience, fetchExperiences, quoteExperienceSession, type BookingQuote } from "../api";
 import { openCheckout } from "../native";
 import { ListingChatButton } from "../components/ListingChats";
@@ -274,7 +274,7 @@ export function ExperienceDetail() {
         if (!p.name.trim()) problems.push({ field: `person-${i + 1}`, fieldId: `exp-person-${i + 1}`, message: `Enter a name for person ${i + 1}` });
         if (p.personType === "child" && p.guardian === "") problems.push({ field: `guardian-${i + 1}`, fieldId: `exp-guardian-${i + 1}`, message: `Say who looks after ${p.name.trim() || `person ${i + 1}`}` });
       });
-      for (const m of missingAnswers(attendeeDetails.questions, people, answers)) problems.push({ field: m.fieldId, fieldId: m.fieldId, message: m.message });
+      for (const m of missingAnswers(attendeeDetails.questions, people, withDefaults(attendeeDetails.questions, people, answers))) problems.push({ field: m.fieldId, fieldId: m.fieldId, message: m.message });
     } else {
       extraNames.forEach((n, i) => {
         if (!n) problems.push({ field: `person-${i + 2}`, fieldId: `exp-person-${i + 2}`, message: `Enter a name for person ${i + 2}` });
@@ -307,7 +307,7 @@ export function ExperienceDetail() {
         ...(attendeeDetails
           ? {
               attendees: toAttendeeInput(people),
-              answers: { booking: answers.booking, attendees: people.map((_, i) => answers.attendees[i] ?? {}) },
+              answers: withDefaults(attendeeDetails.questions, people, answers),
               questionsVersion: attendeeDetails.questionsVersion,
             }
           : {}),

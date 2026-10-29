@@ -66,14 +66,14 @@ test("P2-PARTNER: a manager builds questions; a sensitive question is refused", 
         const { page } = staff;
         await page.goto(`/vendor/experiences/${exp.id}`);
         await page.getByRole("button", { name: "Questions" }).or(page.getByRole("tab", { name: "Questions" })).first().click();
-        await page.getByRole("button", { name: "Add a question" }).click();
+        await page.getByRole("button", { name: "Add your own question" }).click();
         await page.getByLabel(/^Question\b/).first().fill("Name on badge");
         await page.getByLabel(/^Why you're asking/).first().fill("Printed on your name badge");
         await page.getByLabel("Show the answer to door staff").first().check();
         await page.getByRole("button", { name: "Save questions" }).click();
         await expect(page.getByRole("status").filter({ hasText: "Saved." })).toBeVisible();
         await shot(page, "01-partner-questions");
-        await page.getByRole("button", { name: "Add a question" }).click();
+        await page.getByRole("button", { name: "Add your own question" }).click();
         await page.getByLabel(/^Question\b/).nth(1).fill("Any allergies?");
         await page.getByLabel(/^Why you're asking/).nth(1).fill("For the kitchen");
         await page.getByRole("button", { name: "Save questions" }).click();

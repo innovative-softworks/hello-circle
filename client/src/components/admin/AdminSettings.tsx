@@ -1,4 +1,5 @@
-import { FolderTree } from "lucide-react";
+import { FolderTree, ListChecks } from "lucide-react";
+import { AdminFieldPolicy } from "./AdminFieldPolicy";
 import { fetchCategoriesEnabled, setCategoriesEnabled } from "../../api";
 import { ConfirmDialog } from "../ui";
 import { useState } from "react";
@@ -210,6 +211,7 @@ const SECTIONS = [
   { key: "help", label: "Field help", icon: CircleQuestionMark },
   { key: "market", label: "Market categories", icon: MapIcon },
   { key: "weights", label: "For You weights", icon: SlidersHorizontal },
+  { key: "fields", label: "Registration fields", icon: ListChecks },
 ] as const;
 type SectionKey = (typeof SECTIONS)[number]["key"];
 
@@ -242,6 +244,7 @@ export function AdminSettingsPage() {
       {section === "help" && (can("help.edit") ? <HelpSection /> : <Restricted title="Field help" roles={["legal"]} />)}
       {section === "market" && (can("platform.settings") ? <MarketConfig /> : <Restricted title="Market categories" roles={["super"]} />)}
       {section === "weights" && (can("platform.settings") ? <RecommendationWeightsCard /> : <Restricted title="For You weights" roles={["super"]} />)}
+      {section === "fields" && <AdminFieldPolicy />}
     </div>
   );
 }
