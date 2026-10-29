@@ -66,3 +66,23 @@ export function vendorTabVisible(tab: VendorTabKey, user: { invitedStaff: boolea
   if (roles === "all") return true;
   return !!user.platformRole && (roles as readonly string[]).includes(user.platformRole);
 }
+
+// Configuration framework Phase D — tabs that only make sense when the
+// organisation has a capability (any one of those listed). The server refuses
+// the module's actions anyway; this only keeps irrelevant modules out of the
+// navigation. Tabs not listed here don't depend on a capability.
+export const VENDOR_TAB_CAPABILITIES: Partial<Record<VendorTabKey, string[]>> = {
+  listings: ["venues", "clubs"],
+  programs: ["programs"],
+  experiences: ["experiences"],
+  checkin: ["checkin"],
+};
+
+/** Role AND capability: `capabilities` = the organisation's effective map (missing = not loaded yet → shown). */
+export function vendorTabAvailable(tab: VendorTabKey, user: { invitedStaff: boolean; platformRole: string | null }, capabilities?: Record<string, boolean> | null): boolean {
+  if (!vendorTabVisible(tab, user)) return false;
+  const needs = VENDOR_TAB_CAPABILITIES[tab];
+  if (!needs || !capabilities) return true;
+  return needs.some((k) => capabilities[k] !== false);
+}
+

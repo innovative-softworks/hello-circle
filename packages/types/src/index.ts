@@ -2604,6 +2604,8 @@ export interface OrgProfile {
   locations: { id: string; name: string; type: "centre" | "club" }[];
   isOwner: boolean;
   flags: FeatureFlags;
+  /** Configuration framework — effective capabilities (docs/participation-expansion/14). */
+  capabilities?: Record<string, boolean>;
   /** The org owner's own uploaded business logo — shown on the public
    * provider profile hero. null until they upload one. */
   logo: string | null;
@@ -2830,3 +2832,54 @@ export interface ListingTaxonomy {
   subcategorySlug: string | null;
   active: boolean;
 }
+
+// --- Configuration framework (docs/participation-expansion/13, 14) -----------------
+
+export type CapabilityGroup = "listing" | "operations" | "commercial";
+export interface CapabilityDefinition {
+  key: string;
+  label: string;
+  description: string;
+  group: CapabilityGroup;
+  status: "available" | "unavailable";
+  unavailableReason?: string;
+  dependsOn: string[];
+  operatedBy: string[];
+  platformSwitch?: { key: string; kind: "feature" | "commerce"; label: string };
+  limits?: { key: string; label: string; max: number }[];
+  whenOff: string;
+}
+export interface CapabilityState {
+  key: string;
+  orgEnabled: boolean;
+  platformOn: boolean;
+  dependenciesOn: boolean;
+  effective: boolean;
+  limits: Record<string, number>;
+}
+export interface OrgTemplateDefinition {
+  key: string;
+  label: string;
+  description: string;
+  capabilities: string[];
+}
+export interface OrgCapabilityView {
+  template: string | null;
+  configVersion: number;
+  capabilities: CapabilityDefinition[];
+  templates: OrgTemplateDefinition[];
+  states: CapabilityState[];
+  usage: Record<string, number>;
+}
+export interface CapabilityChangeInput {
+  template?: string | null;
+  enabled?: Record<string, boolean>;
+  limits?: Record<string, number>;
+}
+export interface CapabilityPreview {
+  ok: boolean;
+  error?: string;
+  states?: CapabilityState[];
+  impact?: { key: string; label: string; existing: number; whenOff: string }[];
+}
+

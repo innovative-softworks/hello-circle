@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { PLATFORM_ROLES } from "./types";
-import { VENDOR_TAB_ROLES, vendorTabVisible, type VendorTabKey } from "./vendorTabAccess";
+import { VENDOR_TAB_ROLES, vendorTabAvailable, vendorTabVisible, type VendorTabKey } from "./vendorTabAccess";
 
 // Sitemap audit P2-03 — vendor tabs filtered by staff platform_role.
 
@@ -37,5 +37,20 @@ describe("vendor tab access", () => {
       if (roles === "all") continue;
       for (const r of roles) expect(PLATFORM_ROLES).toContain(r);
     }
+  });
+
+  it("capabilities narrow the role's tabs, never widen them (configuration Phase D)", () => {
+    const owner = { invitedStaff: false, platformRole: null };
+    const eventsOnly = { venues: false, clubs: false, programs: false, experiences: true, checkin: true };
+    const shown = TABS.filter((t) => vendorTabAvailable(t, owner, eventsOnly));
+    expect(shown).not.toContain("listings");
+    expect(shown).not.toContain("programs");
+    expect(shown).toEqual(expect.arrayContaining(["experiences", "checkin", "overview", "bookings", "org"]));
+    // A centre with clubs off still has Listings.
+    expect(vendorTabAvailable("listings", owner, { venues: true, clubs: false })).toBe(true);
+    // Not loaded yet (null) → role-only.
+    expect(vendorTabAvailable("programs", owner, null)).toBe(true);
+    // A finance member never gains Experiences from a capability.
+    expect(vendorTabAvailable("experiences", { invitedStaff: true, platformRole: "finance" }, { experiences: true })).toBe(false);
   });
 });

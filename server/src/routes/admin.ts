@@ -1,4 +1,5 @@
 import { adminCategoriesRouter, categoriesConfigRouter } from "./adminCategories.js";
+import { CAPABILITIES, CapabilityChangeError, TEMPLATES, capability, capabilityUsage, isTemplateKey, orgSettings, planChange, platformStates, resolveStates, templateChange, type CapabilityState } from "../capabilities.js";
 import { verifiedSql } from "../reviewEligibility.js";
 import { adminVerificationRouter } from "./verificationChecks.js";
 import { adminAttendanceRouter } from "./attendanceCorrections.js";
@@ -1158,6 +1159,106 @@ adminRouter.put("/organisations/:id/flags/:key", requireAdminPermission("orgs.ma
     .run(req.params.id, key, enabled ? 1 : 0);
   await writeAudit({ actorUserId: req.user!.id, action: "org.flag_changed", objectType: "organisation", objectId: req.params.id, newValue: { key, enabled: !!enabled } });
   res.json({ ok: true });
+});
+
+// Configuration framework Phase B/C (docs/participation-expansion/14) — the
+// organisation capability registry on top of the same feature_flags table the
+// two routes above use (their 3 keys keep working). Read: orgs.view. Save:
+// orgs.manage, optimistic (organisations.config_version), one audit row with
+// before and after. A capability never opens a commercial gate, and switching
+// one off never deletes or hides existing listings or bookings.
+async function capabilityView(orgId: string) {
+  const org = (await db.prepare(`SELECT id, template, config_version AS configVersion FROM organisations WHERE id = ?`).get(orgId)) as
+    | { id: string; template: string | null; configVersion: number }
+    | undefined;
+  if (!org) return null;
+  const { enabled, limits } = await orgSettings(orgId);
+  const platform = await platformStates();
+  return {
+    template: org.template,
+    configVersion: Number(org.configVersion),
+    capabilities: CAPABILITIES,
+    templates: TEMPLATES,
+    states: resolveStates(enabled, limits, platform),
+    usage: await capabilityUsage(orgId),
+  };
+}
+
+adminRouter.get("/organisations/:id/capabilities", requireAdminPermission("orgs.view"), async (req, res) => {
+  const view = await capabilityView(req.params.id);
+  if (!view) return res.status(404).json({ error: "Organisation not found" });
+  res.json(view);
+});
+
+/** Body: { template?, enabled?: {key: bool}, limits?: {"cap.limit": n} }. A template
+ * gives the starting set; `enabled` then overrides individual capabilities. */
+function changeBody(raw: unknown): { template: string | null; enabled: Record<string, unknown>; limits: Record<string, unknown> } {
+  const b = (raw ?? {}) as { template?: unknown; enabled?: unknown; limits?: unknown };
+  if (b.template !== undefined && b.template !== null && !isTemplateKey(b.template)) throw new CapabilityChangeError("Unknown template");
+  const template = isTemplateKey(b.template) ? b.template : null;
+  const enabled = { ...(template ? templateChange(template) : {}), ...((b.enabled && typeof b.enabled === "object" ? b.enabled : {}) as Record<string, unknown>) };
+  return { template, enabled, limits: (b.limits && typeof b.limits === "object" ? b.limits : {}) as Record<string, unknown> };
+}
+
+function impactOf(before: CapabilityState[], after: CapabilityState[], usage: Record<string, number>) {
+  return after
+    .filter((a) => before.find((b) => b.key === a.key)?.effective && !a.effective)
+    .map((a) => ({ key: a.key, label: capability(a.key)!.label, existing: usage[a.key] ?? 0, whenOff: capability(a.key)!.whenOff }));
+}
+
+adminRouter.post("/organisations/:id/capabilities/preview", requireAdminPermission("orgs.view"), async (req, res) => {
+  const view = await capabilityView(req.params.id);
+  if (!view) return res.status(404).json({ error: "Organisation not found" });
+  try {
+    const body = changeBody(req.body);
+    const current = await orgSettings(req.params.id);
+    const plan = planChange(current, { enabled: body.enabled, limits: body.limits });
+    const after = resolveStates(plan.enabled, plan.limits, await platformStates());
+    res.json({ ok: true, states: after, impact: impactOf(view.states, after, view.usage) });
+  } catch (e) {
+    if (e instanceof CapabilityChangeError) return res.status(e.status).json({ ok: false, error: e.message, details: e.details });
+    throw e;
+  }
+});
+
+adminRouter.put("/organisations/:id/capabilities", requireAdminPermission("orgs.manage"), async (req, res) => {
+  const { configVersion, reason } = (req.body ?? {}) as { configVersion?: unknown; reason?: unknown };
+  if (typeof configVersion !== "number") return res.status(400).json({ error: "Send the configuration version you edited" });
+  try {
+    const body = changeBody(req.body);
+    const result = await db.transaction(async (tx) => {
+      const org = (await tx.prepare(`SELECT config_version AS v, template FROM organisations WHERE id = ? FOR UPDATE`).get(req.params.id)) as { v: number; template: string | null } | undefined;
+      if (!org) throw new CapabilityChangeError("Organisation not found", 404);
+      if (Number(org.v) !== configVersion) throw new CapabilityChangeError("Someone changed this organisation's configuration since you opened it — reload to see the latest", 409);
+      const current = await orgSettings(req.params.id, tx);
+      const plan = planChange(current, { enabled: body.enabled, limits: body.limits });
+      const platform = await platformStates();
+      const before = resolveStates(current.enabled, current.limits, platform);
+      for (const [key, on] of Object.entries(plan.change.enabled)) {
+        await tx.prepare(`INSERT INTO feature_flags (org_id, flag_key, enabled) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE enabled = VALUES(enabled)`).run(req.params.id, key, on ? 1 : 0);
+      }
+      for (const [key, value] of Object.entries(plan.change.limits)) {
+        await tx.prepare(`INSERT INTO org_capability_limits (org_id, limit_key, value) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value)`).run(req.params.id, key, value);
+      }
+      const template = body.template ?? org.template;
+      await tx.prepare(`UPDATE organisations SET config_version = config_version + 1, template = ? WHERE id = ?`).run(template, req.params.id);
+      const after = resolveStates(plan.enabled, plan.limits, platform);
+      return { before, after, change: plan.change, previousTemplate: org.template, template };
+    });
+    await writeAudit({
+      actorUserId: req.user!.id,
+      action: "org.capabilities_changed",
+      objectType: "organisation",
+      objectId: req.params.id,
+      previousValue: { template: result.previousTemplate, effective: Object.fromEntries(result.before.map((s) => [s.key, s.effective])) },
+      newValue: { template: result.template, changed: result.change, effective: Object.fromEntries(result.after.map((s) => [s.key, s.effective])) },
+      reason: typeof reason === "string" && reason.trim() ? reason.trim().slice(0, 500) : undefined,
+    });
+    res.json(await capabilityView(req.params.id));
+  } catch (e) {
+    if (e instanceof CapabilityChangeError) return res.status(e.status).json({ error: e.message, details: e.details });
+    throw e;
+  }
 });
 
 adminRouter.put("/centres/:id/organisation", requireAdminPermission("orgs.manage"), async (req, res) => {

@@ -1,5 +1,6 @@
 import { Router, type Request, type Response } from "express";
 import { requirePlatformRole } from "../auth.js";
+import { assertCapability, capabilityLimit } from "../capabilities.js";
 import { writeAudit } from "../audit.js";
 import { db } from "../db/index.js";
 import { ROSTER_ROLES } from "./vendorHelpers.js";
@@ -108,11 +109,14 @@ vendorAttendeesRouter.put("/experiences/:id/questions", requirePlatformRole(...E
   const exp = await ownedExperience(req, res);
   if (!exp) return;
   if (!(await attendeesOn())) return res.status(404).json({ error: "Registration questions aren't available yet" });
+  if (!(await assertCapability(req, res, "registration_questions", exp.vendorId))) return;
   const { questions, version } = (req.body ?? {}) as { questions?: unknown; version?: unknown };
   if (typeof version !== "number" || !Number.isInteger(version) || version < 0) return res.status(400).json({ error: "Send the version you edited" });
   try {
     const before = await activeQuestions("experience", exp.id);
     const set = cleanQuestionSet(questions, await specialCategoryQuestionsOn());
+    const max = await capabilityLimit(exp.vendorId, "registration_questions", "max_questions");
+    if (set.length > max) return res.status(400).json({ error: `Your organisation can ask at most ${max} questions per listing` });
     const saved = await replaceQuestions(exp.id, set, version, req.user!.id);
     await writeAudit({
       actorUserId: req.user!.id,
@@ -154,6 +158,7 @@ vendorAttendeesRouter.post("/experiences/:id/checkin-staff", requirePlatformRole
   const exp = await ownedExperience(req, res);
   if (!exp) return;
   if (!(await checkinOn())) return res.status(404).json({ error: "Door check-in isn't available yet" });
+  if (!(await assertCapability(req, res, "checkin", exp.vendorId))) return;
   const { userId, sessionId } = (req.body ?? {}) as { userId?: unknown; sessionId?: unknown };
   if (typeof userId !== "string" || !userId) return res.status(400).json({ error: "Choose a team member" });
   const orgId = req.user!.orgId;
@@ -169,6 +174,9 @@ vendorAttendeesRouter.post("/experiences/:id/checkin-staff", requirePlatformRole
     if (!s) return res.status(400).json({ error: "That date isn't on this listing" });
     session = sessionId;
   }
+  const max = await capabilityLimit(exp.vendorId, "checkin", "max_staff");
+  const live = (await db.prepare(`SELECT COUNT(*) AS n FROM listing_staff_assignments WHERE listing_type = 'experience' AND listing_id = ? AND revoked_at IS NULL`).get(exp.id)) as { n: number };
+  if (Number(live.n) >= max) return res.status(409).json({ error: `This listing already has the most check-in assignments your organisation allows (${max})` });
   const activeKey = `${member.id}:experience:${exp.id}:${session ?? "*"}`;
   const ins = await db
     .prepare(

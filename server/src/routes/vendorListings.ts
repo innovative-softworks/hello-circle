@@ -1,4 +1,5 @@
 import { assertCreatorStillMember } from "../orgStatus.js";
+import { assertCapability } from "../capabilities.js";
 import { parseNewcomerWelcome, saveNewcomerWelcome } from "../newcomerWelcome.js";
 import crypto from "node:crypto";
 import { Router } from "express";
@@ -197,6 +198,8 @@ interface CentreInput {
 }
 
 vendorListingsRouter.post("/centres", requirePlatformRole("centre_manager"), async (req, res) => {
+  // Configuration framework Phase B — the organisation's "venues" capability.
+  if (!(await assertCapability(req, res, "venues"))) return;
   const welcome = parseNewcomerWelcome((req.body as { newcomerWelcome?: unknown } | undefined)?.newcomerWelcome);
   if (!welcome.ok) return res.status(400).json({ error: welcome.error });
   const b = req.body as CentreInput;
@@ -707,6 +710,7 @@ interface ClubInput {
 }
 
 vendorListingsRouter.post("/clubs", requirePlatformRole("facility_manager"), async (req, res) => {
+  if (!(await assertCapability(req, res, "clubs"))) return;
   const b = req.body as Partial<ClubInput> & { name: string };
   // Relaxed to just a name (Form System Audit, Phase 5 fast-follow — same
   // draft-row-first pattern as POST /centres above): a Guided Flow wizard

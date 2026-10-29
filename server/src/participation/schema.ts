@@ -77,6 +77,25 @@ export async function initParticipationSchema(ensureColumn: EnsureColumn, ensure
   // The lines a stored quote priced, compared again when the quote is consumed.
   await ensureColumn("commerce_quotes", "lines_json", "lines_json TEXT NULL");
   await initParticipationPhase2Schema(ensureColumn, ensureIndex);
+  await initConfigurationSchema(ensureColumn);
+}
+
+// Configuration framework Phase B/C (docs/participation-expansion/13, 14).
+// Capability on/off state reuses the existing feature_flags table; only the
+// per-organisation limits and the informational template are new.
+async function initConfigurationSchema(ensureColumn: EnsureColumn): Promise<void> {
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS org_capability_limits (
+      org_id VARCHAR(191) NOT NULL,
+      limit_key VARCHAR(80) NOT NULL,
+      value INT NOT NULL,
+      PRIMARY KEY (org_id, limit_key)
+    );
+  `);
+  // Which starting template an admin applied (informational; NULL = none yet).
+  await ensureColumn("organisations", "template", "template VARCHAR(40) NULL");
+  // Optimistic concurrency for capability changes (409 when stale).
+  await ensureColumn("organisations", "config_version", "config_version INT NOT NULL DEFAULT 0");
 }
 
 // Participation Phase 2 (docs/participation-expansion/11, 12) — attendees,

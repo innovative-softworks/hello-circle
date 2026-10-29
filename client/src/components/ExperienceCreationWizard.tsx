@@ -1,4 +1,5 @@
 import { emptyCategoryDraft, ListingCategoryFields, saveListingCategory, useSavedClassification, type ListingCategoryDraft } from "./categories/ListingCategoryFields";
+import { useOrgCapabilities } from "../orgCapabilities";
 import { useEffect, useState } from "react";
 import { useConfirm } from "./ConfirmProvider";
 import type { ExperienceKind } from "../types";
@@ -118,6 +119,7 @@ export function ExperienceCreationWizard({
   const navigate = useNavigate();
   const confirm = useConfirm();
   const participation = useParticipationFeatures();
+  const capabilities = useOrgCapabilities();
   // Release 6 — "Create an experience" from a Host Opportunity prefills the
   // title and county; read once for a new listing only.
   const [searchParams] = useSearchParams();
@@ -362,9 +364,9 @@ export function ExperienceCreationWizard({
               >
                 <option value="experience">Experience</option>
                 <option value="adventure">Adventure</option>
-                <option value="volunteer">Volunteer opportunity</option>
-                {/* Participation Phase 1 — only while community events are switched on. */}
-                {(participation["participation.events"] || form.kind === "event") && <option value="event">Community event</option>}
+                {(capabilities?.volunteering !== false || form.kind === "volunteer") && <option value="volunteer">Volunteer opportunity</option>}
+                {/* Participation Phase 1 — only while community events are switched on (and, configuration Phase D, the organisation has them). */}
+                {((participation["participation.events"] && capabilities?.events !== false) || form.kind === "event") && <option value="event">Community event</option>}
               </select>
             </div>
             {form.kind !== "event" && (

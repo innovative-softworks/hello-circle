@@ -157,12 +157,12 @@ export function OrganisationRecord({ orgId, backLabel, onBack, onOpenVendor, onC
           })}
         />
       </DetailSection>
-      {flags && <DetailSection title="Feature flags">{flags}</DetailSection>}
+      {flags && <DetailSection title="Capabilities" note="What this organisation may use. HelloCircle-wide switches and payment rules still apply on top.">{flags}</DetailSection>}
       <DetailSection title="Decisions">
         <DecisionHistory objectType="organisation" objectId={org.id} currentNeedsReason={suspended} refreshKey={org.status} />
       </DetailSection>
       <DetailSection title="Activity">
-        <ObjectActivity objectIds={[org.id]} note="Suspensions, reinstatements and feature-flag changes are recorded." />
+        <ObjectActivity objectIds={[org.id]} note="Suspensions, reinstatements and capability changes are recorded." />
       </DetailSection>
 
       <ConfirmDialog

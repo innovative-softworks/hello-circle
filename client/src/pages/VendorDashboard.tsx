@@ -24,7 +24,8 @@ import { ListingsTab } from "../components/VendorListings";
 import { MessagesTab } from "../components/VendorMessages";
 import { VendorOffersTab } from "../components/VendorOffers";
 import { VendorOrgTab, PaymentsPanel } from "../components/VendorOrg";
-import { vendorTabVisible } from "../vendorTabAccess";
+import { vendorTabAvailable } from "../vendorTabAccess";
+import { useOrgCapabilities } from "../orgCapabilities";
 import { useParticipationFeatures } from "../circleFeatures";
 import { useToast } from "../components/Toast";
 import { VendorOverviewTab } from "../components/VendorOverview";
@@ -45,6 +46,8 @@ export function VendorDashboard() {
   const navigate = useNavigate();
   const toast = useToast();
   const participation = useParticipationFeatures();
+  // Configuration framework Phase D — modules the organisation doesn't have stay out of the navigation.
+  const capabilities = useOrgCapabilities();
   // The tab lives in the URL (?tab=), so Back/Forward, refresh and shared links keep it.
   const [tab, setTab] = useUrlTab<VendorTab>(VENDOR_TAB_KEYS, "overview");
   const [loadError, setLoadError] = useState(false);
@@ -165,7 +168,7 @@ export function VendorDashboard() {
   // Sitemap audit P2-03 — invited staff only see the tabs their platform_role
   // can act in (vendorTabAccess.ts); the server still enforces every action.
   // A ?tab= link or in-page shortcut to a hidden tab falls back to Overview.
-  const canSee = (t: VendorTab) => vendorTabVisible(t, user) && (t !== "checkin" || participation["participation.checkin"]);
+  const canSee = (t: VendorTab) => vendorTabAvailable(t, user, capabilities) && (t !== "checkin" || participation["participation.checkin"]);
   const activeTab: VendorTab = canSee(tab) && tab !== "checkin" ? tab : "overview";
   const goTab = (t: VendorTab) => {
     // Participation Phase 2 — Check-in is its own page (/vendor/door).
@@ -212,12 +215,16 @@ export function VendorDashboard() {
           </Button>
         ) : activeTab === "listings" ? (
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <Button onClick={() => navigate("/vendor/centres/new")}>
-              <PlusIcon size={14} /> Add centre
-            </Button>
-            <Button variant="ghost" onClick={() => navigate("/vendor/clubs/new")}>
-              <PlusIcon size={14} /> Add club
-            </Button>
+            {capabilities?.venues !== false && (
+              <Button onClick={() => navigate("/vendor/centres/new")}>
+                <PlusIcon size={14} /> Add centre
+              </Button>
+            )}
+            {capabilities?.clubs !== false && (
+              <Button variant={capabilities?.venues === false ? "primary" : "ghost"} onClick={() => navigate("/vendor/clubs/new")}>
+                <PlusIcon size={14} /> Add club
+              </Button>
+            )}
           </div>
         ) : activeTab === "messages" ? (
           <Button onClick={() => setComposeOpen(true)}>

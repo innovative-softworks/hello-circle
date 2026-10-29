@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { orgCapabilityStates } from "../capabilities.js";
 import { Router } from "express";
 import { requireVendor } from "../auth.js";
 import { writeAudit } from "../audit.js";
@@ -60,6 +61,8 @@ orgRouter.get("/", async (req, res) => {
   // proactively hide/disable a create button rather than only ever failing
   // server-side after the fact.
   const flags = await orgFeatureFlagsById(orgId);
+  // Configuration framework Phase B/D — what the organisation can use (effective).
+  const capabilities = Object.fromEntries((await orgCapabilityStates(orgId)).map((c) => [c.key, c.effective]));
 
   res.json({
     org,
@@ -69,6 +72,7 @@ orgRouter.get("/", async (req, res) => {
     locations,
     isOwner: !req.user!.invitedStaff,
     flags,
+    capabilities,
     logo: owner?.logo || null,
     description: owner?.description || null,
     website: owner?.website || null,

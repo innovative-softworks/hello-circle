@@ -1,5 +1,6 @@
 import { Router, type Request, type Response } from "express";
 import { checkinOnly, hasPlatformRole } from "../auth.js";
+import { assertCapability } from "../capabilities.js";
 import { writeAudit } from "../audit.js";
 import { db } from "../db/index.js";
 import { irelandTodayIso } from "../irelandTime.js";
@@ -73,6 +74,8 @@ async function scoped(req: Request, res: Response): Promise<DoorSession | null> 
     res.status(scope.status).json({ error: scope.error });
     return null;
   }
+  // Configuration framework Phase B — the owning organisation's "checkin" capability.
+  if (!(await assertCapability(req, res, "checkin", session!.vendorId))) return null;
   return session;
 }
 

@@ -1368,3 +1368,19 @@ export function fetchAdminListingPage(f: { q?: string; type?: string; view?: str
 export function fetchAdminListingSummary(type: string, id: string): Promise<AdminListingRowData> {
   return request(`/admin/listings/${encodeURIComponent(type)}/${encodeURIComponent(id)}/summary`);
 }
+
+// Configuration framework Phase C — organisation capabilities (orgs.view / orgs.manage).
+export function fetchOrgCapabilities(orgId: string): Promise<import("../types").OrgCapabilityView> {
+  return request(`/admin/organisations/${orgId}/capabilities`);
+}
+/** Validates a change and says what it affects, without saving. Errors come back as { ok: false }. */
+export async function previewOrgCapabilities(orgId: string, change: import("../types").CapabilityChangeInput): Promise<import("../types").CapabilityPreview> {
+  try {
+    return await request(`/admin/organisations/${orgId}/capabilities/preview`, { method: "POST", body: JSON.stringify(change) });
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Couldn't check this change" };
+  }
+}
+export function saveOrgCapabilities(orgId: string, change: import("../types").CapabilityChangeInput & { configVersion: number; reason?: string }): Promise<import("../types").OrgCapabilityView> {
+  return request(`/admin/organisations/${orgId}/capabilities`, { method: "PUT", body: JSON.stringify(change) });
+}

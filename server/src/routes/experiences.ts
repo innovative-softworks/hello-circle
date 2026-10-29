@@ -30,6 +30,7 @@ import { AttendeeError, cleanAttendees, readAttendees, slotsForResolved, writeAt
 import { QuestionError, activeQuestions, cleanAnswers, questionsVersion, readAnswersFor, toPublicQuestion, writeAnswers, type CleanAnswer } from "../participation/questions.js";
 import { checkinsFor } from "../participation/checkin.js";
 import { writeAudit } from "../audit.js";
+import { capabilityForVendor } from "../capabilities.js";
 import { LineError, assertOptionCapacity, legacySnapshot, linesSummary, optionsLeft, parseRequestedLines, readOrderLines, readOrderLinesFor, resolveLines, writeOrderLines, type ResolvedLines } from "../participation/lines.js";
 
 // Adventures & Experiences — a standalone third listing type alongside
@@ -133,8 +134,9 @@ async function toExperienceJson(row: ExperienceRow) {
           })),
         };
   // Participation Phase 2 — attendee details and registration questions (while the switch is on).
-  const details = (await attendeesOn())
-    ? { questions: (await activeQuestions("experience", row.id)).map(toPublicQuestion), questionsVersion: await questionsVersion(row.id) }
+  const people = await attendeeConfig(row.vendor_id);
+  const details = people.attendees
+    ? { questions: people.questions ? (await activeQuestions("experience", row.id)).map(toPublicQuestion) : [], questionsVersion: await questionsVersion(row.id) }
     : null;
   const sessionsOut = registration.mode === "options" ? await Promise.all(withAvailability.map(async (s) => ({ ...s, optionsLeft: await optionsLeft(options, s.id) }))) : withAvailability;
   return {
@@ -254,6 +256,16 @@ experiencesRouter.get("/:id", async (req, res) => {
   logView("activity_viewed", req, { kind: "experience", id: row.id });
   res.json({ ...(await toExperienceJson(row)), participationAttributes: await getListingAttributes("experience", row.id), ...(await officialCircleSummary("experiences", row.id)), ...(await taxonomyFields("experience", row.id)) });
 });
+
+/** Participation Phase 2 + configuration Phase B — whether a booking asks who
+ * is coming and the organiser's questions: the platform switch AND the owning
+ * organisation's capabilities. Reading what was already recorded never depends on it. */
+async function attendeeConfig(vendorId: string): Promise<{ attendees: boolean; questions: boolean }> {
+  if (!(await attendeesOn())) return { attendees: false, questions: false };
+  const attendees = (await capabilityForVendor(vendorId, "attendees"))?.effective ?? false;
+  const questions = attendees && ((await capabilityForVendor(vendorId, "registration_questions"))?.effective ?? false);
+  return { attendees, questions };
+}
 
 interface BookBody {
   participantName: string;
@@ -478,8 +490,9 @@ experiencesRouter.post("/:id/sessions/:sessionId/checkout", async (req, res) => 
   let people: CleanAttendee[] | null = null;
   let answers: CleanAnswer[] = [];
   let answeredVersion = 0;
-  if (await attendeesOn()) {
-    const questions = await activeQuestions("experience", experience.id);
+  const peopleConfig = await attendeeConfig(experience.vendor_id);
+  if (peopleConfig.attendees) {
+    const questions = peopleConfig.questions ? await activeQuestions("experience", experience.id) : [];
     answeredVersion = await questionsVersion(experience.id);
     try {
       if (body.attendees !== undefined) {
@@ -850,12 +863,12 @@ async function ownedBookingForDetails(req: import("express").Request, res: impor
   const row = (await db
     .prepare(
       `SELECT eb.ref, eb.experience_id AS experienceId, eb.participant_name AS participantName, eb.party_size AS partySize, eb.status,
-              eb.payment_status AS paymentStatus, es.date, es.time, e.title, e.kind
+              eb.payment_status AS paymentStatus, es.date, es.time, e.title, e.kind, e.vendor_id AS vendorId
        FROM experience_bookings eb JOIN experience_sessions es ON es.id = eb.session_id JOIN experiences e ON e.id = eb.experience_id
        WHERE eb.ref = ? AND (eb.client_id = ? OR (eb.resident_id IS NOT NULL AND eb.resident_id = ?))`
     )
     .get(req.params.ref, clientId, req.resident?.id ?? "")) as
-    | { ref: string; experienceId: string; participantName: string; partySize: number; status: string; paymentStatus: string; date: string; time: string; title: string; kind: string }
+    | { ref: string; experienceId: string; participantName: string; partySize: number; status: string; paymentStatus: string; date: string; time: string; title: string; kind: string; vendorId: string }
     | undefined;
   if (!row) {
     res.status(404).json({ error: "Booking not found" });
@@ -868,7 +881,7 @@ async function bookingDetailsJson(row: NonNullable<Awaited<ReturnType<typeof own
   const people = await readAttendees("experience", { ref: row.ref, partySize: row.partySize, participantName: row.participantName });
   const checks = (await checkinsFor([row.ref])).get(row.ref) ?? [];
   const answers = (await readAnswersFor("experience", [row.ref])).get(row.ref) ?? [];
-  const on = await attendeesOn();
+  const on = (await attendeeConfig(row.vendorId)).questions;
   const questions = on ? await activeQuestions("experience", row.experienceId) : [];
   const editable = on && questions.length > 0 && row.paymentStatus === "paid" && row.status !== "cancelled" && startIsInFuture(row.date, row.time);
   const active = people.filter((p) => p.status === "active");
@@ -912,7 +925,7 @@ experiencesRouter.get("/bookings/:ref/details", async (req, res) => {
 experiencesRouter.put("/bookings/:ref/answers", async (req, res) => {
   const row = await ownedBookingForDetails(req, res);
   if (!row) return;
-  if (!(await attendeesOn())) return res.status(404).json({ error: "This isn't available yet" });
+  if (!(await attendeeConfig(row.vendorId)).questions) return res.status(404).json({ error: "This isn't available yet" });
   if (row.status === "cancelled" || row.paymentStatus !== "paid") return res.status(409).json({ error: "Only a confirmed booking can be changed" });
   if (!startIsInFuture(row.date, row.time)) return res.status(409).json({ error: "Answers can't be changed once it has started" });
   const questions = await activeQuestions("experience", row.experienceId);

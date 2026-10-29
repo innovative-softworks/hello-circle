@@ -2,7 +2,8 @@ import type { ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { BarChart3, Building2, CalendarDays, ClipboardList, Compass, DoorOpen, GraduationCap, LayoutDashboard, MessageSquare, Star, Tag, UserRound, Users, Wallet } from "lucide-react";
 import type { AuthUser as AuthedUser } from "../../types";
-import { vendorTabVisible } from "../../vendorTabAccess";
+import { vendorTabAvailable } from "../../vendorTabAccess";
+import { useOrgCapabilities } from "../../orgCapabilities";
 import { WorkspaceShell } from "./WorkspaceShell";
 import { useParticipationFeatures } from "../../circleFeatures";
 
@@ -72,7 +73,8 @@ export function PartnerWorkspace({
   const navigate = useNavigate();
   const go = (to: string) => (guard ? guard(() => navigate(to)) : navigate(to));
   const participation = useParticipationFeatures();
-  const items = VENDOR_TABS.filter((t) => vendorTabVisible(t.key, user) && (t.key !== "checkin" || participation["participation.checkin"]));
+  const capabilities = useOrgCapabilities();
+  const items = VENDOR_TABS.filter((t) => vendorTabAvailable(t.key, user, capabilities) && (t.key !== "checkin" || participation["participation.checkin"]));
   const activeItem = VENDOR_TABS.find((t) => t.key === active)!;
   return (
     <WorkspaceShell

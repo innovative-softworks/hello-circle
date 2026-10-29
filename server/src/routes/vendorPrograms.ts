@@ -1,4 +1,5 @@
 import { heldRefsFor, shortenReviewHolds } from "../payments/paymentReview.js";
+import { assertCapability } from "../capabilities.js";
 import { flagReviewsAfterAttendanceChange, isAbsence } from "../reviewAttendanceFlags.js";
 import { cancelProgramEnrollmentAsProvider } from "../hallBookingCancel.js";
 import { assertCreatorStillMember } from "../orgStatus.js";
@@ -10,7 +11,6 @@ import { assertPlatformRole, requirePlatformRole } from "../auth.js";
 import { writeAudit } from "../audit.js";
 import { refundPaidOnce } from "../checkoutService.js";
 import { db } from "../db/index.js";
-import { orgFeatureFlags } from "../db/queries.js";
 import { notifyRefund, notifyResident } from "../notifications.js";
 import { irelandTodayIso } from "../irelandTime.js";
 import { ROSTER_ROLES, inClause, ownsListing } from "./vendorHelpers.js";
@@ -68,9 +68,8 @@ vendorProgramsRouter.post("/programs", async (req, res) => {
   if (!assertPlatformRole(req, res, b.listingType === "centre" ? "centre_manager" : "facility_manager")) return;
   // Feature flags (implementation backlog #5) — admin can disable Programs
   // for an org; server-enforced, not just a hidden button client-side.
-  if (!(await orgFeatureFlags(req.user!.id)).programs) {
-    return res.status(403).json({ error: "Programs aren't enabled for your organisation" });
-  }
+  // Configuration framework Phase B: the same opt-out flag, now through the capability registry.
+  if (!(await assertCapability(req, res, "programs"))) return;
 
   const id = crypto.randomUUID();
   await db.transaction(async (tx) => {

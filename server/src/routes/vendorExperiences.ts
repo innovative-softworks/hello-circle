@@ -1,4 +1,5 @@
 import { assertCreatorStillMember } from "../orgStatus.js";
+import { assertCapability } from "../capabilities.js";
 import { flagReviewsAfterAttendanceChange, isAbsence } from "../reviewAttendanceFlags.js";
 import { cancelExperienceBookingAsProvider } from "../hallBookingCancel.js";
 import crypto from "node:crypto";
@@ -15,7 +16,6 @@ import { logEvent } from "../analytics.js";
 import { db } from "../db/index.js";
 import { irelandTodayIso, irelandWallTimeToUtc } from "../irelandTime.js";
 import { HOST_ATTENDANCE_STATUSES } from "../attendanceState.js";
-import { orgFeatureFlags } from "../db/queries.js";
 import { exceedsGalleryLimit, GALLERY_LIMITS } from "../media/quotas.js";
 import { notifyCancellation, notifyRefund } from "../notifications.js";
 import { notifyVendorFollowers } from "./follows.js";
@@ -80,6 +80,11 @@ async function applyEventFields(tx: Pick<typeof db, "prepare">, id: string) {
   await tx
     .prepare(`UPDATE experiences SET difficulty = '', distance_km = NULL, elevation_gain_m = NULL, terrain_type = '', fitness_requirements = '' WHERE id = ? AND kind = 'event'`)
     .run(id);
+}
+
+/** The organisation capability a listing kind needs on top of "experiences". */
+function kindCapability(kind: unknown): "events" | "volunteering" | null {
+  return kind === "event" ? "events" : kind === "volunteer" ? "volunteering" : null;
 }
 
 /** 'event' can only be chosen while participation.events is on. */
@@ -208,9 +213,10 @@ vendorExperiencesRouter.post("/experiences", requirePlatformRole(...EXPERIENCE_R
   }
   // Feature flags (implementation backlog #5) — admin can disable
   // Experiences for an org; server-enforced, not just a hidden button.
-  if (!(await orgFeatureFlags(req.user!.id)).experiences) {
-    return res.status(403).json({ error: "Experiences aren't enabled for your organisation" });
-  }
+  // Configuration framework Phase B — "experiences" plus the kind's own capability.
+  if (!(await assertCapability(req, res, "experiences"))) return;
+  const kindCap = kindCapability(b.kind);
+  if (kindCap && !(await assertCapability(req, res, kindCap))) return;
 
   const id = crypto.randomUUID();
   const slug = await generateSlug("experiences", b.title);
@@ -290,6 +296,13 @@ vendorExperiencesRouter.put("/experiences/:id", requirePlatformRole(...EXPERIENC
   if (b.kind !== undefined && !EXPERIENCE_KINDS.includes(b.kind)) return res.status(400).json({ error: `kind must be one of: ${EXPERIENCE_KINDS.join(", ")}` });
   const eventRefusal = await eventKindRefusal(b.kind);
   if (eventRefusal) return res.status(403).json({ error: eventRefusal });
+  // Configuration framework Phase B — switching a listing INTO events or
+  // volunteering needs that capability; editing an existing one never does.
+  const kindCap = kindCapability(b.kind);
+  if (kindCap) {
+    const current = (await db.prepare(`SELECT kind FROM experiences WHERE id = ?`).get(req.params.id)) as { kind: string } | undefined;
+    if (current?.kind !== b.kind && !(await assertCapability(req, res, kindCap))) return;
+  }
   const coordError = invalidCoordinateReason(b.lat, b.lng);
   if (coordError) return res.status(400).json({ error: coordError });
   const numberError = invalidExperienceNumbers(b as Record<string, unknown>);
@@ -728,6 +741,7 @@ vendorExperiencesRouter.get("/experiences/:id/options", async (req, res) => {
 vendorExperiencesRouter.put("/experiences/:id/options", requirePlatformRole(...EXPERIENCE_ROLES), async (req, res) => {
   if (!(await ownsExperience(req.vendorIds!, req.params.id))) return res.status(403).json({ error: "Not your listing" });
   if (!(await participationOptionsOn())) return res.status(404).json({ error: "Registration options aren't available yet" });
+  if (!(await assertCapability(req, res, "registration_options"))) return;
   const { options, version } = (req.body ?? {}) as { options?: unknown; version?: unknown };
   if (typeof version !== "number" || !Number.isInteger(version)) return res.status(400).json({ error: "Send the version you edited" });
   const listing = (await db.prepare(`SELECT kind, status FROM experiences WHERE id = ?`).get(req.params.id)) as { kind: string; status: string } | undefined;
