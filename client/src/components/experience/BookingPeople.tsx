@@ -29,10 +29,27 @@ function attendanceText(a: OrderAttendance): string | null {
 
 export function BookingPeople({ bookingRef, source = "experience" }: { bookingRef: string; source?: OrderSource }) {
   const [d, setD] = useState<OrderRegistration | null>(null);
+  const [failed, setFailed] = useState(false);
   const [editing, setEditing] = useState(false);
-  const load = () => fetchOrderRegistration(source, bookingRef).then(setD).catch(() => setD(null));
+  const load = () => {
+    setFailed(false);
+    // A booking that isn't this person's reads as not found (404): nothing to show, not an error.
+    fetchOrderRegistration(source, bookingRef).then(setD).catch((e) => {
+      setD(null);
+      setFailed(!(e instanceof ApiError && e.status === 404));
+    });
+  };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => void load(), [bookingRef, source]);
+  if (failed) {
+    return (
+      <section aria-labelledby="bp-title" role="alert" style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: 18 }}>
+        <h2 id="bp-title" style={{ fontSize: 17, margin: 0 }}>{TITLE[source]}</h2>
+        <p style={{ margin: "8px 0 12px", fontSize: 14, color: colors.muted }}>We couldn't load your registration details just now. Your booking itself isn't affected.</p>
+        <Button variant="ghost" onClick={load}>Try again</Button>
+      </section>
+    );
+  }
   if (!d) return null;
   const people = d.attendees.filter((a) => a.status === "active");
   const anyCheckin = people.some((a) => a.checkedInAt);
@@ -52,6 +69,17 @@ export function BookingPeople({ bookingRef, source = "experience" }: { bookingRe
   );
   const versions = d.answeredVersions;
   const showPeople = source === "experience" || people.length > 0;
+  // Registration status: only when the organiser asks questions or answers were given.
+  const status =
+    d.questions.length === 0 && d.answers.length === 0
+      ? null
+      : d.status === "cancelled"
+        ? { text: "Cancelled — answers kept for the record", tone: colors.muted }
+        : d.missingAnswers.length
+          ? { text: "Needs your answers", tone: colors.orangeDark }
+          : d.canEditAnswers
+            ? { text: "Registration complete — you can still change answers", tone: colors.greenText }
+            : { text: "Registration complete", tone: colors.greenText };
 
   return (
     <section aria-labelledby="bp-title" style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: 18 }}>
@@ -60,6 +88,7 @@ export function BookingPeople({ bookingRef, source = "experience" }: { bookingRe
         {anyCheckin && <span style={{ fontSize: 13, color: colors.greenText, fontWeight: 700 }}>{people.filter((p) => p.checkedInAt).length} of {people.length} checked in</span>}
         {attendance && <span style={{ fontSize: 13, color: d.attendance.status === "no_show" ? colors.muted : colors.greenText, fontWeight: 700 }}>{attendance}</span>}
       </div>
+      {status && <p data-testid="registration-status" style={{ margin: "6px 0 0", fontSize: 13, fontWeight: 600, color: status.tone }}>{status.text}</p>}
       {d.missingAnswers.length > 0 && !editing && (
         <p role="status" style={{ margin: "10px 0 0", fontSize: 13.5, color: colors.orangeDark, fontWeight: 600 }}>
           Needs your attention — the organiser is waiting for: {d.missingAnswers.join("; ")}.

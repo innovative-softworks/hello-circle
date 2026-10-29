@@ -2,7 +2,8 @@ import { Router, type Request, type Response } from "express";
 import { assertPlatformRole } from "../auth.js";
 import { assertCapability, capabilityLimit } from "../capabilities.js";
 import { CLASS_LABELS, DATA_CLASSES, fieldPolicy, INPUT_TYPES, LIBRARY } from "../fieldRegistry.js";
-import { orderByRef, orderPeople, type OrderSource } from "../participation/orderRecords.js";
+import { missingRequired, orderByRef, orderPeople, type OrderSource } from "../participation/orderRecords.js";
+import { formQuestionsOn } from "../participation/formAnswers.js";
 import { writeAudit } from "../audit.js";
 import { db } from "../db/index.js";
 import { attendeesOn, specialCategoryQuestionsOn } from "../participation/options.js";
@@ -24,6 +25,7 @@ export const vendorFormsRouter = Router();
 
 type Typed = "club" | "program" | "centre";
 const TYPES = "club|program|centre";
+const SOURCE_OF: Record<Typed, OrderSource> = { club: "registration", program: "program", centre: "booking" };
 interface OwnedListing { type: Typed; id: string; title: string; vendorId: string; role: "centre_manager" | "facility_manager" }
 
 async function ownedListing(req: Request, res: Response): Promise<OwnedListing | null> {
@@ -175,11 +177,20 @@ vendorFormsRouter.get(`/forms/:listingType(${TYPES})/:id/answers`, async (req, r
         : `SELECT ref, name, CONCAT(date, ' ', time) AS at, status FROM bookings WHERE centre_id = ? AND payment_status IN ('paid', 'refunded') ORDER BY date DESC, time DESC LIMIT 500`;
   const orders = (await db.prepare(sql).all(l.id)) as { ref: string; name: string; at: string | Date; status: string }[];
   const answers = await readAnswersFor(ANSWER_SOURCE[l.type], orders.map((o) => o.ref));
-  res.json({
-    orders: orders
-      .filter((o) => answers.has(o.ref))
-      .map((o) => ({ ref: o.ref, name: o.name, at: o.at instanceof Date ? o.at.toISOString() : String(o.at), cancelled: o.status === "cancelled", answers: answers.get(o.ref) ?? [] })),
-  });
+  // Phase J — every registration (not only those with answers), with the required answers it's still missing.
+  const required = (await formQuestionsOn(l.vendorId)) ? (await activeQuestions(l.type, l.id)).filter((q) => q.required && q.inputType !== "info") : [];
+  const out = [];
+  for (const o of orders) {
+    const given = answers.get(o.ref) ?? [];
+    const cancelled = o.status === "cancelled";
+    let missing: string[] = [];
+    if (required.length && !cancelled) {
+      const order = await orderByRef(SOURCE_OF[l.type], o.ref);
+      if (order) missing = missingRequired(required, given, await orderPeople(order));
+    }
+    out.push({ ref: o.ref, name: o.name, at: o.at instanceof Date ? o.at.toISOString() : String(o.at), cancelled, answers: given, missing });
+  }
+  res.json({ orders: out, asksRequired: required.length > 0 });
 });
 
 // --- export (Phase L) -------------------------------------------------------------
@@ -188,7 +199,6 @@ vendorFormsRouter.get(`/forms/:listingType(${TYPES})/:id/answers`, async (req, r
 // data class the platform lets be exported; never contact details or
 // special categories. Every export is audited (who, which listing, how many rows).
 
-const SOURCE_OF: Record<Typed, OrderSource> = { club: "registration", program: "program", centre: "booking" };
 const csvCell = (v: unknown) => {
   const t = v === null || v === undefined ? "" : String(v);
   const safe = /^[=+\-@\t\r]/.test(t) ? `'${t}` : t;

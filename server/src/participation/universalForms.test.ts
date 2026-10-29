@@ -225,6 +225,10 @@ describe("Phase H — club registration", () => {
     const review = await call("GET", `/api/vendor/forms/club/${clubId}/answers`, undefined, "facilityMgrA");
     expect(review.status).toBe(200);
     expect(review.body.orders.find((o: { ref: string }) => o.ref === ok.body.ref).answers).toHaveLength(2);
+    // Phase J — every registration is listed: one made before the form existed shows what it's missing.
+    const before = review.body.orders.find((o: { name: string }) => o.name.startsWith("Before"));
+    expect(before).toMatchObject({ answers: [], missing: ["How did you hear about us?", expect.stringMatching(/Kit size$/)] });
+    expect(review.body.orders.find((o: { ref: string }) => o.ref === ok.body.ref).missing).toEqual([]);
     // A later version leaves the old answers as given.
     expect((await publish("club", clubId, [ask({ label: "How did you hear about us?" })])).body.version).toBe(2);
     const kept = (await db.prepare(`SELECT COUNT(*) AS n FROM registration_answers WHERE source_ref = ? AND questions_version = 1`).get(ok.body.ref)) as { n: number };

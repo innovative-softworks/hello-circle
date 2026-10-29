@@ -1069,7 +1069,7 @@ export function fetchQuestionVersion(id: FormRef, version: number): Promise<{ ve
   return request(`${formBase(id)}/questions/versions/${version}`);
 }
 /** Phase H — the answers people gave on a club, programme or hall form (the listing's editing role). */
-export function fetchFormAnswers(ref: Exclude<FormRef, string>): Promise<{ orders: { ref: string; name: string; at: string; cancelled: boolean; answers: import("../types").StoredAnswer[] }[] }> {
+export function fetchFormAnswers(ref: Exclude<FormRef, string>): Promise<{ orders: { ref: string; name: string; at: string; cancelled: boolean; answers: import("../types").StoredAnswer[]; missing: string[] }[]; asksRequired: boolean }> {
   return request(`${formBase(ref)}/answers`);
 }
 export function fetchFormTemplates(includeArchived = false): Promise<{ templates: import("../types").FormTemplate[] }> {
