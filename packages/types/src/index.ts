@@ -16,6 +16,8 @@ export interface Centre {
   newcomerWelcome?: string | null;
   /** Category system (2026-10-22) — present on public detail responses. */
   taxonomy?: ListingTaxonomy | null;
+  /** Phase H — the organiser's live registration form (detail response; empty when none). */
+  registrationForm?: ListingRegistrationForm;
   tags?: string[];
   /** DP-07 — the organisation's cancellation window in hours (detail response only). */
   cancellationHours?: number;
@@ -98,6 +100,8 @@ export interface Club {
   newcomerWelcome?: string | null;
   /** Category system (2026-10-22) — present on public detail responses. */
   taxonomy?: ListingTaxonomy | null;
+  /** Phase H — the organiser's live registration form (detail response; empty when none). */
+  registrationForm?: ListingRegistrationForm;
   tags?: string[];
   /** Release 2 — public detail fetch only. */
   participationAttributes?: string[];
@@ -2104,6 +2108,8 @@ export interface Program {
   newcomerWelcome?: string | null;
   /** Category system (2026-10-22) — present on public detail responses. */
   taxonomy?: ListingTaxonomy | null;
+  /** Phase H — the organiser's live registration form (detail response; empty when none). */
+  registrationForm?: ListingRegistrationForm;
   tags?: string[];
   id: string;
   listingType: "centre" | "club";
@@ -2217,6 +2223,12 @@ export type QuestionInputType = "text" | "long_text" | "number" | "email" | "tel
 export type QuestionCategory = "general" | "logistics" | "dietary_preference" | "contact" | "personal" | "health" | "religion" | "ethnicity" | "other_special";
 
 /** A registration question as the person booking sees it. */
+/** Phase H — a club's, programme's or hall's live form, as its public page gets it. */
+export interface ListingRegistrationForm {
+  questions: RegistrationQuestion[];
+  questionsVersion: number;
+}
+
 export interface RegistrationQuestion {
   key: string;
   scope: "booking" | "attendee";

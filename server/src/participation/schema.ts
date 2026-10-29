@@ -225,6 +225,9 @@ async function initParticipationPhase2Schema(ensureColumn: EnsureColumn, ensureI
   // Phase G — sections, simple conditions, drafts and templates.
   await ensureColumn("registration_questions", "section", "section VARCHAR(120) NULL");
   await ensureColumn("registration_questions", "show_if_json", "show_if_json TEXT NULL");
+  // Phase H — the same form engine for club registrations, programme enrolments
+  // and hall bookings: each listing keeps its own published-version counter.
+  for (const table of ["clubs", "programs", "centres"]) await ensureColumn(table, "questions_version", "questions_version INT NOT NULL DEFAULT 0");
   await db.exec(`
     CREATE TABLE IF NOT EXISTS registration_form_drafts (
       listing_type VARCHAR(20) NOT NULL,

@@ -8,6 +8,21 @@
 // - The caller runs it inside a READ ONLY transaction (scripts/privacyCounts.ts)
 //   so the database refuses any write; nothing is deleted or changed.
 
+/**
+ * Answers of one data class (?) older than the retention period (? days),
+ * counted from the day of the activity: the session date for experiences, the
+ * booking date for halls, and the day of the order for club registrations and
+ * programme enrolments (they have no single activity date). Counts only.
+ */
+export const PAST_RETENTION_SQL = `SELECT COUNT(*) AS n FROM registration_answers a
+  JOIN registration_questions q ON q.id = a.question_id
+  LEFT JOIN experience_bookings eb ON a.source_type = 'experience' AND eb.ref = a.source_ref
+  LEFT JOIN experience_sessions es ON es.id = eb.session_id
+  LEFT JOIN bookings hb ON a.source_type = 'booking' AND hb.ref = a.source_ref
+  LEFT JOIN registrations cr ON a.source_type = 'registration' AND cr.ref = a.source_ref
+  LEFT JOIN program_enrollments pe ON a.source_type = 'program' AND pe.ref = a.source_ref
+  WHERE q.category = ? AND COALESCE(es.date, hb.date, DATE(cr.created_at), DATE(pe.created_at)) < DATE_SUB(CURDATE(), INTERVAL ? DAY)`;
+
 export type Query = (sql: string, params?: unknown[]) => Promise<Record<string, unknown>[]>;
 
 export interface PrivacyCounts {
@@ -42,12 +57,7 @@ export async function privacyCounts(q: Query, database: string): Promise<Privacy
     if (set.length) {
       answersPastRetention = [];
       for (const [cls, c] of set) {
-        const [r] = await q(
-          `SELECT COUNT(*) AS n FROM registration_answers a JOIN registration_questions qq ON qq.id = a.question_id
-           JOIN experience_bookings eb ON a.source_type = 'experience' AND eb.ref = a.source_ref JOIN experience_sessions es ON es.id = eb.session_id
-           WHERE qq.category = ? AND es.date < DATE_SUB(CURDATE(), INTERVAL ? DAY)`,
-          [cls, c.retentionDays]
-        );
+        const [r] = await q(PAST_RETENTION_SQL, [cls, c.retentionDays]);
         answersPastRetention.push({ class: cls, retentionDays: Number(c.retentionDays), answers: num(r?.n) });
       }
     }

@@ -141,8 +141,9 @@ export async function endPendingHold(table: PendingTable, ref: string, mode: "de
     // Participation Phase 2 — a deleted pending order takes its people and answers with it.
     if (mode === "delete" && table === "experience_bookings") {
       await tx.prepare(`DELETE FROM booking_attendees WHERE source_type = 'experience' AND source_ref = ?`).run(ref);
-      await tx.prepare(`DELETE FROM registration_answers WHERE source_type = 'experience' AND source_ref = ?`).run(ref);
     }
+    // Phase H — club, programme and hall orders carry form answers too.
+    if (mode === "delete") await tx.prepare(`DELETE FROM registration_answers WHERE source_type = ? AND source_ref = ?`).run(PENDING_TABLE_TYPE[table], ref);
     await releaseCoupon(tx, row.coupon_code);
     await releaseRedemption(tx, table, ref);
     return true;

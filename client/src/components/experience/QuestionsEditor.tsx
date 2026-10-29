@@ -13,12 +13,13 @@ import {
   saveQuestionsDraft,
   setFormTemplateArchived,
   FORM_TYPE_OPTIONS,
+  type FormRef,
 } from "../../api";
 import { Button, Card, LoadErrorState, PageSpinner, inputStyle } from "../ui";
 import { FieldError, FieldLabel, FormErrorSummary, RequiredNote, useFormErrors, type FormError } from "../form";
 import { useConfirm } from "../ConfirmProvider";
 import { colors, radius } from "../../theme";
-import { AttendeeFields, type AnswersDraft } from "./AttendeeFields";
+import { AttendeeFields, FormQuestions, type AnswersDraft } from "./AttendeeFields";
 import type { FormDraft, FormTemplate, FormVersion, QuestionBuilderOptions, QuestionCategory, QuestionInputType, RegistrationQuestion, VendorRegistrationQuestion } from "../../types";
 
 // Participation Phase 2 + configuration Phases F–G — the partner's registration
@@ -81,7 +82,17 @@ const toPayload = (rows: Row[]): VendorRegistrationQuestion[] =>
   rows.map(({ rowKey: _k, choicesText, ...rest }) => ({ ...rest, choices: choicesText.split("\n").map((c) => c.trim()).filter(Boolean), placeholder: rest.placeholder?.trim() ?? "", defaultValue: rest.defaultValue || null, section: rest.section?.trim() || null }));
 const time = (iso: string) => new Date(iso).toLocaleString("en-IE", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 
-export function QuestionsEditor({ experienceId }: { experienceId: string }) {
+/** Who the preview shows: a group (experiences), the one registrant or participant (clubs, programmes), or nobody (halls). */
+type PreviewPeople = "group" | "one" | "none";
+
+/**
+ * Phase H — the same builder for every listing that takes a form: an
+ * experience (`experienceId`) or a club, programme or hall (`listing`).
+ */
+export function QuestionsEditor({ experienceId, listing }: { experienceId?: string; listing?: Exclude<FormRef, string> }) {
+  const ref: FormRef = listing ?? experienceId!;
+  const formId = listing ? `${listing.listingType}-${listing.id}` : experienceId!;
+  const previewPeople: PreviewPeople = !listing ? "group" : listing.listingType === "centre" ? "none" : "one";
   const confirm = useConfirm();
   const [rows, setRows] = useState<Row[] | null>(null);
   const [liveVersion, setLiveVersion] = useState(0);
@@ -98,12 +109,13 @@ export function QuestionsEditor({ experienceId }: { experienceId: string }) {
   const [dirty, setDirty] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [preview, setPreview] = useState<"desktop" | "phone" | null>(null);
+  const [personQuestions, setPersonQuestions] = useState(true);
   const fe = useFormErrors();
 
   const loadTemplates = () => fetchFormTemplates(true).then((r) => setTemplates(r.templates)).catch(() => setTemplates([]));
   const load = () => {
     setLoadError(false);
-    fetchExperienceQuestions(experienceId)
+    fetchExperienceQuestions(ref)
       .then((r) => {
         setLiveVersion(r.version);
         setLiveCount(r.questions.length);
@@ -113,12 +125,13 @@ export function QuestionsEditor({ experienceId }: { experienceId: string }) {
         setSpecialOn(r.specialCategoryEnabled);
         setOptions({ library: r.library ?? [], allowedTypes: r.allowedTypes ?? ["text"], classes: r.classes ?? [] });
         setSuggested(r.suggestedFormType ?? null);
+        setPersonQuestions(r.personQuestions ?? true);
         setDirty(false);
       })
       .catch(() => setLoadError(true));
     void loadTemplates();
   };
-  useEffect(load, [experienceId]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(load, [formId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (loadError) return <LoadErrorState title="Couldn't load the registration form" onRetry={load} />;
   if (!rows) return <PageSpinner />;
@@ -172,7 +185,7 @@ export function QuestionsEditor({ experienceId }: { experienceId: string }) {
   const saveDraft = async (): Promise<boolean> => {
     setBusy("draft");
     try {
-      const r = await saveQuestionsDraft(experienceId, toPayload(rows));
+      const r = await saveQuestionsDraft(ref, toPayload(rows));
       setDraft(r.draft);
       setDirty(false);
       setNotice(`Draft saved ${time(r.draft.updatedAt)}. It isn't live until you publish it.`);
@@ -191,7 +204,7 @@ export function QuestionsEditor({ experienceId }: { experienceId: string }) {
     if ((dirty || !draft) && !(await saveDraft())) return;
     setBusy("publish");
     try {
-      const r = await publishQuestionsDraft(experienceId);
+      const r = await publishQuestionsDraft(ref);
       setNotice(`Published as version ${r.version}. New bookings answer this form; bookings already made keep the answers they gave.`);
       load();
     } catch (e) {
@@ -203,7 +216,7 @@ export function QuestionsEditor({ experienceId }: { experienceId: string }) {
   };
   const discard = async () => {
     if (!(await confirm({ title: "Discard this draft?", message: "Your unpublished changes will be lost. The live form doesn't change.", confirmLabel: "Discard draft", tone: "danger" }))) return;
-    await discardQuestionsDraft(experienceId);
+    await discardQuestionsDraft(ref);
     setNotice("Draft discarded. Showing the live form.");
     load();
   };
@@ -211,7 +224,7 @@ export function QuestionsEditor({ experienceId }: { experienceId: string }) {
     if ((rows.length > 0 || draft) && !(await confirm({ title: `Start the draft from ${what}?`, message: "It replaces what's in the draft now. The live form doesn't change until you publish.", confirmLabel: "Replace draft", tone: "neutral" }))) return;
     setBusy("from");
     try {
-      const r = await draftQuestionsFrom(experienceId, from);
+      const r = await draftQuestionsFrom(ref, from);
       setDraft(r.draft);
       setRows(r.draft.questions.map(toRow));
       setDirty(false);
@@ -255,9 +268,9 @@ export function QuestionsEditor({ experienceId }: { experienceId: string }) {
       {enabled && (
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
           <div style={{ minWidth: 260 }}>
-            <FieldLabel htmlFor={`tpl-${experienceId}`}>Start from a template</FieldLabel>
+            <FieldLabel htmlFor={`tpl-${formId}`}>Start from a template</FieldLabel>
             <select
-              id={`tpl-${experienceId}`}
+              id={`tpl-${formId}`}
               value=""
               disabled={!!busy}
               onChange={(e) => {
@@ -278,7 +291,7 @@ export function QuestionsEditor({ experienceId }: { experienceId: string }) {
         </div>
       )}
 
-      {preview && <FormPreview questions={toPayload(rows)} width={preview} onWidth={setPreview} />}
+      {preview && <FormPreview questions={toPayload(rows)} width={preview} onWidth={setPreview} people={previewPeople} />}
 
       <FormErrorSummary errors={fe.errors} focusKey={fe.focusKey} />
       {rows.length > 0 && <RequiredNote style={{ margin: 0 }} />}
@@ -294,6 +307,7 @@ export function QuestionsEditor({ experienceId }: { experienceId: string }) {
             sections={sections}
             disabled={!enabled}
             specialOn={specialOn}
+            personQuestions={personQuestions}
             options={options}
             fe={fe}
             onChange={(p) => update(r.rowKey, p)}
@@ -304,12 +318,12 @@ export function QuestionsEditor({ experienceId }: { experienceId: string }) {
       ))}
       {enabled && rows.length < MAX_QUESTIONS && (
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
-          <Button variant="ghost" onClick={() => setAll([...rows, blank()])}>Add your own question</Button>
+          <Button variant="ghost" onClick={() => setAll([...rows, personQuestions ? blank() : { ...blank(), scope: "booking" }])}>Add your own question</Button>
           {available.length > 0 && (
             <>
               <div style={{ minWidth: 220 }}>
-                <FieldLabel htmlFor={`lib-${experienceId}`}>Or a ready-made field</FieldLabel>
-                <select id={`lib-${experienceId}`} value={pickLibrary} onChange={(e) => setPickLibrary(e.target.value)} style={inputStyle}>
+                <FieldLabel htmlFor={`lib-${formId}`}>Or a ready-made field</FieldLabel>
+                <select id={`lib-${formId}`} value={pickLibrary} onChange={(e) => setPickLibrary(e.target.value)} style={inputStyle}>
                   <option value="">Choose…</option>
                   {available.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
                 </select>
@@ -351,22 +365,25 @@ export function QuestionsEditor({ experienceId }: { experienceId: string }) {
           onChanged={loadTemplates}
         />
       )}
-      <HistoryPanel experienceId={experienceId} liveVersion={liveVersion} canCopy={enabled} onCopy={(v) => startFrom({ version: v }, `version ${v}`)} />
+      <HistoryPanel formRef={ref} liveVersion={liveVersion} canCopy={enabled} onCopy={(v) => startFrom({ version: v }, `version ${v}`)} />
     </div>
   );
 }
 
 // --- preview ----------------------------------------------------------------------------
 
-function FormPreview({ questions, width, onWidth }: { questions: VendorRegistrationQuestion[]; width: "desktop" | "phone"; onWidth: (w: "desktop" | "phone") => void }) {
+function FormPreview({ questions, width, onWidth, people: who }: { questions: VendorRegistrationQuestion[]; width: "desktop" | "phone"; onWidth: (w: "desktop" | "phone") => void; people: PreviewPeople }) {
   const [answers, setAnswers] = useState<AnswersDraft>({ booking: {}, attendees: [{}, {}] });
-  const people = useMemo(() => [{ name: "Sample adult", personType: "adult" as const, guardian: "" as const }, { name: "Sample child", personType: "child" as const, guardian: "contact" as const }], []);
-  const slots = [{ lineLabel: null, fixedType: "adult" as const }, { lineLabel: null, fixedType: "child" as const }];
+  const all = useMemo(() => [{ name: "Sample adult", personType: "adult" as const, guardian: "" as const }, { name: "Sample child", personType: "child" as const, guardian: "contact" as const }], []);
+  const allSlots = [{ lineLabel: null, fixedType: "adult" as const }, { lineLabel: null, fixedType: "child" as const }];
+  // A club or programme registers one person (a child here, so child-only questions show); a hall booking has no people list.
+  const people = who === "group" ? all : who === "one" ? all.slice(1) : [];
+  const slots = who === "group" ? allSlots : who === "one" ? allSlots.slice(1) : [];
   const noop = { control: (id: string) => ({ id }), messageFor: () => undefined, clearField: () => undefined };
   return (
     <section aria-label="Form preview" style={{ border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: 14, background: colors.bg }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
-        <strong style={{ fontSize: 14 }}>Preview — how people booking see it (a sample adult and child)</strong>
+        <strong style={{ fontSize: 14 }}>Preview — how people booking see it{who === "group" ? " (a sample adult and child)" : who === "one" ? " (a sample child)" : ""}</strong>
         <div role="radiogroup" aria-label="Preview width" style={{ display: "flex", gap: 12, fontSize: 13.5 }}>
           {(["desktop", "phone"] as const).map((w) => (
             <label key={w} style={{ display: "flex", gap: 6, alignItems: "center" }}>
@@ -377,9 +394,13 @@ function FormPreview({ questions, width, onWidth }: { questions: VendorRegistrat
       </div>
       <div style={{ maxWidth: width === "phone" ? 375 : 640, margin: "0 auto", background: colors.surface, borderRadius: radius.card, padding: 16, border: `1px solid ${colors.border}` }}>
         {questions.length === 0 ? (
-          <p style={{ margin: 0, color: colors.muted, fontSize: 14 }}>No questions — people only give names and who is coming.</p>
+          <p style={{ margin: 0, color: colors.muted, fontSize: 14 }}>{who === "group" ? "No questions — people only give names and who is coming." : "No questions — the form is the usual one."}</p>
         ) : (
-          <AttendeeFields slots={slots} people={people} onPeople={() => undefined} questions={questions as RegistrationQuestion[]} answers={answers} onAnswers={setAnswers} contactName="Sample adult" fe={noop} />
+          who === "group" ? (
+            <AttendeeFields slots={slots} people={people} onPeople={() => undefined} questions={questions as RegistrationQuestion[]} answers={answers} onAnswers={setAnswers} contactName="Sample adult" fe={noop} />
+          ) : (
+            <FormQuestions questions={questions as RegistrationQuestion[]} answers={answers} onAnswers={setAnswers} person={who === "one" ? people[0] : null} fe={noop} />
+          )
         )}
       </div>
     </section>
@@ -444,13 +465,13 @@ function TemplatesPanel({ templates, canSave, onSave, onChanged }: { templates: 
   );
 }
 
-function HistoryPanel({ experienceId, liveVersion, canCopy, onCopy }: { experienceId: string; liveVersion: number; canCopy: boolean; onCopy: (v: number) => void }) {
+function HistoryPanel({ formRef, liveVersion, canCopy, onCopy }: { formRef: FormRef; liveVersion: number; canCopy: boolean; onCopy: (v: number) => void }) {
   const [open, setOpen] = useState(false);
   const [versions, setVersions] = useState<FormVersion[] | null>(null);
   const [viewing, setViewing] = useState<{ version: number; questions: VendorRegistrationQuestion[] } | null>(null);
   useEffect(() => {
-    if (open) fetchQuestionVersions(experienceId).then((r) => setVersions(r.versions)).catch(() => setVersions([]));
-  }, [open, experienceId, liveVersion]);
+    if (open) fetchQuestionVersions(formRef).then((r) => setVersions(r.versions)).catch(() => setVersions([]));
+  }, [open, typeof formRef === "string" ? formRef : `${formRef.listingType}:${formRef.id}`, liveVersion]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <details onToggle={(e) => setOpen((e.target as HTMLDetailsElement).open)} style={{ borderTop: `1px solid ${colors.border}`, paddingTop: 12 }}>
       <summary style={{ cursor: "pointer", fontWeight: 700, fontSize: 14 }}>Version history</summary>
@@ -467,7 +488,7 @@ function HistoryPanel({ experienceId, liveVersion, canCopy, onCopy }: { experien
                   <strong>Version {v.version}</strong>{v.live ? " · live" : ""} · {v.questions} questions · {time(v.publishedAt)}{v.publishedBy ? ` · ${v.publishedBy}` : ""}
                 </span>
                 <span style={{ display: "flex", gap: 6 }}>
-                  <Button variant="ghost" onClick={async () => setViewing(viewing?.version === v.version ? null : await fetchQuestionVersion(experienceId, v.version))} aria-label={`View version ${v.version}`}>{viewing?.version === v.version ? "Hide" : "View"}</Button>
+                  <Button variant="ghost" onClick={async () => setViewing(viewing?.version === v.version ? null : await fetchQuestionVersion(formRef, v.version))} aria-label={`View version ${v.version}`}>{viewing?.version === v.version ? "Hide" : "View"}</Button>
                   {canCopy && !v.live && <Button variant="ghost" onClick={() => onCopy(v.version)} aria-label={`Copy version ${v.version} into the draft`}>Copy into draft</Button>}
                 </span>
               </div>
@@ -486,8 +507,10 @@ function HistoryPanel({ experienceId, liveVersion, canCopy, onCopy }: { experien
 
 // --- one question ----------------------------------------------------------------------
 
-function QuestionCard({ row, index, count, earlier, sections, disabled, specialOn, options, fe, onChange, onRemove, onMove }: {
+function QuestionCard({ row, index, count, earlier, sections, disabled, specialOn, personQuestions, options, fe, onChange, onRemove, onMove }: {
   row: Row;
+  /** false = a hall form: every question is asked once per booking. */
+  personQuestions: boolean;
   index: number;
   count: number;
   earlier: Row[];
@@ -550,7 +573,7 @@ function QuestionCard({ row, index, count, earlier, sections, disabled, specialO
               <div>
                 <FieldLabel htmlFor={id("scope")}>Asked</FieldLabel>
                 <select id={id("scope")} value={row.scope} onChange={(e) => onChange({ scope: e.target.value as Row["scope"], appliesTo: "all" })} style={inputStyle}>
-                  <option value="attendee">For each person</option>
+                  {(personQuestions || row.scope === "attendee") && <option value="attendee">{personQuestions ? "For each person" : "For each person (not on this form)"}</option>}
                   <option value="booking">Once per booking</option>
                 </select>
               </div>

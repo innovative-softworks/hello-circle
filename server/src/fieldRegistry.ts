@@ -1,4 +1,5 @@
 import { db } from "./db/index.js";
+import { PAST_RETENTION_SQL } from "./privacyCounts.js";
 
 // Configuration framework Phase F (docs/participation-expansion/16) — the
 // field registry. Every registration field belongs to one of four classes:
@@ -193,15 +194,7 @@ export async function answersPastRetention(policy: FieldPolicy): Promise<Record<
   for (const c of DATA_CLASSES) {
     const days = policy.classes[c].retentionDays;
     if (!days) continue;
-    const row = (await db
-      .prepare(
-        `SELECT COUNT(*) AS n FROM registration_answers a
-         JOIN registration_questions q ON q.id = a.question_id
-         JOIN experience_bookings eb ON a.source_type = 'experience' AND eb.ref = a.source_ref
-         JOIN experience_sessions es ON es.id = eb.session_id
-         WHERE q.category = ? AND es.date < DATE_SUB(CURDATE(), INTERVAL ? DAY)`
-      )
-      .get(c, days)) as { n: number };
+    const row = (await db.prepare(PAST_RETENTION_SQL).get(c, days)) as { n: number };
     out[c] = Number(row.n);
   }
   return out;

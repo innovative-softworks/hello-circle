@@ -1,3 +1,5 @@
+import { checkFormAnswers, saveFormAnswers, type CheckedAnswers } from "../participation/formAnswers.js";
+import { QuestionError } from "../participation/questions.js";
 import { customerPaymentCase, hasOpenReview } from "../payments/paymentReview.js";
 import crypto from "node:crypto";
 import { paymentUnderReview } from "../payments/checkoutAgreement.js";
@@ -136,11 +138,14 @@ export interface CreateBookingInternalInput {
   isNative?: boolean;
   /** Booking UX Phase 4 (B8) — recorded with the order; the terms version is resolved server-side. */
   acceptedTerms?: boolean;
+  /** Phase H — answers to the hall's booking form (once per booking). The
+   * checkout route always passes it; Make It Happen (paused) books without a form. */
+  form?: { answers?: unknown; questionsVersion?: unknown };
 }
 
 export type CreateBookingResult =
   | { ok: true; ref: string; totalEuro: number; url?: string }
-  | { ok: false; status: number; error: string };
+  | { ok: false; status: number; error: string; code?: string };
 
 export type BookingPriceInput = Pick<CreateBookingInternalInput, "centreId" | "roomId" | "date" | "time" | "duration" | "guests" | "couponCode" | "openSpots">;
 
@@ -242,6 +247,15 @@ export async function createBookingInternal(input: CreateBookingInternalInput): 
   const priced = await priceBookingRequest(input);
   if (!priced.ok) return priced;
   const { centre, room, startHour, reqEnd, isCash, discountCents, couponCode, pricing } = priced;
+  let form: CheckedAnswers | null = null;
+  if (input.form) {
+    try {
+      form = await checkFormAnswers("centre", centre.id, priced.vendorId, input.form, null);
+    } catch (e) {
+      if (e instanceof QuestionError) return { ok: false, status: e.status, error: e.message, code: e.code };
+      throw e;
+    }
+  }
   const ref = generateRef("HB");
   shadowLegacy("booking", ref, { vendorUserId: priced.vendorId }, pricing);
 
@@ -328,6 +342,7 @@ export async function createBookingInternal(input: CreateBookingInternalInput): 
           status: isCash ? "paid" : "pending",
         });
       await recordOrderAcknowledgements(tx, { sourceType: "booking", ref, clientId: input.clientId, residentId: input.residentId, terms: input.acceptedTerms === true });
+      await saveFormAnswers(tx, "centre", ref, form);
     });
   } catch (e) {
     if (e instanceof BadRequestError) return { ok: false, status: 400, error: e.message };
@@ -462,8 +477,9 @@ bookingsRouter.post("/checkout", async (req, res) => {
     clientId,
     isNative: req.header("X-Client-Platform") === "mobile",
     acceptedTerms: (body as { acceptedTerms?: unknown }).acceptedTerms === true,
+    form: { answers: (body as { answers?: unknown }).answers, questionsVersion: (body as { questionsVersion?: unknown }).questionsVersion },
   });
-  if (!result.ok) return res.status(result.status).json({ error: result.error });
+  if (!result.ok) return res.status(result.status).json({ error: result.error, ...(result.code ? { code: result.code } : {}) });
   res.status(201).json({ ref: result.ref, url: result.url, totalEuro: result.totalEuro });
 });
 

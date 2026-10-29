@@ -48,6 +48,9 @@ export function fetchAvailabilityRange(centreId: string, roomId: string, from: s
 }
 
 export interface CreateBookingInput {
+  /** Phase H — answers to the organiser's form, with the version the page showed. */
+  answers?: import("../types").RegistrationAnswersInput;
+  questionsVersion?: number;
   centreId: string;
   roomId: string;
   date: string;
@@ -233,6 +236,9 @@ export function logReferralLand(ref: string, source?: string): Promise<{ ok: boo
 }
 
 export interface CreateRegistrationInput {
+  /** Phase H — answers to the organiser's form, with the version the page showed. */
+  answers?: import("../types").RegistrationAnswersInput;
+  questionsVersion?: number;
   clubId: string;
   /** Defaults server-side to "child" when omitted. */
   registrantType?: "child" | "adult";
@@ -551,7 +557,7 @@ export function fetchProgram(id: string): Promise<Program> {
 
 export function enrollInProgram(
   id: string,
-  input: { participantName: string; participantDob?: string; email: string; phone?: string; /** Booking UX Phase 4 — recorded with the enrolment. */ acceptedTerms?: boolean; /** R3A — re-validated by the server at enrolment. */ couponCode?: string }
+  input: { participantName: string; participantDob?: string; email: string; phone?: string; /** Booking UX Phase 4 — recorded with the enrolment. */ acceptedTerms?: boolean; /** R3A — re-validated by the server at enrolment. */ couponCode?: string; /** Phase H — the enrolment form. */ answers?: import("../types").RegistrationAnswersInput; questionsVersion?: number }
 ): Promise<{ ref: string; url?: string; totalEuro: number }> {
   return request(`/programs/${id}/enroll`, { method: "POST", body: JSON.stringify(input) });
 }

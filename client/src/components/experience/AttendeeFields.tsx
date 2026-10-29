@@ -100,6 +100,43 @@ export function AttendeeFields({ slots, people, onPeople, questions, answers, on
   );
 }
 
+/**
+ * Phase H — the organiser's questions inside a flow that already asks who is
+ * coming (club registration, programme enrolment) or has no people list (hall
+ * booking): the one person's questions, then the once-per-booking ones. Same
+ * inputs, conditions and sections as the experience form; no name fields.
+ */
+export function FormQuestions({ questions, answers, onAnswers, person, fe, title = "A few questions from the organiser" }: {
+  questions: RegistrationQuestion[];
+  answers: AnswersDraft;
+  onAnswers: (a: AnswersDraft) => void;
+  /** The one registrant or participant; null when every question is once per booking. */
+  person: { name: string; personType: "adult" | "child" } | null;
+  fe: Fe;
+  title?: string;
+}) {
+  const own = answers.attendees[0] ?? {};
+  const personQs = person ? questions.filter((q) => q.scope === "attendee" && appliesTo(q, person.personType) && questionShown(q, answers.booking, own)) : [];
+  const bookingQs = questions.filter((q) => q.scope === "booking" && questionShown(q, answers.booking, {}));
+  if (!personQs.length && !bookingQs.length) return null;
+  const setAnswer = (personNo: number, key: string, v: AnswerValue) => {
+    fe.clearField(questionFieldId(key, personNo));
+    if (personNo === 0) onAnswers({ ...answers, booking: { ...answers.booking, [key]: v } });
+    else onAnswers({ ...answers, attendees: [{ ...own, [key]: v }] });
+  };
+  return (
+    <fieldset style={{ border: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 10 }}>
+      <legend style={{ ...labelStyle, padding: 0, fontSize: 15 }}>{title}</legend>
+      {personQs.length > 0 && person && (
+        <div role="group" aria-label={person.name ? `About ${person.name}` : "About the person taking part"} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <QuestionList questions={personQs} render={(q) => <QuestionInput key={q.key} question={q} fieldId={questionFieldId(q.key, 1)} value={own[q.key]} onChange={(v) => setAnswer(1, q.key, v)} fe={fe} />} />
+        </div>
+      )}
+      <QuestionList questions={bookingQs} render={(q) => <QuestionInput key={q.key} question={q} fieldId={questionFieldId(q.key, 0)} value={answers.booking[q.key]} onChange={(v) => setAnswer(0, q.key, v)} fe={fe} />} />
+    </fieldset>
+  );
+}
+
 /** Phase G — questions in order, with a heading where a section starts. */
 export function QuestionList({ questions, render }: { questions: RegistrationQuestion[]; render: (q: RegistrationQuestion) => JSX.Element }) {
   let last: string | null = null;

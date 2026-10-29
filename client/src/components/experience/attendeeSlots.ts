@@ -118,3 +118,12 @@ export function questionShown(q: RegistrationQuestion, booking: Record<string, A
   const picked = Array.isArray(v) ? v : v === true ? ["yes"] : [String(v)];
   return picked.some((x) => q.showIf!.values.includes(x));
 }
+
+/** Phase H — a programme participant is a child when a date of birth under 18 is given (the server applies the same rule). */
+export function personTypeFromDob(dob: string | null | undefined, today = new Date()): "adult" | "child" {
+  if (!dob || !/^\d{4}-\d{2}-\d{2}$/.test(dob)) return "adult";
+  const [y, m, d] = dob.split("-").map(Number);
+  let age = today.getUTCFullYear() - y;
+  if (today.getUTCMonth() + 1 < m || (today.getUTCMonth() + 1 === m && today.getUTCDate() < d)) age--;
+  return age < 18 ? "child" : "adult";
+}

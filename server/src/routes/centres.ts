@@ -1,3 +1,4 @@
+import { publicForm } from "../participation/formAnswers.js";
 import { taxonomyFields } from "../taxonomy.js";
 import { unavailableListing } from "../orgStatus.js";
 import { Router } from "express";
@@ -49,5 +50,7 @@ centresRouter.get("/:id", async (req, res) => {
     isFollowing: !!isFollowingRow,
     followNotificationLevel: isFollowingRow?.notificationLevel ?? "highlights",
     ...(await taxonomyFields("centre", centre.id)),
+    // Phase H — the hall's booking form (empty unless published and switched on).
+    registrationForm: await publicForm("centre", centre.id, centre.vendorId),
   });
 });

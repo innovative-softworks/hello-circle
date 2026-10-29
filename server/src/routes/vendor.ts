@@ -9,6 +9,7 @@ import { vendorOperationsRouter } from "./vendorOperations.js";
 import { vendorParticipationRouter } from "./vendorParticipation.js";
 import { vendorProgramsRouter } from "./vendorPrograms.js";
 import { vendorAttendeesRouter } from "./vendorAttendees.js";
+import { vendorFormsRouter } from "./vendorForms.js";
 import { vendorDoorRouter } from "./vendorDoor.js";
 
 // Split from a single 1088-line file into domain sub-routers — see
@@ -56,4 +57,5 @@ vendorRouter.use(vendorExperiencesRouter);
 vendorRouter.use(vendorParticipationRouter);
 // Participation Phase 2 — attendees, questions, check-in staff, and the door API.
 vendorRouter.use(vendorAttendeesRouter);
+vendorRouter.use(vendorFormsRouter);
 vendorRouter.use("/door", vendorDoorRouter);

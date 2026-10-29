@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fitPeople, missingAnswers, personSlots, toAttendeeInput, withDefaults } from "./attendeeSlots";
+import { fitPeople, missingAnswers, personSlots, personTypeFromDob, toAttendeeInput, withDefaults } from "./attendeeSlots";
 import type { RegistrationOption, RegistrationQuestion } from "../../types";
 
 const opt = (id: string, kind: RegistrationOption["kind"], headsPerUnit: number, ageBand: RegistrationOption["ageBand"], label = id): RegistrationOption =>
@@ -43,3 +43,22 @@ describe("attendee slots", () => {
   });
 });
 
+
+describe("Phase H — a single registrant's questions", () => {
+  it("works out a programme participant's type from the date of birth, like the server", () => {
+    const today = new Date("2026-10-29T12:00:00Z");
+    expect(personTypeFromDob("2015-01-01", today)).toBe("child");
+    expect(personTypeFromDob("2008-10-29", today)).toBe("adult");
+    expect(personTypeFromDob("2008-10-30", today)).toBe("child");
+    expect(personTypeFromDob("", today)).toBe("adult");
+  });
+
+  it("a hall form has no people: only once-per-booking questions are required", () => {
+    const qs = [
+      { key: "kitchen", scope: "booking", inputType: "checkbox", label: "Kitchen", help: "", purpose: "p", required: true, choices: [], min: null, max: null, appliesTo: "all", doorVisible: false },
+      { key: "size", scope: "attendee", inputType: "text", label: "Size", help: "", purpose: "p", required: true, choices: [], min: null, max: null, appliesTo: "all", doorVisible: false },
+    ] as unknown as RegistrationQuestion[];
+    expect(missingAnswers(qs, [], { booking: {}, attendees: [] }).map((m) => m.message)).toEqual(['Answer "Kitchen"']);
+    expect(missingAnswers(qs, [], { booking: { kitchen: true }, attendees: [] })).toEqual([]);
+  });
+});

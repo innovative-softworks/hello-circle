@@ -1,3 +1,4 @@
+import type { FormListingType } from "./formListings.js";
 import crypto from "node:crypto";
 import { db } from "../db/index.js";
 import { FORM_TYPES, isFormType, type FormTypeKey } from "../categoryPolicy.js";
@@ -99,17 +100,17 @@ export interface DraftView {
   issues: string[];
 }
 
-function issuesOf(questions: unknown, special: boolean, policy: FieldPolicy): string[] {
+function issuesOf(questions: unknown, special: boolean, policy: FieldPolicy, listingType: FormListingType): string[] {
   try {
-    cleanQuestionSet(questions, special, policy);
+    cleanQuestionSet(questions, special, policy, listingType);
     return [];
   } catch (e) {
     return [e instanceof QuestionError ? e.message : "This form can't be published yet"];
   }
 }
 
-export async function getDraft(listingId: string, special: boolean, tx: Tx = db): Promise<DraftView | null> {
-  const row = (await tx.prepare(`SELECT base_version, draft_json, updated_at FROM registration_form_drafts WHERE listing_type = 'experience' AND listing_id = ?`).get(listingId)) as
+export async function getDraft(listingId: string, special: boolean, tx: Tx = db, listingType: FormListingType = "experience"): Promise<DraftView | null> {
+  const row = (await tx.prepare(`SELECT base_version, draft_json, updated_at FROM registration_form_drafts WHERE listing_type = ? AND listing_id = ?`).get(listingType, listingId)) as
     | { base_version: number; draft_json: string; updated_at: Date | string }
     | undefined;
   if (!row) return null;
@@ -120,7 +121,7 @@ export async function getDraft(listingId: string, special: boolean, tx: Tx = db)
     questions = [];
   }
   questions = questions.map(expandLibrary);
-  return { questions, baseVersion: Number(row.base_version), updatedAt: new Date(row.updated_at).toISOString(), issues: issuesOf(questions, special, await fieldPolicy(tx)) };
+  return { questions, baseVersion: Number(row.base_version), updatedAt: new Date(row.updated_at).toISOString(), issues: issuesOf(questions, special, await fieldPolicy(tx), listingType) };
 }
 
 /** Shape-only checks for a draft; full validation happens on publish. */
@@ -133,17 +134,17 @@ export function cleanDraft(raw: unknown): QuestionInput[] {
   return JSON.parse(json) as QuestionInput[];
 }
 
-export async function saveDraft(listingId: string, questions: QuestionInput[], baseVersion: number, userId: string): Promise<void> {
+export async function saveDraft(listingId: string, questions: QuestionInput[], baseVersion: number, userId: string, listingType: FormListingType = "experience"): Promise<void> {
   await db
     .prepare(
-      `INSERT INTO registration_form_drafts (listing_type, listing_id, base_version, draft_json, updated_by) VALUES ('experience', ?, ?, ?, ?)
+      `INSERT INTO registration_form_drafts (listing_type, listing_id, base_version, draft_json, updated_by) VALUES (?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE base_version = VALUES(base_version), draft_json = VALUES(draft_json), updated_by = VALUES(updated_by)`
     )
-    .run(listingId, baseVersion, JSON.stringify(questions), userId);
+    .run(listingType, listingId, baseVersion, JSON.stringify(questions), userId);
 }
 
-export async function discardDraft(listingId: string): Promise<boolean> {
-  return (await db.prepare(`DELETE FROM registration_form_drafts WHERE listing_type = 'experience' AND listing_id = ?`).run(listingId)).changes === 1;
+export async function discardDraft(listingId: string, listingType: FormListingType = "experience"): Promise<boolean> {
+  return (await db.prepare(`DELETE FROM registration_form_drafts WHERE listing_type = ? AND listing_id = ?`).run(listingType, listingId)).changes === 1;
 }
 
 /**
@@ -151,34 +152,34 @@ export async function discardDraft(listingId: string): Promise<boolean> {
  * policy, then the versioned replace. Refused (409) when the live form changed
  * since the draft was started, so one partner can't overwrite another's publish.
  */
-export async function publishDraft(listingId: string, special: boolean, userId: string): Promise<{ version: number; questions: Question[]; before: Question[] }> {
-  const draft = await getDraft(listingId, special);
+export async function publishDraft(listingId: string, special: boolean, userId: string, listingType: FormListingType = "experience"): Promise<{ version: number; questions: Question[]; before: Question[] }> {
+  const draft = await getDraft(listingId, special, db, listingType);
   if (!draft) throw new QuestionError("There's no draft to publish", 404);
-  const live = await questionsVersion(listingId);
+  const live = await questionsVersion(listingId, db, listingType);
   if (draft.baseVersion !== live) throw new QuestionError("The live form changed since this draft was started — copy the live form into a new draft and make your changes again", 409, "stale");
-  const set = cleanQuestionSet(draft.questions, special, await fieldPolicy());
-  const before = await activeQuestions("experience", listingId);
-  const saved = await replaceQuestions(listingId, set, live, userId);
-  await discardDraft(listingId);
+  const set = cleanQuestionSet(draft.questions, special, await fieldPolicy(), listingType);
+  const before = await activeQuestions(listingType, listingId);
+  const saved = await replaceQuestions(listingId, set, live, userId, listingType);
+  await discardDraft(listingId, listingType);
   return { ...saved, before };
 }
 
 // --- version history -------------------------------------------------------------------
 
-export async function versionHistory(listingId: string): Promise<{ version: number; questions: number; publishedAt: string; publishedBy: string | null; live: boolean }[]> {
-  const live = await questionsVersion(listingId);
+export async function versionHistory(listingId: string, listingType: FormListingType = "experience"): Promise<{ version: number; questions: number; publishedAt: string; publishedBy: string | null; live: boolean }[]> {
+  const live = await questionsVersion(listingId, db, listingType);
   const rows = (await db
     .prepare(
       `SELECT q.version, COUNT(*) AS n, MIN(q.created_at) AS at, MIN(q.created_by_user_id) AS byId, MIN(u.name) AS byName
        FROM registration_questions q LEFT JOIN users u ON u.id = q.created_by_user_id
-       WHERE q.listing_type = 'experience' AND q.listing_id = ? GROUP BY q.version ORDER BY q.version DESC`
+       WHERE q.listing_type = ? AND q.listing_id = ? GROUP BY q.version ORDER BY q.version DESC`
     )
-    .all(listingId)) as { version: number; n: number; at: Date | string; byId: string | null; byName: string | null }[];
+    .all(listingType, listingId)) as { version: number; n: number; at: Date | string; byId: string | null; byName: string | null }[];
   return rows.map((r) => ({ version: Number(r.version), questions: Number(r.n), publishedAt: new Date(r.at).toISOString(), publishedBy: r.byName ?? null, live: Number(r.version) === live }));
 }
 
-export async function versionQuestions(listingId: string, version: number): Promise<QuestionInput[]> {
-  const rows = (await db.prepare(`SELECT * FROM registration_questions WHERE listing_type = 'experience' AND listing_id = ? AND version = ? ORDER BY sort_order`).all(listingId, version)) as Parameters<typeof questionFromRow>[0][];
+export async function versionQuestions(listingId: string, version: number, listingType: FormListingType = "experience"): Promise<QuestionInput[]> {
+  const rows = (await db.prepare(`SELECT * FROM registration_questions WHERE listing_type = ? AND listing_id = ? AND version = ? ORDER BY sort_order`).all(listingType, listingId, version)) as Parameters<typeof questionFromRow>[0][];
   return rows.map((r) => asInput(questionFromRow(r)));
 }
 

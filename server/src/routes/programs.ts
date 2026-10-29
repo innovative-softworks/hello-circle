@@ -18,6 +18,8 @@ import { notifyCancellation, notifyNewBookingOrRegistration } from "../notificat
 import { computePricing, evaluateCoupon } from "../pricing.js";
 import { commerceQuoteLimiter } from "../rateLimit.js";
 import { BadRequestError, ConflictError, clientIdFrom, generateRef, isValidEmail } from "../util.js";
+import { checkFormAnswers, publicForm, personTypeFromDob, saveFormAnswers, type CheckedAnswers } from "../participation/formAnswers.js";
+import { QuestionError } from "../participation/questions.js";
 
 export const programsRouter = Router();
 
@@ -186,6 +188,7 @@ programsRouter.get("/:id", async (req, res) => {
     ...(await toProgramJson(row)),
     participationAttributes: await getListingAttributes("program", row.id),
     ...(await officialCircleSummary("programs", row.id)),
+    registrationForm: await publicForm("program", row.id, row.vendor_id),
     venueArea: venue?.area ?? "",
     venueCounty: venue?.county ?? "",
     venueLat: venue?.lat === null || venue?.lat === undefined ? null : Number(venue.lat),
@@ -208,6 +211,9 @@ interface EnrollBody {
   couponCode?: string;
   /** Booking UX Phase 4 (B8) — recorded with the order; the terms version is resolved server-side. */
   acceptedTerms?: boolean;
+  /** Phase H — answers to the programme's enrolment form (the participant is the one attendee). */
+  answers?: unknown;
+  questionsVersion?: unknown;
 }
 
 // One enrollment covers every session of the program (matches "8-week
@@ -248,6 +254,15 @@ programsRouter.post("/:id/enroll", async (req, res) => {
   if (!program) return res.status(404).json({ error: "Program not found" });
   if (program.status !== "published") return res.status(409).json({ error: "This program is no longer open for enrollment" });
   if (!(await offeringSellable(program.vendor_id))) return res.status(409).json({ error: VENDOR_SUSPENDED_ERROR });
+
+  // Phase H — the programme's enrolment form (nothing to check when it has no questions).
+  let form: CheckedAnswers;
+  try {
+    form = await checkFormAnswers("program", program.id, program.vendor_id, body, { name: body.participantName.trim(), personType: personTypeFromDob(body.participantDob) });
+  } catch (e) {
+    if (e instanceof QuestionError) return res.status(e.status).json({ error: e.message, code: e.code });
+    throw e;
+  }
 
   const ref = generateRef("PR");
   // Resident Experience Polish — Changeset 3. EnrollBody.couponCode was
@@ -305,6 +320,7 @@ programsRouter.post("/:id/enroll", async (req, res) => {
         )
         .run(ref, program.id, req.resident?.id ?? null, clientId, body.participantName, body.participantDob ?? "", body.email, body.phone ?? "", pricing.totalCents, couponCode, isFree ? "paid" : "pending");
       await recordOrderAcknowledgements(tx, { sourceType: "program", ref, clientId, residentId: req.resident?.id ?? null, terms: body.acceptedTerms === true });
+      await saveFormAnswers(tx, "program", ref, form);
     });
   } catch (e) {
     if (e instanceof ConflictError) return res.status(409).json({ error: e.message });

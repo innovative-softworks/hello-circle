@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { PAID_CLOSED_MESSAGE, usePaidCheckoutOpen } from "../paidCheckout";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { createBookingCheckout, fetchAvailability, fetchAvailabilityRange, fetchCentre, fetchCentres, quoteVenueBooking, type VenueBookingQuote } from "../api";
+import { FormQuestions, type AnswersDraft } from "../components/experience/AttendeeFields";
+import { missingAnswers, withDefaults } from "../components/experience/attendeeSlots";
+import { ApiError, createBookingCheckout, fetchAvailability, fetchAvailabilityRange, fetchCentre, fetchCentres, quoteVenueBooking, type VenueBookingQuote } from "../api";
 import { openCheckout } from "../native";
 import {
   Acknowledgement,
@@ -110,6 +112,8 @@ export function BookingFlow() {
   const [dayClosed, setDayClosed] = useState(false);
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [closedDates, setClosedDates] = useState<Set<string>>(new Set());
+  // Phase H — the venue's booking questions (asked once per booking; none = the usual form).
+  const [answers, setAnswers] = useState<AnswersDraft>({ booking: {}, attendees: [] });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Booking failure/recovery (IA spec §6) — real alternatives, fetched only once an error occurs.
@@ -183,10 +187,13 @@ export function BookingFlow() {
   const priced = quote.status === "ready" ? quote.quote : null;
 
   const fieldErrors = detailsErrors(draft, room);
+  const formQs = centre?.registrationForm?.questions ?? [];
+  const sendAnswers = withDefaults(formQs, [], answers);
+  const missing = formQs.length ? missingAnswers(formQs, [], sendAnswers) : [];
   const stepProblems = (k: StepKey): string[] => {
     if (k === "room") return roomId ? [] : ["Choose a room"];
     if (k === "when") return draft.date && draft.time ? [] : [draft.date ? "Choose a start time" : "Choose a date"];
-    if (k === "details") return Object.values(fieldErrors) as string[];
+    if (k === "details") return [...(Object.values(fieldErrors) as string[]), ...missing.map((m) => m.message)];
     if (!agreed) return ["Tick the box to agree to the booking terms"];
     if (!priced) return [quote.status === "error" ? "We couldn't price this booking — try again" : "Wait for the price to load"];
     return [];
@@ -221,6 +228,7 @@ export function BookingFlow() {
         confirmationDeadline: resident && draft.openSpots && draft.confirmationDeadline ? new Date(draft.confirmationDeadline).toISOString() : undefined,
         minParticipants: resident && draft.openSpots && draft.minParticipants ? Number(draft.minParticipants) : undefined,
         acceptedTerms: agreed,
+        ...(formQs.length ? { answers: sendAnswers, questionsVersion: centre?.registrationForm?.questionsVersion } : {}),
       });
       clearDraft();
       if (res.url) {
@@ -234,6 +242,8 @@ export function BookingFlow() {
     } catch (e) {
       setError(e instanceof Error ? e.message : fallbackCopy.generic);
       setSubmitting(false);
+      // The venue changed its questions since the page loaded: show the new ones.
+      if (e instanceof ApiError && e.body.code === "questions_changed" && centreId) fetchCentre(centreId).then(setCentre).catch(() => {});
       if (centre) {
         fetchCentres(centre.county)
           .then((rows) => setSimilarCentres(rows.filter((c) => c.id !== centre.id).slice(0, 3)))
@@ -399,6 +409,20 @@ export function BookingFlow() {
               errors={showFieldErrors ? { name: fieldErrors.name, email: fieldErrors.email, phone: fieldErrors.phone } : {}}
             />
             <BkTextField label="Anything the venue should know?" value={draft.notes} onChange={(v) => set("notes", v)} helper="Setup, catering or accessibility needs." maxLength={500} />
+            {formQs.length > 0 && (
+              <FormQuestions
+                questions={formQs}
+                answers={answers}
+                onAnswers={setAnswers}
+                person={null}
+                title="A few questions from the venue"
+                fe={{
+                  control: (id: string) => ({ id, "aria-invalid": showFieldErrors && missing.some((m) => m.fieldId === id) ? true : undefined }),
+                  messageFor: (id: string) => (showFieldErrors ? missing.find((m) => m.fieldId === id)?.message : undefined),
+                  clearField: () => undefined,
+                }}
+              />
+            )}
 
             {resident && centre.openBookingEnabled && (
               <div style={{ display: "flex", flexDirection: "column", gap: 14, padding: 16, background: bk.panel }}>

@@ -247,6 +247,7 @@ async function main() {
       ["booking-config-categories", "config-categories\\.spec\\.ts$"],
       ["booking-config-fields", "config-fields\\.spec\\.ts$"],
       ["booking-config-forms", "config-forms\\.spec\\.ts$"],
+      ["booking-config-universal-forms", "config-universal-forms\\.spec\\.ts$"],
       // Provider-independent paid state machine (QA provider seam enabled for this batch only).
       ["booking-provider", "booking-provider\\.spec\\.ts$"],
       // Phase 8 remediation scenarios (extended beyond the preserved regressions).
@@ -364,7 +365,7 @@ async function main() {
       console.log(`Real auth batch: ${batch}`);
       const code = await new Promise<number>((resolve, reject) => {
         const child = spawn(process.execPath, ["node_modules/@playwright/test/cli.js", "test", "--config", "tests/integration/playwright.config.ts", ...(args.length ? ["--pass-with-no-tests"] : []), files, ...args], {
-          cwd: repositoryRoot, env: { ...childEnvironment(current.env, current.manifest), QA_AUTH_BATCH: batch, QA_BROWSER: qaBrowser, ...(prodBuild ? { QA_PROD_BUILD: "1" } : {}), ...(batch === "booking-provider" || batch.startsWith("revenue-") ? { QA_PAYMENT_PROVIDER_STUB: "1" } : {}), ...(batch === "trust-venue" ? { VITE_VENUE_PAGES_PUBLIC: "true" } : {}), ...stripeEnv }, stdio: "inherit",
+          cwd: repositoryRoot, env: { ...childEnvironment(current.env, current.manifest), QA_AUTH_BATCH: batch, QA_BROWSER: qaBrowser, ...(prodBuild ? { QA_PROD_BUILD: "1" } : {}), ...(batch === "booking-provider" || batch.startsWith("revenue-") ? { QA_PAYMENT_PROVIDER_STUB: "1" } : {}), ...(batch === "trust-venue" || batch === "booking-config-universal-forms" ? { VITE_VENUE_PAGES_PUBLIC: "true" } : {}), ...stripeEnv }, stdio: "inherit",
         });
         child.once("error", reject);
         child.once("exit", (status) => resolve(status ?? 1));

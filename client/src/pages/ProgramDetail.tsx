@@ -11,6 +11,8 @@ import { usePageTitle } from "../pageTitle";
 import { PAID_CLOSED_MESSAGE, usePaidCheckoutOpen } from "../paidCheckout";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { FormQuestions, type AnswersDraft } from "../components/experience/AttendeeFields";
+import { missingAnswers, personTypeFromDob, withDefaults } from "../components/experience/attendeeSlots";
 import { ApiError, enrollInProgram, isNotFound, fetchHousehold, fetchProgram, fetchProgramBrowse, quoteProgram, type PriceQuote } from "../api";
 import { BookingSurface, CheckoutSummary, CouponField, CouponRejectedError, couponErrorCopy, couponReasonFromCode } from "../components/booking";
 import { openCheckout } from "../native";
@@ -94,6 +96,8 @@ export function ProgramDetail() {
   const [error, setError] = useState<string | null>(null);
   // DP-41 — the site's form-error pattern (per-field messages + linked summary).
   const fe = useFormErrors();
+  // Phase H — the programme's enrolment questions (none = the usual form, unchanged).
+  const [answers, setAnswers] = useState<AnswersDraft>({ booking: {}, attendees: [{}] });
   // Booking UX Phase 4 (UX plan S4) — reuse household members, and record the
   // booking terms acknowledgement with the enrolment.
   const [household, setHousehold] = useState<HouseholdMember[]>([]);
@@ -185,9 +189,15 @@ export function ProgramDetail() {
   const upcoming = useMemo<ProgramSession[]>(() => (program?.sessions ?? []).filter((s) => s.date >= today), [program, today]);
   const past = useMemo<ProgramSession[]>(() => (program?.sessions ?? []).filter((s) => s.date < today), [program, today]);
 
+  const formQs = program?.registrationForm?.questions ?? [];
+  const formPerson = { name: form.participantName.trim(), personType: personTypeFromDob(form.participantDob) };
+  const formPeople = [{ ...formPerson, guardian: "" as const }];
+  const sendAnswers = withDefaults(formQs, formPeople, answers);
+
   const submit = async () => {
     if (!id) return;
     const problems: FormError[] = [];
+    if (formQs.length) for (const m of missingAnswers(formQs, formPeople, sendAnswers)) problems.push({ field: m.fieldId, fieldId: m.fieldId, message: m.message });
     if (!form.participantName.trim()) problems.push({ field: "name", fieldId: "prog-participant", message: "Enter the participant's name" });
     if (!isValidEmail(form.email)) problems.push({ field: "email", fieldId: "prog-email", message: "Enter an email address like name@example.ie" });
     if (!acceptedTerms) problems.push({ field: "terms", fieldId: "prog-terms", message: "Tick the box to agree to the booking terms" });
@@ -200,7 +210,7 @@ export function ProgramDetail() {
     setError(null);
     setSubmitting(true);
     try {
-      const res = await enrollInProgram(id, { ...form, acceptedTerms, couponCode: couponCode ?? undefined });
+      const res = await enrollInProgram(id, { ...form, acceptedTerms, couponCode: couponCode ?? undefined, ...(formQs.length ? { answers: sendAnswers, questionsVersion: program?.registrationForm?.questionsVersion } : {}) });
       if (res.url) {
         openCheckout(res.url);
         return;
@@ -217,6 +227,8 @@ export function ProgramDetail() {
         setError("Your total changed because the code no longer applies. Check it, then continue.");
       } else {
         setError(e instanceof Error ? e.message : "Couldn't complete enrollment");
+        // The organiser changed the questions since the page loaded: show the new ones.
+        if (e instanceof ApiError && e.body.code === "questions_changed") fetchProgram(id).then((p) => { if (!isUnavailable(p)) setProgram(p); }).catch(() => {});
       }
     } finally {
       setSubmitting(false);
@@ -378,6 +390,7 @@ export function ProgramDetail() {
           <label htmlFor="prog-phone" style={labelStyle}>Phone (optional)</label>
           <input id="prog-phone" type="tel" autoComplete="tel" inputMode="tel" value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} style={inputStyle} />
         </div>
+        {formQs.length > 0 && <FormQuestions questions={formQs} answers={answers} onAnswers={setAnswers} person={formPerson} fe={fe} />}
         {!!program.priceCents && (
           <BookingSurface style={{ padding: "14px 16px", borderRadius: radius.control, display: "flex", flexDirection: "column", gap: 12 }}>
             <CouponField

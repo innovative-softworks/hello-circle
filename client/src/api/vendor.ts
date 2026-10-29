@@ -995,8 +995,12 @@ export function downloadVendorStatement(month: string): Promise<void> {
 
 // --- Participation Phase 2: attendees, questions, check-in staff, door -----------
 
-export function fetchExperienceQuestions(id: string): Promise<{ questions: import("../types").VendorRegistrationQuestion[]; version: number; enabled: boolean; specialCategoryEnabled: boolean; draft?: import("../types").FormDraft | null; suggestedFormType?: string | null } & Partial<import("../types").QuestionBuilderOptions>> {
-  return request(`/vendor/experiences/${id}/questions`);
+/** Phase H — a form belongs to an experience (its id) or to a club, programme or hall. */
+export type FormRef = string | { listingType: "club" | "program" | "centre"; id: string };
+const formBase = (ref: FormRef) => (typeof ref === "string" ? `/vendor/experiences/${ref}` : `/vendor/forms/${ref.listingType}/${ref.id}`);
+
+export function fetchExperienceQuestions(id: FormRef): Promise<{ questions: import("../types").VendorRegistrationQuestion[]; version: number; enabled: boolean; specialCategoryEnabled: boolean; draft?: import("../types").FormDraft | null; suggestedFormType?: string | null; personQuestions?: boolean } & Partial<import("../types").QuestionBuilderOptions>> {
+  return request(`${formBase(id)}/questions`);
 }
 /** Replaces the whole question set; 409 when stale, 400 `special_category` for sensitive questions. */
 export function saveExperienceQuestions(id: string, questions: import("../types").VendorRegistrationQuestion[], version: number): Promise<{ questions: import("../types").VendorRegistrationQuestion[]; version: number }> {
@@ -1046,23 +1050,27 @@ export function doorUndo(sessionId: string, ref: string, attendeeNo: number): Pr
 
 // --- Configuration Phase G: form builder (drafts, publish, history, templates) ----------
 type Q = import("../types").VendorRegistrationQuestion;
-export function saveQuestionsDraft(id: string, questions: Q[]): Promise<{ draft: import("../types").FormDraft }> {
-  return request(`/vendor/experiences/${id}/questions/draft`, { method: "PUT", body: JSON.stringify({ questions }) });
+export function saveQuestionsDraft(id: FormRef, questions: Q[]): Promise<{ draft: import("../types").FormDraft }> {
+  return request(`${formBase(id)}/questions/draft`, { method: "PUT", body: JSON.stringify({ questions }) });
 }
-export function discardQuestionsDraft(id: string): Promise<{ discarded: boolean }> {
-  return request(`/vendor/experiences/${id}/questions/draft`, { method: "DELETE" });
+export function discardQuestionsDraft(id: FormRef): Promise<{ discarded: boolean }> {
+  return request(`${formBase(id)}/questions/draft`, { method: "DELETE" });
 }
-export function publishQuestionsDraft(id: string): Promise<{ version: number; questions: Q[] }> {
-  return request(`/vendor/experiences/${id}/questions/publish`, { method: "POST" });
+export function publishQuestionsDraft(id: FormRef): Promise<{ version: number; questions: Q[] }> {
+  return request(`${formBase(id)}/questions/publish`, { method: "POST" });
 }
-export function draftQuestionsFrom(id: string, from: { templateId: string } | { version: number }): Promise<{ draft: import("../types").FormDraft }> {
-  return request(`/vendor/experiences/${id}/questions/draft/from`, { method: "POST", body: JSON.stringify(from) });
+export function draftQuestionsFrom(id: FormRef, from: { templateId: string } | { version: number }): Promise<{ draft: import("../types").FormDraft }> {
+  return request(`${formBase(id)}/questions/draft/from`, { method: "POST", body: JSON.stringify(from) });
 }
-export function fetchQuestionVersions(id: string): Promise<{ versions: import("../types").FormVersion[] }> {
-  return request(`/vendor/experiences/${id}/questions/versions`);
+export function fetchQuestionVersions(id: FormRef): Promise<{ versions: import("../types").FormVersion[] }> {
+  return request(`${formBase(id)}/questions/versions`);
 }
-export function fetchQuestionVersion(id: string, version: number): Promise<{ version: number; questions: Q[] }> {
-  return request(`/vendor/experiences/${id}/questions/versions/${version}`);
+export function fetchQuestionVersion(id: FormRef, version: number): Promise<{ version: number; questions: Q[] }> {
+  return request(`${formBase(id)}/questions/versions/${version}`);
+}
+/** Phase H — the answers people gave on a club, programme or hall form (the listing's editing role). */
+export function fetchFormAnswers(ref: Exclude<FormRef, string>): Promise<{ orders: { ref: string; name: string; at: string; cancelled: boolean; answers: import("../types").StoredAnswer[] }[] }> {
+  return request(`${formBase(ref)}/answers`);
 }
 export function fetchFormTemplates(includeArchived = false): Promise<{ templates: import("../types").FormTemplate[] }> {
   return request(`/vendor/form-templates${includeArchived ? "?archived=1" : ""}`);

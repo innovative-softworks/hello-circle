@@ -1,4 +1,7 @@
 import { useEffect, useState } from "react";
+import { QuestionsEditor } from "../components/experience/QuestionsEditor";
+import { FormAnswersPanel } from "../components/experience/FormAnswersPanel";
+import { useParticipationFeatures } from "../circleFeatures";
 import { HostChatButton } from "../components/HostChatButton";
 import { useNavigate, useParams } from "react-router-dom";
 import { fetchVendorClub, fetchVendorListings, publishVendorClub } from "../api";
@@ -29,7 +32,7 @@ import type { Club, VendorListingSummary } from "../types";
 // wizardMode pattern and its comment on why this is sticky state, not a
 // derived expression.
 
-type ClubTab = "details" | "sessions" | "waitlist" | "registrations" | "participants" | "messages" | "performance";
+type ClubTab = "details" | "sessions" | "waitlist" | "questions" | "registrations" | "participants" | "messages" | "performance";
 
 export function VendorClubEditPage() {
   const { id } = useParams<{ id: string }>();
@@ -37,6 +40,8 @@ export function VendorClubEditPage() {
   const navigate = useNavigate();
   const { user, loading: authLoading } = useAuth();
   const [tab, setTab] = useState<ClubTab>("details");
+  // Phase H — the shared registration form builder, while the participation switch is on.
+  const participation = useParticipationFeatures();
   const [club, setClub] = useState<Club | null>(null);
   const [loading, setLoading] = useState(clubId !== "new");
   const [loadError, setLoadError] = useState(false);
@@ -124,6 +129,7 @@ export function VendorClubEditPage() {
                   { key: "details", label: "Details" },
                   { key: "sessions", label: "Recurring sessions" },
                   { key: "waitlist", label: "Waitlist" },
+                  ...(participation["participation.attendees"] ? [{ key: "questions" as const, label: "Questions" }] : []),
                   { key: "registrations", label: "Registrations" },
                   { key: "participants", label: "Participants" },
                   { key: "messages", label: "Messages" },
@@ -135,6 +141,12 @@ export function VendorClubEditPage() {
             {tab === "details" && <ClubEditor clubId={clubId} onSaved={onSaved} onDirtyChange={setDirty} />}
             {tab === "sessions" && <ClubSessionsManager clubId={clubId} />}
             {tab === "waitlist" && <ClubWaitlistPanel clubId={clubId} />}
+            {tab === "questions" && (
+              <>
+                <QuestionsEditor listing={{ listingType: "club", id: clubId }} />
+                <FormAnswersPanel listing={{ listingType: "club", id: clubId }} />
+              </>
+            )}
             {tab === "registrations" && <BookingsTab clubId={clubId} />}
             {tab === "participants" && <ClubParticipantsTab clubId={clubId} />}
             {tab === "messages" && club && (

@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { db } from "../db/index.js";
 import type { CleanAttendee, PersonType } from "./attendees.js";
+import { ANSWER_SOURCE, FORM_TABLE, fixedFieldClash, type AnswerSource, type FormListingType } from "./formListings.js";
 import { DATA_CLASSES, DEFAULT_POLICY, forbiddenWording, INPUT_TYPES, libraryField, reservedLabel, SPECIAL_CLASSES, TYPE_LABELS, type FieldPolicy, type InputType } from "../fieldRegistry.js";
 
 // Participation Phase 2 (docs/participation-expansion/12 §3) — a listing's
@@ -145,7 +146,8 @@ const CONDITION_TYPES: readonly InputType[] = ["select", "radio", "multi_select"
  *   field, and can never ask for financial/identity or (while locked)
  *   special-category data — every text a person reads is checked.
  */
-export function cleanQuestionSet(raw: unknown, specialAllowed: boolean, policy: FieldPolicy = DEFAULT_POLICY): CleanQuestion[] {
+/** `listingType` (Phase H) refuses questions that repeat that listing's own fixed form. */
+export function cleanQuestionSet(raw: unknown, specialAllowed: boolean, policy: FieldPolicy = DEFAULT_POLICY, listingType: FormListingType = "experience"): CleanQuestion[] {
   if (!Array.isArray(raw)) throw new QuestionError("Send the list of questions");
   if (raw.length > MAX_QUESTIONS) throw new QuestionError(`Ask at most ${MAX_QUESTIONS} questions — only ask what you need`);
   const keys = new Set<string>();
@@ -189,6 +191,8 @@ export function cleanQuestionSet(raw: unknown, specialAllowed: boolean, policy: 
       const reserved = reservedLabel(label);
       if (reserved) throw new QuestionError(`${n}: ${reserved}`, 400, "reserved_field");
     }
+    const clash = fixedFieldClash(listingType, { fieldKey, label, scope });
+    if (clash) throw new QuestionError(`${n}: ${clash}`, 400, "reserved_field");
     // Ready-made fields are HelloCircle's own vetted wording (e.g. the food-preference
     // hint tells people to raise allergies directly); the wording checks are for
     // partners' own text. A ready-made field's class is never a special category.
@@ -365,36 +369,38 @@ function parseShowIf(v: string | null | undefined): ShowIf | null {
   }
 }
 
-export async function activeQuestions(listingType: "experience", listingId: string, tx: Tx = db): Promise<Question[]> {
+export async function activeQuestions(listingType: FormListingType, listingId: string, tx: Tx = db): Promise<Question[]> {
   const rows = (await tx
     .prepare(`SELECT * FROM registration_questions WHERE listing_type = ? AND listing_id = ? AND active = 1 ORDER BY sort_order, created_at`)
     .all(listingType, listingId)) as QuestionRow[];
   return rows.map(questionFromRow);
 }
 
-export async function questionsVersion(listingId: string, tx: Tx = db): Promise<number> {
-  const row = (await tx.prepare(`SELECT questions_version AS v FROM experiences WHERE id = ?`).get(listingId)) as { v: number } | undefined;
+export async function questionsVersion(listingId: string, tx: Tx = db, listingType: FormListingType = "experience"): Promise<number> {
+  const row = (await tx.prepare(`SELECT questions_version AS v FROM ${FORM_TABLE[listingType]} WHERE id = ?`).get(listingId)) as { v: number } | undefined;
   return Number(row?.v ?? 0);
 }
 
 /** Replaces the active set. Throws QuestionError(409) when `expectedVersion` is stale. */
-export async function replaceQuestions(listingId: string, set: CleanQuestion[], expectedVersion: number, userId: string): Promise<{ version: number; questions: Question[] }> {
+export async function replaceQuestions(listingId: string, set: CleanQuestion[], expectedVersion: number, userId: string, listingType: FormListingType = "experience"): Promise<{ version: number; questions: Question[] }> {
+  const table = FORM_TABLE[listingType];
   return db.transaction(async (tx) => {
-    const row = (await tx.prepare(`SELECT questions_version AS v FROM experiences WHERE id = ? FOR UPDATE`).get(listingId)) as { v: number } | undefined;
+    const row = (await tx.prepare(`SELECT questions_version AS v FROM ${table} WHERE id = ? FOR UPDATE`).get(listingId)) as { v: number } | undefined;
     if (!row) throw new QuestionError("Listing not found", 404);
     if (Number(row.v) !== expectedVersion) throw new QuestionError("Someone changed these questions since you opened them — reload to see the latest", 409, "stale");
     const version = Number(row.v) + 1;
-    await tx.prepare(`UPDATE registration_questions SET active = 0 WHERE listing_type = 'experience' AND listing_id = ? AND active = 1`).run(listingId);
+    await tx.prepare(`UPDATE registration_questions SET active = 0 WHERE listing_type = ? AND listing_id = ? AND active = 1`).run(listingType, listingId);
     for (let i = 0; i < set.length; i++) {
       const q = set[i];
       await tx
         .prepare(
           `INSERT INTO registration_questions (id, listing_type, listing_id, qkey, version, scope, input_type, label, help, purpose, required, choices_json, min_value, max_value, applies_to, door_visible, category, sort_order, active, created_by_user_id,
            field_key, placeholder, default_value, min_length, max_length, editability, exportable, section, show_if_json)
-           VALUES (?, 'experience', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           crypto.randomUUID(),
+          listingType,
           listingId,
           q.key,
           version,
@@ -423,8 +429,8 @@ export async function replaceQuestions(listingId: string, set: CleanQuestion[], 
           q.showIf ? JSON.stringify(q.showIf) : null
         );
     }
-    await tx.prepare(`UPDATE experiences SET questions_version = ? WHERE id = ?`).run(version, listingId);
-    return { version, questions: await activeQuestions("experience", listingId, tx) };
+    await tx.prepare(`UPDATE ${table} SET questions_version = ? WHERE id = ?`).run(version, listingId);
+    return { version, questions: await activeQuestions(listingType, listingId, tx) };
   });
 }
 
@@ -552,7 +558,7 @@ export function cleanAnswers(questions: Question[], raw: unknown, people: Pick<C
 }
 
 /** Writes the answers for an order; with `replace` every older answer goes first. */
-export async function writeAnswers(tx: Tx, sourceType: "experience", ref: string, version: number, answers: CleanAnswer[], byKind: "booker" | "resident", replace: boolean): Promise<void> {
+export async function writeAnswers(tx: Tx, sourceType: AnswerSource, ref: string, version: number, answers: CleanAnswer[], byKind: "booker" | "resident", replace: boolean): Promise<void> {
   if (replace) await tx.prepare(`DELETE FROM registration_answers WHERE source_type = ? AND source_ref = ?`).run(sourceType, ref);
   for (const a of answers) {
     await tx
@@ -608,7 +614,7 @@ export interface StoredAnswer {
 }
 
 /** Answers for many orders. `doorOnly` keeps only answers people were told the door sees. */
-export async function readAnswersFor(sourceType: "experience", refs: string[], opts: { doorOnly?: boolean } = {}): Promise<Map<string, StoredAnswer[]>> {
+export async function readAnswersFor(sourceType: AnswerSource, refs: string[], opts: { doorOnly?: boolean } = {}): Promise<Map<string, StoredAnswer[]>> {
   const out = new Map<string, StoredAnswer[]>();
   if (!refs.length) return out;
   const rows = (await db
