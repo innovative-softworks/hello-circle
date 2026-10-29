@@ -106,6 +106,9 @@ export function DecisionReasonFields({
 const ACTION_LABEL: Record<string, string> = {
   "listing.approved": "Approved and published",
   "listing.rejected": "Rejected",
+  "verification.approved": "Check approved",
+  "verification.rejected": "Check declined",
+  "verification.revoked": "Check withdrawn",
   "listing.pending": "Moved back to review",
   "listing.deleted": "Deleted",
   "partner.approved": "Account approved",
@@ -121,7 +124,7 @@ const ACTION_LABEL: Record<string, string> = {
   "org.suspended": "Organisation suspended",
   "org.reinstated": "Organisation reinstated",
 };
-const NEEDS_REASON = new Set(["listing.rejected", "partner.suspended", "org.suspended", "claim.rejected", "host_application.rejected", "place_suggestion.rejected"]);
+const NEEDS_REASON = new Set(["verification.rejected", "verification.revoked", "listing.rejected", "partner.suspended", "org.suspended", "claim.rejected", "host_application.rejected", "place_suggestion.rejected"]);
 
 /** Decision history for a record. `currentNeedsReason` = the record is rejected/suspended now. */
 export function DecisionHistory({ objectType, objectId, currentNeedsReason, refreshKey }: { objectType: string; objectId: string; currentNeedsReason?: boolean; refreshKey?: unknown }) {

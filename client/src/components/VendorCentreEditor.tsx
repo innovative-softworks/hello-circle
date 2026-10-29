@@ -34,10 +34,10 @@ import { PaidClosedPriceNotice } from "./PaidClosedPriceNotice";
 const HOUR_OPTIONS = ["09:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00", "18:00", "19:00", "20:00", "21:00"];
 
 function centreToInput(c: Centre): CentreInput {
-  return { name: c.name, area: c.area, county: c.county, managedBy: c.managedBy, image: c.image, images: c.images, blurb: c.blurb, amenities: c.amenities, opensAt: c.opensAt, closesAt: c.closesAt, isOpen: c.isOpen, mapUrl: c.mapUrl, phone: c.phone, accessibility: c.accessibility, lat: c.lat ?? undefined, lng: c.lng ?? undefined };
+  return { name: c.name, area: c.area, county: c.county, managedBy: c.managedBy, image: c.image, images: c.images, blurb: c.blurb, amenities: c.amenities, opensAt: c.opensAt, closesAt: c.closesAt, isOpen: c.isOpen, mapUrl: c.mapUrl, phone: c.phone, accessibility: c.accessibility, newcomerWelcome: c.newcomerWelcome ?? "", lat: c.lat ?? undefined, lng: c.lng ?? undefined };
 }
 function blankCentreInput(): CentreInput {
-  return { name: "", area: "", county: "", managedBy: "", image: "", images: [], blurb: "", amenities: [], opensAt: "09:00", closesAt: "21:00", isOpen: true, mapUrl: "", phone: "", accessibility: [] };
+  return { name: "", area: "", county: "", managedBy: "", image: "", images: [], blurb: "", amenities: [], opensAt: "09:00", closesAt: "21:00", isOpen: true, mapUrl: "", phone: "", accessibility: [], newcomerWelcome: "" };
 }
 
 // --- centre editor (details fields only — rooms/availability/hours are their
@@ -281,6 +281,26 @@ export function CentreEditor({
     </div>
   );
 
+  // Trust & Retention — "who meets you on arrival", shown on the venue page and bookings.
+  const arrivalField = (
+    <div>
+      <FieldLabel htmlFor="centre-newcomer" optional>Who meets people on arrival</FieldLabel>
+      <textarea
+        id="centre-newcomer"
+        value={form.newcomerWelcome ?? ""}
+        onChange={(e) => set("newcomerWelcome", e.target.value)}
+        maxLength={300}
+        rows={2}
+        aria-describedby="centre-newcomer-help"
+        placeholder="e.g. The caretaker, Pat, opens the hall and shows first-time hirers around."
+        style={{ ...inputStyle, resize: "vertical" }}
+      />
+      <p id="centre-newcomer-help" style={{ fontSize: 12, color: colors.mutedLight, margin: "4px 0 0" }}>
+        Shown publicly. Use a role or first name and where to find them — no phone numbers or email addresses.
+      </p>
+    </div>
+  );
+
   const photosField = (
     <MultiImageUpload images={form.images ?? []} onChange={(images) => set("images", images)} mediaEntityType="centre-gallery" mediaEntityId={centreId} />
   );
@@ -336,6 +356,9 @@ export function CentreEditor({
       <SettingsSection title="Accessibility" summary={accessibilityList.length > 0 ? accessibilityList.join(" · ") : "None added"}>
         {accessibilityField}
       </SettingsSection>
+      <SettingsSection title="On arrival" summary={form.newcomerWelcome?.trim() || "Not added"}>
+        {arrivalField}
+      </SettingsSection>
       <VendorCategoryEditor type="centre" id={centreId} />
       <SettingsSection title="Photos" summary={`${(form.images ?? []).length} photo${(form.images ?? []).length === 1 ? "" : "s"}`}>
         {photosField}
@@ -371,6 +394,9 @@ export function CentreEditor({
       </SettingsSection>
       <SettingsSection title="Accessibility" summary={accessibilityList.length > 0 ? accessibilityList.join(" · ") : "None added"}>
         {accessibilityField}
+      </SettingsSection>
+      <SettingsSection title="On arrival" summary={form.newcomerWelcome?.trim() || "Not added"}>
+        {arrivalField}
       </SettingsSection>
       <VendorCategoryEditor type="centre" id={centreId} />
       <SettingsSection title="Photos" summary={`${(form.images ?? []).length} photo${(form.images ?? []).length === 1 ? "" : "s"}`}>

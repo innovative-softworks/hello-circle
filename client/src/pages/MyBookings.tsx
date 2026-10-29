@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { NextPlanSection } from "../components/mylife/NextPlan";
 import { MyLifePassport, MyLifePlans } from "../components/experience/MyLifeExperience";
 import { RefundStatus, SelfCancelControl } from "../components/SelfCancelControl";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
@@ -1682,6 +1683,8 @@ export function MyBookings() {
         ) : (
           <div className="mlx-split">
           <div className="mlx-main">
+            {/* Trust & Retention — the nearest commitment leads the page, then recent visits (attendance, review, go again). */}
+            <NextPlanSection onSeeAll={openBookings} />
             {resident && residentFull && residentFull.interests.length === 0 && !interestsNudgeDismissed && (
               <div className="mlx-note">
                 <p><strong>Tell us what you're into</strong><span>It takes under a minute and makes your suggestions fit you.</span></p>

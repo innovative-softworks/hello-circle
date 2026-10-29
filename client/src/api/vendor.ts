@@ -59,6 +59,8 @@ export interface CentreInput {
   mapUrl?: string;
   phone?: string;
   accessibility?: string[];
+  /** Trust & Retention — who meets people on arrival (public; no contact details). "" clears. */
+  newcomerWelcome?: string;
   /** From AddressSearch (Form System Audit, Phase 4) — real geocoded
    * coordinates, when set, take priority over the server's county-centroid
    * approximation. */
@@ -421,6 +423,8 @@ export interface VendorParticipation {
   attributes: string[];
   arrivalInstructions?: string;
   accessibilityInfo?: string;
+  /** Trust & Retention — who welcomes newcomers (public; no contact details). */
+  newcomerWelcome?: string;
   /** Release 3 — official Circle; only one organised by someone in your org. */
   circleId?: string | null;
 }

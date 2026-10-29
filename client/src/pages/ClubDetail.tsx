@@ -1,4 +1,5 @@
 import { Users as UsersLucide } from "lucide-react";
+import { WhatToExpect, clubExpectFacts } from "../components/trust/WhatToExpect";
 import { UnavailableListing, isUnavailable, type Unavailable } from "../components/UnavailableListing";
 import { usePageTitle } from "../pageTitle";
 import { usePaidCheckoutOpen } from "../paidCheckout";
@@ -16,7 +17,7 @@ import { ClaimListingCTA } from "../components/ClaimListingCTA";
 import { PhotoGallery } from "../components/PhotoGallery";
 import { Reviews } from "../components/Reviews";
 import { priceLabel } from "../priceLabel";
-import { BallIcon, CheckIcon, PersonIcon, PinIcon, StarIcon, UsersIcon, WheelchairIcon } from "../components/icons";
+import { BallIcon, CheckIcon, PersonIcon, PinIcon, StarIcon, UsersIcon } from "../components/icons";
 import { Button, ConfirmDialog, ListingDetailSkeleton } from "../components/ui";
 import { useGuest } from "../GuestContext";
 import { colors, fonts, maxWidth, radius } from "../theme";
@@ -185,21 +186,10 @@ export function ClubDetail() {
             ))}
           </div>
 
-          {club.accessibility.length > 0 && (
-            <>
-              <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: "0 0 12px", letterSpacing: 0 }}>
-                Accessibility
-              </h2>
-              <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 24px", marginBottom: 20 }}>
-                {club.accessibility.map((a) => (
-                  <div key={a} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 15, color: colors.textSoft }}>
-                    <WheelchairIcon size={16} style={{ color: colors.orangeDark }} />
-                    {a}
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
+          {/* Trust & Retention — one "What to expect" list for the club. */}
+          <div style={{ marginTop: 8 }}>
+            <WhatToExpect facts={clubExpectFacts(club)} contact="Ask the club, or" />
+          </div>
 
 
           {programs.length > 0 && (

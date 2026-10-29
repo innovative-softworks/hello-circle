@@ -1,4 +1,6 @@
 import { monthBounds, statementCsv, vendorStatement } from "../vendorStatements.js";
+import { flagReviewsAfterAttendanceChange, isAbsence } from "../reviewAttendanceFlags.js";
+import { verifiedSql } from "../reviewEligibility.js";
 import { MembershipChangedError, assertCreatorStillMember } from "../orgStatus.js";
 import { complaintsAbout, respondAsSubject } from "./complaints.js";
 import { ChangeError, bookingForChange, proposalsForBooking, proposeBookingChange, withdrawProposal } from "../bookingChanges.js";
@@ -884,47 +886,48 @@ vendorOperationsRouter.get("/messages", async (req, res) => {
 });
 
 // --- reviews reply (Host Manage spec §16) ---------------------------------
-// No vendor-facing reviews surface existed before — reviews.ts only ever
-// supported guest post + admin hide/unhide. This adds read + a reply,
-// scoped to the vendor's own centres/clubs (game/host reviews have no
-// vendor to reply, so they're excluded from this list entirely).
+// The organisation's own reviews and a reply. Trust & Retention batch 1:
+// experience and programme reviews are included (they had no reply path);
+// Session and host reviews belong to the resident host (residents.ts).
+
+/** A review of one of this organisation's own centres, clubs, experiences or
+ * programmes (aliases c / cl / e / p joined as below). Binds the ids 4 times. */
+const ownedReviewSql = (ids: string[]) =>
+  `((r.listing_type = 'centre' AND c.vendor_id IN (${inClause(ids)})) OR (r.listing_type = 'club' AND cl.vendor_id IN (${inClause(ids)}))
+    OR (r.listing_type = 'experience' AND e.vendor_id IN (${inClause(ids)})) OR (r.listing_type = 'program' AND p.vendor_id IN (${inClause(ids)})))`;
+const REVIEW_JOINS = `LEFT JOIN centres c ON r.listing_type = 'centre' AND c.id = r.listing_id
+       LEFT JOIN clubs cl ON r.listing_type = 'club' AND cl.id = r.listing_id
+       LEFT JOIN experiences e ON r.listing_type = 'experience' AND e.id = r.listing_id
+       LEFT JOIN programs p ON r.listing_type = 'program' AND p.id = r.listing_id`;
 
 vendorOperationsRouter.get("/reviews", async (req, res) => {
   const ids = req.vendorIds!;
   const rows = await db
     .prepare(
-      `SELECT r.id, r.listing_type as listingType, r.listing_id as listingId, r.name, r.rating, r.comment,
+      `SELECT r.id, r.listing_type as listingType, r.listing_id as listingId, r.name, r.rating, r.comment, r.tags,
+              IF(${verifiedSql("r")}, 'person', NULL) as attendanceBasis, r.occurrence_date as occurrenceDate, r.updated_at as updatedAt,
               r.created_at as createdAt, r.vendor_reply as vendorReply, r.vendor_reply_at as vendorRepliedAt,
-              COALESCE(c.name, cl.name) as listingName
+              COALESCE(c.name, cl.name, e.title, p.title) as listingName
        FROM reviews r
-       LEFT JOIN centres c ON r.listing_type = 'centre' AND c.id = r.listing_id
-       LEFT JOIN clubs cl ON r.listing_type = 'club' AND cl.id = r.listing_id
-       WHERE r.hidden = 0 AND r.listing_type IN ('centre', 'club')
-         AND ((r.listing_type = 'centre' AND c.vendor_id IN (${inClause(ids)}))
-           OR (r.listing_type = 'club' AND cl.vendor_id IN (${inClause(ids)})))
+       ${REVIEW_JOINS}
+       WHERE r.hidden = 0 AND ${ownedReviewSql(ids)}
        ORDER BY r.created_at DESC`
     )
-    .all(...ids, ...ids);
+    .all(...ids, ...ids, ...ids, ...ids);
   res.json(rows);
 });
 
 vendorOperationsRouter.post("/reviews/:id/reply", requirePlatformRole("communications"), async (req, res) => {
   const { reply } = req.body as { reply?: string };
   if (!reply || !reply.trim()) return res.status(400).json({ error: "Reply text is required" });
+  if (reply.trim().length > 2000) return res.status(400).json({ error: "Keep the reply under 2000 characters" });
   const ids = req.vendorIds!;
   const row = (await db
-    .prepare(
-      `SELECT r.id, r.listing_type as listingType, r.listing_id as listingId
-       FROM reviews r
-       LEFT JOIN centres c ON r.listing_type = 'centre' AND c.id = r.listing_id
-       LEFT JOIN clubs cl ON r.listing_type = 'club' AND cl.id = r.listing_id
-       WHERE r.id = ? AND ((r.listing_type = 'centre' AND c.vendor_id IN (${inClause(ids)}))
-                         OR (r.listing_type = 'club' AND cl.vendor_id IN (${inClause(ids)})))`
-    )
-    .get(req.params.id, ...ids, ...ids)) as { id: number; listingType: string; listingId: string } | undefined;
+    .prepare(`SELECT r.id, r.listing_type as listingType, r.listing_id as listingId FROM reviews r ${REVIEW_JOINS} WHERE r.id = ? AND r.hidden = 0 AND ${ownedReviewSql(ids)}`)
+    .get(req.params.id, ...ids, ...ids, ...ids, ...ids)) as { id: number; listingType: string; listingId: string } | undefined;
   if (!row) return res.status(404).json({ error: "Review not found" });
 
-  await db.prepare(`UPDATE reviews SET vendor_reply = ?, vendor_reply_at = NOW() WHERE id = ?`).run(reply.trim(), row.id);
+  await db.prepare(`UPDATE reviews SET vendor_reply = ?, vendor_reply_at = NOW(), vendor_reply_by = ? WHERE id = ?`).run(reply.trim(), req.user!.id, row.id);
   res.json({ ok: true });
 });
 
@@ -1053,6 +1056,8 @@ vendorOperationsRouter.post("/checkin/:kind/:ref", async (req, res) => {
     )
     .run(kind, ref, req.user!.id, status, source === "qr" ? "qr" : "host_manual");
   if (status === "present") void logEvent("attendance_confirmed", { metadata: { kind, ref, by: "host" } });
+  // Trust & Retention — a no-show after a review was published flags it for moderation (never hides it).
+  if (isAbsence(status)) await flagReviewsAfterAttendanceChange(kind, ref, "the organiser recorded a no-show", { id: req.user!.id, kind: "user" });
   res.json({ ok: true, status });
 });
 

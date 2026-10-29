@@ -159,7 +159,7 @@ export interface DecisionReasonInput {
   explanation?: string;
   internalNote?: string;
 }
-export type ReasonKind = "listing_rejection" | "suspension" | "application_rejection";
+export type ReasonKind = "listing_rejection" | "suspension" | "application_rejection" | "verification";
 /** Mirrors server/src/moderationDecisions.ts REASON_CATEGORIES (keep in sync). */
 export const REASON_CATEGORIES: Record<ReasonKind, { value: string; label: string }[]> = {
   listing_rejection: [
@@ -183,6 +183,13 @@ export const REASON_CATEGORIES: Record<ReasonKind, { value: string; label: strin
     { value: "ineligible", label: "Doesn't meet the criteria" },
     { value: "duplicate", label: "Duplicate" },
     { value: "safety", label: "Safety concern" },
+    { value: "other", label: "Other" },
+  ],
+  verification: [
+    { value: "details_mismatch", label: "Details didn't match the record" },
+    { value: "insufficient_evidence", label: "Not enough information to confirm" },
+    { value: "no_longer_accurate", label: "No longer accurate" },
+    { value: "expired", label: "Check has expired" },
     { value: "other", label: "Other" },
   ],
 };
@@ -332,8 +339,9 @@ export function fetchAdminReviews(): Promise<(Review & { hidden: number })[]> {
   return request(`/admin/reviews`);
 }
 
-export function unhideReview(id: number): Promise<{ ok: boolean }> {
-  return request(`/admin/reviews/${id}/unhide`, { method: "PUT" });
+/** Restoring a hidden review needs a reason, the same as hiding it. */
+export function unhideReview(id: number, reason: string): Promise<{ ok: boolean }> {
+  return request(`/admin/reviews/${id}/unhide`, { method: "PUT", body: JSON.stringify({ reason }) });
 }
 
 // --- admin coupons -----------------------------------------------------

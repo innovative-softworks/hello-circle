@@ -44,9 +44,11 @@ complaintsRouter.post("/", complaintLimiter, async (req, res) => {
   if (!isValidEmail(email)) return res.status(400).json({ error: "An email address is needed so we can reply" });
 
   let reportId: number | null = null;
-  if (kind === "appeal" && subjectType === "moderation_decision" && subjectRef && /^\d+$/.test(subjectRef)) {
-    const report = await db.prepare(`SELECT id FROM reports WHERE id = ? AND status <> 'pending'`).get(Number(subjectRef));
-    if (report) reportId = Number(subjectRef);
+  // A case reference ("R-000123", Trust & Retention) or the bare number both identify the report.
+  const caseNumber = subjectRef?.match(/^(?:R-)?0*(\d+)$/i)?.[1];
+  if (kind === "appeal" && subjectType === "moderation_decision" && caseNumber) {
+    const report = await db.prepare(`SELECT id FROM reports WHERE id = ? AND status <> 'pending'`).get(Number(caseNumber));
+    if (report) reportId = Number(caseNumber);
   }
 
   // OG-17 / DEC-12 — a complaint or notice about a business's or a host's own

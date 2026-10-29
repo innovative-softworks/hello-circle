@@ -6,6 +6,8 @@ import {
   UsersRound,
   CalendarCheck,
   Award,
+  BadgeCheck,
+  ClipboardList,
   Building2,
   FolderTree,
   ClipboardCheck,
@@ -51,6 +53,8 @@ export type AdminTab =
   | "vendors"
   | "claims"
   | "hostApplications"
+  | "verification"
+  | "attendance"
   | "placeSuggestions"
   | "organisations"
   | "categories"
@@ -119,7 +123,8 @@ export const ADMIN_NAV: AdminNavGroup[] = [
       { key: "listings", label: "All listings", icon: List, summary: "Every community centre, sports club and experience on the platform.", permissions: ["listings.view"] },
       { key: "vendors", label: "Vendors", icon: Store, summary: "Partner accounts, their onboarding details, roles and listings.", permissions: ["partners.view"] },
       { key: "claims", label: "Claims", icon: KeyRound, summary: "Partners asking to take ownership of an unclaimed listing.", permissions: ["queues.view"] },
-      { key: "hostApplications", label: "Host applications", icon: Award, summary: "Residents applying for the Verified Host badge.", permissions: ["queues.view"] },
+      { key: "hostApplications", label: "Host applications", icon: Award, summary: "Residents applying to host. Approval shows “Host application approved” — not an identity check.", permissions: ["queues.view"] },
+      { key: "verification", label: "Verification checks", icon: BadgeCheck, summary: "Business-details checks partners asked for: ask for more, approve, decline or withdraw.", permissions: ["queues.view"] },
       { key: "placeSuggestions", label: "Place suggestions", icon: MapPin, summary: "Places suggested by residents, waiting to be published or declined.", permissions: ["queues.view"] },
       { key: "categories", label: "Categories", icon: FolderTree, summary: "Categories and subcategories people browse by, and listings still waiting for one.", permissions: ["taxonomy.view"] },
       { key: "organisations", label: "Organisations", icon: Building2, summary: "Partner organisations, their feature flags, and custom organisations.", permissions: ["orgs.view"] },
@@ -140,6 +145,7 @@ export const ADMIN_NAV: AdminNavGroup[] = [
     label: "Trust & Platform",
     items: [
       { key: "reviews", label: "Reviews & reports", icon: Star, summary: "Hide or restore reviews and work through user reports.", permissions: ["reviews.view", "reports.view"] },
+      { key: "attendance", label: "Attendance corrections", icon: ClipboardList, summary: "Disputed attendance records — organisers decide first, support settles disputes.", permissions: ["complaints.handle"] },
       { key: "policies", label: "Policies & trust", icon: ShieldCheck, summary: "Policy documents, company details, complaints and trader checks.", permissions: ["policies.manage", "complaints.handle", "traders.view"] },
       { key: "audit", label: "Audit log", icon: ScrollText, summary: "Who changed what, and when.", permissions: ["audit.view"] },
       { key: "notificationTemplates", label: "Notification templates", icon: Mail, summary: "Wording of booking and registration confirmation and cancellation messages.", permissions: ["templates.view"] },

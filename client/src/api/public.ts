@@ -472,15 +472,41 @@ export function submitReview(input: {
   name: string;
   rating: number;
   comment?: string;
+  /** Trust & Retention batch 1 — which visit (from checkReviewEligibility). */
+  occurrenceRef?: string;
+  tags?: ReviewTag[];
 }): Promise<Review> {
   return request(`/reviews`, { method: "POST", body: JSON.stringify(input) });
 }
 
-export function hideReview(id: number): Promise<{ ok: boolean }> {
-  return request(`/reviews/${id}`, { method: "DELETE" });
+/** Admin: hide a review. A reason is required and kept with the audit history. */
+export function hideReview(id: number, reason: string): Promise<{ ok: boolean }> {
+  return request(`/reviews/${id}`, { method: "DELETE", body: JSON.stringify({ reason }) });
 }
 
-export function checkReviewEligibility(listingType: ReviewListingType, listingId: string): Promise<{ eligible: boolean }> {
+export type ReviewTag = "welcoming_host" | "good_organisation" | "accurate_description" | "good_value";
+
+/** A visit the viewer may review, and what the organiser confirmed about it. */
+export interface ReviewableOccurrence {
+  kind: string;
+  ref: string;
+  date: string;
+  label: string;
+  /** Always "person": only organiser-confirmed attendance opens a review. */
+  basis: "person";
+  reviewed: boolean;
+}
+
+export interface ReviewEligibility {
+  eligible: boolean;
+  reason?: "own" | "no_attendance" | "not_confirmed" | "already_reviewed" | "not_reviewable" | "guardian" | null;
+  message?: string | null;
+  occurrences?: ReviewableOccurrence[];
+  /** Past places the viewer holds that the organiser hasn't confirmed for them yet. */
+  unconfirmed?: { kind: string; ref: string; date: string; label: string }[];
+}
+
+export function checkReviewEligibility(listingType: ReviewListingType, listingId: string): Promise<ReviewEligibility> {
   return request(`/reviews/eligible?listingType=${listingType}&listingId=${encodeURIComponent(listingId)}`);
 }
 

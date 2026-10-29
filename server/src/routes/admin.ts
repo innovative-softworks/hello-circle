@@ -1,4 +1,7 @@
 import { adminCategoriesRouter, categoriesConfigRouter } from "./adminCategories.js";
+import { verifiedSql } from "../reviewEligibility.js";
+import { adminVerificationRouter } from "./verificationChecks.js";
+import { adminAttendanceRouter } from "./attendanceCorrections.js";
 import { FEATURE_SWITCHES, allFeatureStates, featureOn, isFeatureKey, setFeature } from "../circleFeatures.js";
 import crypto from "node:crypto";
 import { matchExperienceSupply } from "../participationIntents.js";
@@ -52,6 +55,9 @@ adminRouter.use("/privacy", adminPrivacyRouter);
 adminRouter.use("/help", adminHelpRouter);
 adminRouter.use("/policies", adminPoliciesRouter);
 adminRouter.use("/complaints", adminComplaintsRouter);
+// Trust & Retention batch 1 — verification checks and attendance corrections.
+adminRouter.use("/verification", adminVerificationRouter);
+adminRouter.use("/attendance", adminAttendanceRouter);
 adminRouter.use("/traders", adminTraderRouter);
 
 // --- D-02: the signed-in admin's own permissions --------------------------------
@@ -64,7 +70,7 @@ adminRouter.get("/permissions", requireAdminPermission("workspace.view"), (req, 
 
 // --- D-03: decision history for a record ------------------------------------------
 // Internal notes are included only for roles with decisions.internal_notes.view.
-const DECISION_OBJECT_TYPES = ["centre", "club", "experience", "vendor", "claim", "host_application", "place_suggestion", "organisation"];
+const DECISION_OBJECT_TYPES = ["centre", "club", "experience", "vendor", "claim", "host_application", "place_suggestion", "organisation", "verification_check"];
 adminRouter.get("/decisions", requireAdminPermission("decisions.view"), async (req, res) => {
   const objectType = String(req.query.objectType ?? "");
   const objectId = String(req.query.objectId ?? "");
@@ -954,14 +960,21 @@ adminRouter.delete("/clubs/:id", requireAdminPermission("listings.delete"), asyn
 // --- review moderation -----------------------------------------------------
 
 adminRouter.get("/reviews", requireAdminPermission("reviews.view"), async (_req, res) => {
-  const rows = await db.prepare(`SELECT * FROM reviews ORDER BY created_at DESC`).all();
+  // Trust & Retention — `verified` is the live person-level confirmation;
+  // attendance_basis stays as recorded at the time (older rule included).
+  const rows = await db.prepare(`SELECT r.*, ${verifiedSql("r")} as verified FROM reviews r ORDER BY r.created_at DESC`).all();
   res.json(rows);
 });
 
+// Trust & Retention batch 1 — restoring a hidden review records why, the same
+// as hiding it does (DELETE /api/reviews/:id). The hide reason is kept with
+// the audit history rather than overwritten.
 adminRouter.put("/reviews/:id/unhide", requireAdminPermission("reviews.moderate"), async (req, res) => {
-  const info = await db.prepare(`UPDATE reviews SET hidden = 0 WHERE id = ?`).run(req.params.id);
-  if (info.changes === 0) return res.status(404).json({ error: "Review not found" });
-  await writeAudit({ actorUserId: req.user!.id, action: "review.unhidden", objectType: "review", objectId: req.params.id, previousValue: { hidden: true }, newValue: { hidden: false } });
+  const reason = typeof req.body?.reason === "string" ? req.body.reason.trim() : "";
+  if (reason.length < 5) return res.status(400).json({ error: "Give the reason for restoring this review" });
+  const info = await db.prepare(`UPDATE reviews SET hidden = 0, hidden_reason = NULL, hidden_by = NULL, hidden_at = NULL WHERE id = ? AND hidden = 1`).run(req.params.id);
+  if (info.changes === 0) return res.status(404).json({ error: "Review not found, or not hidden" });
+  await writeAudit({ actorUserId: req.user!.id, action: "review.unhidden", objectType: "review", objectId: req.params.id, previousValue: { hidden: true }, newValue: { hidden: false }, reason });
   res.json({ ok: true });
 });
 
@@ -1318,8 +1331,9 @@ adminRouter.get("/reports", requireAdminPermission("reports.view"), async (req, 
   const all = req.query.status === "all";
   const rows = await db
     .prepare(
-      `SELECT id, target_type as targetType, target_id as targetId, reason, status, admin_notes as adminNotes, created_at as createdAt
-       FROM reports ${all ? "" : "WHERE status = 'pending'"} ORDER BY created_at DESC`
+      // Trust & Retention batch 1 — safety concerns come first.
+      `SELECT id, target_type as targetType, target_id as targetId, reason, status, category, admin_notes as adminNotes, created_at as createdAt
+       FROM reports ${all ? "" : "WHERE status = 'pending'"} ORDER BY (status = 'pending' AND category = 'safety') DESC, created_at DESC`
     )
     .all();
   res.json(rows);
@@ -1332,7 +1346,7 @@ adminRouter.get("/reports", requireAdminPermission("reports.view"), async (req, 
 // unresolved rather than guessing at a table.
 adminRouter.get("/reports/:id/case", requireAdminPermission("reports.view"), async (req, res) => {
   const report = (await db
-    .prepare(`SELECT id, target_type as targetType, target_id as targetId, reason, status, admin_notes as adminNotes, reporter_client_id as reporterClientId, created_at as createdAt FROM reports WHERE id = ?`)
+    .prepare(`SELECT id, target_type as targetType, target_id as targetId, reason, status, category, admin_notes as adminNotes, reporter_client_id as reporterClientId, created_at as createdAt FROM reports WHERE id = ?`)
     .get(req.params.id)) as { id: number; targetType: string; targetId: string; reason: string; status: string; adminNotes: string | null; reporterClientId: string; createdAt: string } | undefined;
   if (!report) return res.status(404).json({ error: "Report not found" });
 

@@ -1,4 +1,5 @@
 import { assertCreatorStillMember } from "../orgStatus.js";
+import { flagReviewsAfterAttendanceChange, isAbsence } from "../reviewAttendanceFlags.js";
 import { cancelExperienceBookingAsProvider } from "../hallBookingCancel.js";
 import crypto from "node:crypto";
 import { refundOnProviderCancel } from "../providerCancelRefund.js";
@@ -136,6 +137,7 @@ function toVendorExperienceJson(row: Record<string, any>, images: string[]) {
     transportInfo: row.transport_info,
     safetyInfo: row.safety_info,
     accessibilityInfo: row.accessibility_info || null,
+    newcomerWelcome: (row as { newcomer_welcome?: string | null }).newcomer_welcome ?? null,
     weatherPolicy: row.weather_policy,
     eligibility: row.eligibility,
     cancellationTerms: row.cancellation_terms,
@@ -649,6 +651,8 @@ vendorExperiencesRouter.post("/experiences/:id/bookings/:ref/attendance", requir
     )
     .run(req.params.ref, req.user!.id, status);
   if (status === "present") void logEvent("attendance_confirmed", { metadata: { kind: "experience", ref: req.params.ref, by: "host" } });
+  // Trust & Retention — a no-show after a review was published flags it for moderation (never hides it).
+  if (isAbsence(status)) await flagReviewsAfterAttendanceChange("experience", req.params.ref, "the organiser recorded a no-show", { id: req.user!.id, kind: "user" });
   res.json({ ok: true, status });
 });
 

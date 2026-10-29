@@ -28,6 +28,7 @@ import { SKILL_LEVELS } from "../constants";
 import type { Game } from "../types";
 import { daysBetween, irelandDaysFromToday, irelandToday, weekdayOf } from "../irelandDate";
 import { CtaBand } from "../components/CtaBand";
+import { cardWord } from "../cardWord";
 import { FeaturedPicks } from "../components/FeaturedPicks";
 
 // "Join a Game" (MVP) — the lightweight, participation-first counterpart to
@@ -133,7 +134,7 @@ export function GameCard({ game, onJoin, onLeave, joining }: { game: Game; onJoi
       details={[
         { icon: <CalendarIcon size={13} />, text: gameWhen12h(game) },
         { icon: <PinIcon size={13} />, text: game.centreName ?? game.locationText },
-        game.hostVerified ? { icon: <AwardIcon size={13} />, text: "Verified host" } : null,
+        game.hostVerified ? { icon: <AwardIcon size={13} />, text: "Approved host" } : null,
       ]}
       going={game.joined}
       facts={
@@ -330,7 +331,10 @@ function JoinGameCard({
   busy,
   onPrimaryAction,
   onFindSimilar,
+  showWord = false,
 }: {
+  /** The Bold word over the photo — search results only (owner, 2026-10-28). */
+  showWord?: boolean;
   game: Game;
   joinedByMe: boolean;
   busy: boolean;
@@ -380,12 +384,14 @@ function JoinGameCard({
       iconColor={colors.orange}
       // Only a real category: a generic "Activity" on every card says nothing.
       kicker={game.taxonomy?.subcategoryName ?? game.taxonomy?.categoryName ?? null}
+      word={showWord ? cardWord(game.categoryLabel, "Activity") : null}
       dateOn={<CardDate date={game.date} time={game.time} label={label} href={href} onGo={navigate} />}
       save={<SaveButton saved={saved} onToggle={toggleSaved} />}
       details={[{ text: [place, game.joined > 0 ? `${game.joined} going` : null].filter(Boolean).join(" · ") }]}
       facts={
         <>
-          <CardPrice cents={game.priceCents} unit="per person" />
+          {/* A blank price is unknown, never "Free" (owner, 2026-10-28). */}
+          {game.priceCents != null && <CardPrice cents={game.priceCents} unit="per person" />}
           {!comingSoon && <CardAvailability spotsLeft={game.spotsLeft} />}
         </>
       }
@@ -1085,6 +1091,7 @@ export function Games() {
                   {visibleGames.map((g) => (
                     <JoinGameCard
                       key={g.id}
+                      showWord={query.trim() !== "" || activeCount > 0}
                       game={g}
                       joinedByMe={myGameIds.has(g.id)}
                       busy={joiningId === g.id}

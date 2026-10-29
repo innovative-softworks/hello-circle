@@ -1,7 +1,11 @@
+// Must stay the first import: modules below read process.env at load time.
+import "dotenv/config";
+import { sweepReviewInvitations } from "./myLifePlans.js";
+import { vendorVerificationRouter } from "./routes/verificationChecks.js";
+import { attendanceRouter } from "./routes/attendanceCorrections.js";
 import { sweepPaymentReviews } from "./payments/paymentReview.js";
 import { bookingChangesRouter } from "./routes/bookingChangeRoutes.js";
 import { adminInviteRouter, adminMfaRouter } from "./routes/adminAccess.js";
-import "dotenv/config";
 import cookieParser from "cookie-parser";
 import { sweepSubscriptions } from "./commerce/subscriptions.js";
 import cors from "cors";
@@ -141,6 +145,8 @@ setInterval(() => void sweepPaymentReviews().catch((e) => console.error("[paymen
 setInterval(() => void sweepSpotAlerts().catch((e) => console.error("[spot-alerts] sweep failed:", e)), 5 * 60 * 1000);
 // My Life 3.0 opt-in alerts (mylife.alerts + the resident's own setting), every 30 minutes.
 setInterval(() => void sweepMyLifeAlerts().catch((e) => console.error("[mylife-alerts] sweep failed:", e)), 30 * 60 * 1000);
+// Trust & Retention — review invitations become due when the occurrence ends.
+setInterval(() => void sweepReviewInvitations().catch((e) => console.error("[review-invitations] sweep failed:", e)), 5 * 60 * 1000);
 // Circles 3.0 — day-before reminders for dated Circle plans (once per plan).
 setInterval(() => void sweepCirclePlanReminders().catch((e) => console.error("[circle-plans] reminder sweep failed:", e)), 30 * 60 * 1000);
 
@@ -251,6 +257,9 @@ app.use("/api/consents", consentsRouter);
 app.use("/api/complaints", complaintsRouter);
 app.use("/api/traders", publicTraderRouter);
 app.use("/api/vendor/trader-profile", vendorTraderRouter);
+// Trust & Retention batch 1 — business checks (partner side) and attendance corrections.
+app.use("/api/vendor/verification", vendorVerificationRouter);
+app.use("/api/attendance", attendanceRouter);
 app.use("/api/host/trader-profile", hostTraderRouter);
 // Revenue & Connect Stage 5a — partner payout accounts (Stripe Connect).
 // (Stage 5c: "payout account" — transfers in and bank payouts out are reported separately.)

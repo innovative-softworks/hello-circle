@@ -1472,6 +1472,20 @@ main#main-content:focus { outline: none; }
 /* Batch 2 — discovery headers on phones: chip rows scroll sideways instead of
    wrapping into several lines, and Explore's category tiles become a compact
    sideways row, so the first results appear on the first screen. */
+/* Explore's filter toolbar on phones: one line that scrolls sideways (its
+   menus open as floating panels, so the row can't clip them). */
+@media (max-width: 560px) {
+  .explore-toolbar {
+    flex-wrap: nowrap !important;
+    overflow-x: auto;
+    scrollbar-width: none;
+    margin-right: -16px;
+    padding-right: 16px;
+  }
+  .explore-toolbar::-webkit-scrollbar { display: none; }
+  .explore-toolbar > * { flex: none; }
+}
+
 @media (max-width: 560px) {
   .chips-scroll-mobile {
     flex-wrap: nowrap !important;

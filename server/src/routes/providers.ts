@@ -1,5 +1,6 @@
 import { orgActiveSql, orgOfVendor } from "../orgStatus.js";
 import { Router } from "express";
+import { vendorLabels } from "../verification.js";
 import { db } from "../db/index.js";
 import { getProviderAmenities, getProviderParticipantCount, getProviderReviewsSummary, getProviderUpcoming, getProviderWentAheadPercent, orgPoliciesForVendor } from "../db/queries.js";
 
@@ -68,6 +69,7 @@ providersRouter.get("/:id", async (req, res) => {
   ]);
 
   const totalListings = centres.length + clubs.length + experiences.length;
+  const checks = await vendorLabels(vendorId);
 
   // First listing with real coordinates — used for the map section (v3
   // redesign). Deliberately not averaged/centred across listings; a vendor
@@ -125,7 +127,12 @@ providersRouter.get("/:id", async (req, res) => {
     id: vendor.id,
     name: vendor.businessName || vendor.name,
     description: vendor.description,
-    verified: vendor.providerTier !== "standard",
+    // Trust & Retention batch 1 — "verified" used to mean any tier above
+    // standard, which is a commercial placement (incl. "featured"), not a
+    // check. It now means a business-details check HelloCircle completed;
+    // `checks` lists exactly which checks hold and what each means.
+    verified: checks.some((c) => c.key === "business_details_checked"),
+    checks,
     providerTier: vendor.providerTier,
     county: vendor.county,
     logo: vendor.logo || null,

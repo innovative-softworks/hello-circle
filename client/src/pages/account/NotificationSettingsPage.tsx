@@ -12,8 +12,8 @@ import { AccountPage, AccountSection, Note, SettingRow, SettingRows, StatusTag, 
 import { useResidentFull } from "./useResidentFull";
 
 // Notification settings, honest version (owner decision 2026-10-24, audit
-// A-01..A-03). Only three preferences are read by the server today:
-// waitlistOffers and intentMatches (server/src/notifications.ts
+// A-01..A-03). Only four preferences are read by the server today:
+// waitlistOffers, intentMatches and reviewInvites (server/src/notifications.ts
 // PREF_KEY_BY_KIND, waitlist.ts) and the marketing consent. Every other
 // resident notification is always sent, and one switch covers in-app, push
 // and (for waitlists) email together — there are no per-channel settings, so
@@ -23,12 +23,13 @@ import { useResidentFull } from "./useResidentFull";
 const DEFAULTS: NotificationPrefs = {
   bookingConfirmations: true, bookingReminders: true, activityReminders: true, waitlistOffers: true, openSpots: true,
   recommendations: true, circleAnnouncements: true, routineReminders: true, marketing: false, intentMatches: true,
-  savedAvailability: false, routineAlerts: false,
+  savedAvailability: false, routineAlerts: false, reviewInvites: true,
 };
 
 const OPTIONAL: { key: keyof NotificationPrefs; label: string; description: string }[] = [
   { key: "waitlistOffers", label: "Waitlist places", description: "When a place opens up on a waitlist you've joined. Sent by email, in the app and to your phone." },
   { key: "intentMatches", label: "Matches for things you want to do", description: "When something new nearby matches an activity you said you're looking for." },
+  { key: "reviewInvites", label: "Review invitations", description: "One message after an organiser confirms you attended, inviting you to review it. In the app only." },
 ];
 
 // Restored (owner 2026-10-24: "add all"). These are saved, but nothing on the

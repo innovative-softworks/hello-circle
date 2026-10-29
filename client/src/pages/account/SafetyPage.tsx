@@ -114,7 +114,16 @@ export function SafetySections() {
                     <span className="acct-thumb" aria-hidden="true"><Flag size={18} /></span>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div className="acct-item-title">{TARGET_LABEL[r.targetType] ?? "Content"} · {r.reason}</div>
-                      <div className="acct-item-meta">Reported {dateLong(r.createdAt)}</div>
+                      <div className="acct-item-meta">
+                        {r.caseRef ? `Case ${r.caseRef} · ` : ""}
+                        {r.category === "safety" ? "Safety concern · " : ""}Reported {dateLong(r.createdAt)}
+                        {r.decidedAt ? ` · decided ${dateLong(r.decidedAt)}` : ""}
+                      </div>
+                      {r.canAppeal && (
+                        <div className="acct-item-meta">
+                          <Link to={`/complaints?kind=appeal&subject=moderation_decision&ref=${r.id}`}>Ask us to reconsider</Link>
+                        </div>
+                      )}
                     </div>
                     <div className="acct-item-side">
                       <StatusTag tone={r.status === "pending" ? "warn" : "ok"}>{r.status === "pending" ? "Under review" : r.status.charAt(0).toUpperCase() + r.status.slice(1).replace(/_/g, " ")}</StatusTag>

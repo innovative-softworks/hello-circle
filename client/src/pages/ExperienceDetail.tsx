@@ -1,4 +1,5 @@
 import { Euro } from "lucide-react";
+import { WhatToExpect, experienceExpectFacts } from "../components/trust/WhatToExpect";
 import { SpotAlertButton } from "../components/experience/SpotAlertButton";
 import { BookingActions, BookingFacts, BookingGlance, BookingPrice, directionsHref, IconAction, QuietAction, startsIn, type GlanceItem } from "../components/BookingFacts";
 import { formatDuration } from "../formatters";
@@ -38,7 +39,7 @@ import type { Experience, ExperienceSessionSlot } from "../types";
 import { formatPrice } from "../formatters";
 import { CtaBand } from "../components/CtaBand";
 import { DetailSection, HostRow, LocationBlock } from "../components/detail/DetailSections";
-import { KeyFacts, PAID_PRICE_NOTE, Requirements } from "../components/detail/KeyFacts";
+import { KeyFacts, PAID_PRICE_NOTE } from "../components/detail/KeyFacts";
 import { DetailTopBar, detailActionStyle } from "../components/detail/DetailTopBar";
 import { DetailUnavailable } from "../components/detail/DetailUnavailable";
 import { scrollToInterest } from "../components/detail/scrollToInterest";
@@ -61,7 +62,6 @@ import { scrollToInterest } from "../components/detail/scrollToInterest";
 // headline/social-proof/divider rhythm otherwise matches GameJoinCard.
 
 
-const factLabelStyle: React.CSSProperties = { fontSize: 11.5, color: colors.mutedLight, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0 };
 const sectionDividerStyle: React.CSSProperties = { height: 1, background: colors.border, margin: "28px 0" };
 
 function capitalize(s: string): string {
@@ -735,39 +735,12 @@ export function ExperienceDetail() {
               </div>
             )}
 
-            <Requirements
-              rows={[
-                { label: "Fitness", value: experience.fitnessRequirements },
-                { label: "Requirements", value: experience.eligibility },
-                { label: "Skills needed", value: experience.skillsRequired },
-                { label: "Accessibility", value: experience.accessibilityInfo },
-              ]}
-            />
-
-            {/* What to bring */}
-            {(experience.equipmentProvided || experience.equipmentRequired) && (
-              <div style={{ marginBottom: 28 }}>
-                <SectionHeading title="What to bring" />
-                <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }}>
-                  {experience.equipmentProvided && (
-                    <div>
-                      <div style={factLabelStyle}>We provide</div>
-                      <div style={{ fontSize: 14, fontWeight: 600, marginTop: 3, lineHeight: 1.4, color: colors.textSoft }}>{experience.equipmentProvided}</div>
-                    </div>
-                  )}
-                  {experience.equipmentRequired && (
-                    <div>
-                      <div style={factLabelStyle}>You bring</div>
-                      <div style={{ fontSize: 14, fontWeight: 600, marginTop: 3, lineHeight: 1.4, color: colors.textSoft }}>{experience.equipmentRequired}</div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
+            {/* Trust & Retention — one "What to expect" list (fitness, requirements,
+                kit, getting there, weather, accessibility, newcomers…): every field
+                shown, empty ones as "Not provided", irrelevant ones "Not applicable". */}
+            <WhatToExpect facts={experienceExpectFacts(experience)} contact="Message the organiser from this page, or" />
 
             <InfoBlock heading="Itinerary" body={experience.itinerary} />
-            <InfoBlock heading="Transport" body={experience.transportInfo} />
-            <InfoBlock heading="Weather policy" body={experience.weatherPolicy} />
 
             {/* Hosted by — the real vendor behind this listing (businessName-
                 or-name + a verified badge off provider_tier), linking to
@@ -803,7 +776,7 @@ export function ExperienceDetail() {
                 post once they've actually got a past paid booking on this
                 listing (server-checked in reviews.ts, not just hidden UI). */}
             <div style={{ marginBottom: 28 }}>
-              <Reviews listingType="experience" listingId={experience.id} accent={experience.kind === "adventure" ? "green" : "orange"} />
+              <Reviews listingType="experience" listingId={experience.id} accent={experience.kind === "adventure" ? "green" : "orange"} followAfter={experience.vendorId ? { type: "vendor", id: experience.vendorId, name: experience.vendorName } : undefined} />
               <div style={{ marginTop: 20 }}>
                 <TraderInfo type="experience" id={experience.id} />
               </div>
@@ -908,7 +881,7 @@ export function ExperienceDetail() {
               <DetailSection title="Hosted by">
                 <HostRow
                   name={experience.vendorName}
-                  verifiedLabel={experience.vendorVerified ? "Verified provider" : null}
+                  verifiedLabel={experience.vendorVerified ? "Business details checked" : null}
                   href={`/provider/${experience.vendorId}`}
                   linkLabel="View provider"
                 />

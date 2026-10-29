@@ -1,5 +1,9 @@
 # HelloCircle QA environment contract
 
+## Recovery — 2026-10-28 (Trust & Retention QA)
+
+The running container `hellocircle-qa_9d63726cbc259f00` had lost its generated `environment.json` (secrets dir present, file missing; cause UNKNOWN), so no command could use it. It was **stopped, not removed**; its manifest was moved to `.qa-data/qa_9d63726cbc259f00/retired-missing-environment-manifest.json`. A fresh run was provisioned with `npm run qa:db:setup`, verified with `npm run qa:preflight:connected` and seeded with `npm run qa:db:seed`. No guard, assertion or credential source changed. New suite: `npm run qa:trust` (docs/trust-retention/05-confirmation-revocation-qa.md); its venue batch alone gets `VITE_VENUE_PAGES_PUBLIC=true`.
+
 ## Recovery — 2026-10-02 (Phase 10, current environment)
 
 Docker Desktop had stopped, so the tmpfs container `hellocircle-qa_7a01b2c0c87998f1` had exited (137) and its volatile database was gone. Because the guarded `qa:db:reset` needs a live connected preflight, the same Method B as the 2026-10-01 recovery was used:

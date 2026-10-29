@@ -1,4 +1,5 @@
 import { Building2 as Building2Lucide } from "lucide-react";
+import { WhatToExpect, centreExpectFacts } from "../components/trust/WhatToExpect";
 import { UnavailableListing, isUnavailable, type Unavailable } from "../components/UnavailableListing";
 import { usePageTitle } from "../pageTitle";
 import { useEffect, useState } from "react";
@@ -159,33 +160,26 @@ export function CentreDetail() {
           <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: "0 0 12px", letterSpacing: 0 }}>About this venue</h2>
           <p style={{ fontSize: 16, lineHeight: 1.6, color: colors.textSoft, margin: "0 0 28px" }}>{centre.blurb}</p>
 
-          <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: "0 0 12px", letterSpacing: 0 }}>
-            Facilities
-          </h2>
-          <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 24px", marginBottom: 32 }}>
-            {centre.amenities.map((a) => (
-              <div key={a} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 15, color: colors.textSoft }}>
-                <CheckIcon size={16} style={{ color: colors.greenText }} />
-                {a}
-              </div>
-            ))}
-          </div>
-
-          {centre.accessibility.length > 0 && (
+          {/* Empty facilities show as "Not provided by the venue" in "Before you book", not as an empty heading. */}
+          {centre.amenities.length > 0 && (
             <>
               <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: "0 0 12px", letterSpacing: 0 }}>
-                Accessibility
+                Facilities
               </h2>
               <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 24px", marginBottom: 32 }}>
-                {centre.accessibility.map((a) => (
+                {centre.amenities.map((a) => (
                   <div key={a} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 15, color: colors.textSoft }}>
-                    <WheelchairIcon size={16} style={{ color: colors.greenText }} />
+                    <CheckIcon size={16} style={{ color: colors.greenText }} />
                     {a}
                   </div>
                 ))}
               </div>
             </>
           )}
+
+          {/* Trust & Retention — accessibility (with a "Not provided" state),
+              arrival and hours in one list instead of a section that vanished when empty. */}
+          <WhatToExpect facts={centreExpectFacts(centre)} title="Before you book" contact="Ask the venue, or" />
 
 
           {programs.length > 0 && (

@@ -19,11 +19,10 @@ export function CircleOrganiserCard({ circle }: { circle: Circle }) {
   const [profile, setProfile] = useState<HostProfile | null>(null);
 
   useEffect(() => {
-    if (!circle.hostVerified) return;
     fetchHostProfile(circle.createdByResidentId)
       .then(setProfile)
-      .catch(() => {});
-  }, [circle.createdByResidentId, circle.hostVerified]);
+      .catch(() => setProfile(null));
+  }, [circle.createdByResidentId]);
 
   if (!circle.hostName) return null;
 
@@ -37,7 +36,7 @@ export function CircleOrganiserCard({ circle }: { circle: Circle }) {
           <span style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 24, letterSpacing: 0 }}>{circle.hostName}</span>
           {circle.hostVerified && (
             <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: radius.pill, padding: "3px 9px" }}>
-              <AwardIcon size={11} /> Verified
+              <AwardIcon size={11} /> Host application approved
             </span>
           )}
         </div>
@@ -65,7 +64,7 @@ export function CircleOrganiserCard({ circle }: { circle: Circle }) {
           </div>
         )}
         {profile?.bio && <p style={{ margin: "0 0 14px", fontSize: 14.5, color: colors.textSoft, lineHeight: 1.6, maxWidth: 480 }}>{profile.bio}</p>}
-        {circle.hostVerified && (
+        {profile && (
           <Link
             to={`/host/${circle.createdByResidentId}`}
             style={{ display: "inline-block", fontSize: 13.5, fontWeight: 700, color: colors.text, cursor: "pointer", textDecoration: "none" }}

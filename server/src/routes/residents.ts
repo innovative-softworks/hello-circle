@@ -1,9 +1,12 @@
 import { PaginationError, parsePageParams, setNextCursor } from "../pagination.js";
+import { verifiedSql } from "../reviewEligibility.js";
 import { PrivacyError, myPrivacyRequests, submitPrivacyRequest } from "../privacyRequests.js";
 import { complaintsAbout, respondAsSubject } from "./complaints.js";
 import { paymentProvider } from "../payments/provider.js";
 import { marketingAllowed, recordConsent } from "../consent.js";
 import { discoverableGameSql } from "../gameVisibility.js";
+import { residentLabels } from "../verification.js";
+import { reviewSummary } from "../reviewEligibility.js";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -684,10 +687,22 @@ residentsRouter.put("/me/host-profile", requireResident, async (req, res) => {
 // popularity"), a real earlier design decision from the original IA spec,
 // now superseded by explicit instruction to extend Follow to Hosts too.
 residentsRouter.get("/:id/host-profile", async (req, res) => {
-  const host = (await db.prepare(`SELECT id, name, host_bio as bio, host_status as hostStatus, avatar_url as avatarUrl FROM residents WHERE id = ?`).get(req.params.id)) as
+  const host = (await db.prepare(`SELECT id, name, host_bio as bio, host_status as hostStatus, avatar_url as avatarUrl FROM residents WHERE id = ? AND deactivated_at IS NULL`).get(req.params.id)) as
     | { id: string; name: string; bio: string | null; hostStatus: string; avatarUrl: string | null }
     | undefined;
-  if (!host || host.hostStatus !== "verified") return res.status(404).json({ error: "Host not found" });
+  if (!host) return res.status(404).json({ error: "Host not found" });
+  // Trust & Retention batch 1 — a profile exists for anyone who hosts in
+  // public (a discoverable Session or an open Circle), not only approved
+  // hosts: their name is already public on those pages, and people deserve to
+  // see the same honest picture — including "New to HelloCircle" — before
+  // joining. Someone who has never hosted in public has no profile.
+  const { n: publicHosting } = (await db
+    .prepare(
+      `SELECT (SELECT COUNT(*) FROM games g WHERE g.host_resident_id = ? AND g.status != 'cancelled' AND ${discoverableGameSql("g")})
+            + (SELECT COUNT(*) FROM circles WHERE created_by_resident_id = ? AND status = 'active' AND join_mode = 'open') as n`
+    )
+    .get(req.params.id, req.params.id)) as { n: number };
+  if (host.hostStatus !== "verified" && Number(publicHosting) === 0) return res.status(404).json({ error: "Host not found" });
 
   const today = irelandTodayIso();
   // SEO/Privacy audit P0 — this route is public, zero-auth (no
@@ -715,6 +730,30 @@ residentsRouter.get("/:id/host-profile", async (req, res) => {
   // reviewStats() aggregation centres/clubs already use, just for
   // listing_type='host'.
   const { rating, reviews } = await reviewStats("host", req.params.id);
+  // Hosting experience, activities and general area — only from what the
+  // public can already see (discoverable Sessions, open Circles). Areas come
+  // from the venue's area/county and the Circle's area, never a meeting
+  // address.
+  const since = (await db
+    .prepare(
+      `SELECT LEAST(COALESCE((SELECT MIN(g.date) FROM games g WHERE g.host_resident_id = ? AND g.status != 'cancelled' AND ${discoverableGameSql("g")}), '9999-12-31'),
+                    COALESCE((SELECT DATE_FORMAT(MIN(created_at), '%Y-%m-%d') FROM circles WHERE created_by_resident_id = ? AND status = 'active' AND join_mode = 'open'), '9999-12-31')) as since`
+    )
+    .get(req.params.id, req.params.id)) as { since: string };
+  const activityRows = (await db
+    .prepare(
+      `SELECT activity_label as label FROM games g WHERE g.host_resident_id = ? AND g.status != 'cancelled' AND ${discoverableGameSql("g")} AND activity_label != ''
+       UNION SELECT activity_label FROM circles WHERE created_by_resident_id = ? AND status = 'active' AND join_mode = 'open' AND activity_label != ''`
+    )
+    .all(req.params.id, req.params.id)) as { label: string }[];
+  const areaRows = (await db
+    .prepare(
+      `SELECT DISTINCT CONCAT_WS(', ', NULLIF(c.area, ''), NULLIF(c.county, '')) as area FROM games g JOIN centres c ON c.id = g.centre_id
+         WHERE g.host_resident_id = ? AND g.status != 'cancelled' AND ${discoverableGameSql("g")}
+       UNION SELECT CONCAT_WS(', ', NULLIF(area, ''), NULLIF(county, '')) FROM circles WHERE created_by_resident_id = ? AND status = 'active' AND join_mode = 'open'`
+    )
+    .all(req.params.id, req.params.id)) as { area: string | null }[];
+  const [checks, summary] = await Promise.all([residentLabels(req.params.id), reviewSummary("host", req.params.id)]);
   const { n: followerCount } = (await db.prepare(`SELECT COUNT(*) as n FROM follows WHERE followed_type = 'host' AND followed_id = ?`).get(req.params.id)) as { n: number };
   const followRow = req.resident
     ? ((await db
@@ -735,6 +774,11 @@ residentsRouter.get("/:id/host-profile", async (req, res) => {
     followerCount: Number(followerCount),
     isFollowing: !!followRow,
     followNotificationLevel: followRow?.notificationLevel ?? "highlights",
+    hostingSince: since.since && since.since !== "9999-12-31" ? String(since.since).slice(0, 10) : null,
+    activitiesOffered: [...new Set(activityRows.map((r) => r.label.trim()).filter(Boolean))].slice(0, 12),
+    areas: [...new Set(areaRows.map((r) => (r.area ?? "").trim()).filter(Boolean))].slice(0, 6),
+    checks,
+    reviewSummary: summary,
   });
 });
 
@@ -749,10 +793,13 @@ residentsRouter.get("/:id/host-profile", async (req, res) => {
 residentsRouter.get("/me/host-reviews", requireResident, async (req, res) => {
   const rows = await db
     .prepare(
-      `SELECT id, name, rating, comment, created_at as createdAt, vendor_reply as hostReply, vendor_reply_at as hostRepliedAt
-       FROM reviews WHERE listing_type = 'host' AND listing_id = ? AND hidden = 0 ORDER BY created_at DESC`
+      `SELECT r.id, r.listing_type as listingType, r.name, r.rating, r.comment, r.tags, IF(${verifiedSql("r")}, 'person', NULL) as attendanceBasis, r.created_at as createdAt,
+              r.vendor_reply as hostReply, r.vendor_reply_at as hostRepliedAt, g.activity_label as sessionLabel, g.date as sessionDate
+       FROM reviews r LEFT JOIN games g ON r.listing_type = 'game' AND g.id = r.listing_id
+       WHERE r.hidden = 0 AND ((r.listing_type = 'host' AND r.listing_id = ?) OR (r.listing_type = 'game' AND g.host_resident_id = ?))
+       ORDER BY r.created_at DESC`
     )
-    .all(req.resident!.id);
+    .all(req.resident!.id, req.resident!.id);
   res.json(rows);
 });
 
@@ -760,8 +807,12 @@ residentsRouter.post("/host-reviews/:id/reply", requireResident, async (req, res
   const { reply } = req.body as { reply?: string };
   if (!reply || !reply.trim()) return res.status(400).json({ error: "Reply text is required" });
   const info = await db
-    .prepare(`UPDATE reviews SET vendor_reply = ?, vendor_reply_at = NOW() WHERE id = ? AND listing_type = 'host' AND listing_id = ?`)
-    .run(reply.trim(), req.params.id, req.resident!.id);
+    // Trust & Retention batch 1 — a host also answers reviews of their own Sessions.
+    .prepare(
+      `UPDATE reviews SET vendor_reply = ?, vendor_reply_at = NOW(), vendor_reply_by = ? WHERE id = ? AND hidden = 0
+         AND ((listing_type = 'host' AND listing_id = ?) OR (listing_type = 'game' AND listing_id IN (SELECT id FROM games WHERE host_resident_id = ?)))`
+    )
+    .run(reply.trim().slice(0, 2000), req.resident!.id, req.params.id, req.resident!.id, req.resident!.id);
   if (info.changes === 0) return res.status(404).json({ error: "Review not found" });
   res.json({ ok: true });
 });

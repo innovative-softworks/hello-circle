@@ -1,0 +1,934 @@
+/* Trust & Retention batch 1 — profile checks, rating summary, reviews and
+   "what to expect". Editorial: thin rules, generous spacing, small corners,
+   no nested cards. Colours come from the existing tokens only. */
+
+.tr-section {
+  border-top: 1px solid var(--color-border);
+  padding-top: 24px;
+  margin-top: 32px;
+}
+.tr-section:first-child {
+  margin-top: 0;
+}
+.tr-section > h2,
+.tr-h2 {
+  font-family: var(--font-display, "Bricolage Grotesque Variable", system-ui, sans-serif);
+  font-weight: 800;
+  font-size: 20px;
+  letter-spacing: -0.01em;
+  margin: 0 0 14px;
+  color: var(--color-text);
+}
+.tr-muted {
+  color: var(--color-muted-light);
+}
+.tr-small {
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* Checks */
+.tr-checks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.tr-check {
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  gap: 10px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+.tr-check:last-child {
+  border-bottom: none;
+}
+.tr-check-icon {
+  color: var(--color-green-text);
+  margin-top: 2px;
+}
+.tr-check-icon.is-off {
+  color: var(--color-faint);
+}
+.tr-check-title {
+  font-weight: 700;
+  font-size: 14.5px;
+  color: var(--color-text);
+}
+.tr-check-meaning {
+  margin: 3px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--color-text-soft);
+}
+.tr-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--color-text);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-small);
+  padding: 3px 8px;
+  background: transparent;
+}
+.tr-chip.is-new {
+  border-color: var(--color-orange);
+  color: var(--color-orange-dark);
+}
+
+/* Rating summary */
+.tr-summary {
+  display: grid;
+  grid-template-columns: minmax(120px, 160px) 1fr;
+  gap: 28px;
+  align-items: center;
+  margin-bottom: 20px;
+}
+.tr-summary-score {
+  font-family: var(--font-display, "Bricolage Grotesque Variable", system-ui, sans-serif);
+  font-size: 44px;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--color-text);
+}
+.tr-dist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.tr-dist li {
+  display: grid;
+  grid-template-columns: 52px 1fr 32px;
+  gap: 10px;
+  align-items: center;
+  font-size: 12.5px;
+  color: var(--color-muted);
+}
+.tr-dist-bar {
+  height: 6px;
+  background: var(--color-surface-muted);
+  border-radius: 1px;
+  overflow: hidden;
+}
+.tr-dist-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--color-text);
+}
+@media (max-width: 560px) {
+  .tr-summary {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+}
+
+/* Review list */
+.tr-reviews {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.tr-review {
+  padding: 18px 0;
+  border-top: 1px solid var(--color-border);
+}
+.tr-review-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 12px;
+}
+.tr-review-name {
+  font-weight: 700;
+  font-size: 14.5px;
+}
+.tr-review-meta {
+  font-size: 12.5px;
+  color: var(--color-muted-light);
+}
+.tr-review-basis {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--color-green-text);
+}
+.tr-review p {
+  margin: 8px 0 0;
+  font-size: 14.5px;
+  line-height: 1.6;
+  color: var(--color-text-soft);
+  white-space: pre-line;
+}
+.tr-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.tr-tag {
+  font-size: 12px;
+  color: var(--color-muted);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-small);
+  padding: 2px 8px;
+}
+.tr-reply {
+  margin-top: 12px;
+  padding-left: 14px;
+  border-left: 2px solid var(--color-border-strong);
+}
+.tr-reply-label {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-muted-light);
+}
+.tr-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 10px;
+}
+.tr-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-size: 13px;
+  color: var(--color-muted);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  min-height: 24px;
+}
+.tr-link:hover {
+  color: var(--color-text);
+}
+.tr-link:focus-visible,
+.tr-star input:focus-visible + span,
+.tr-tag-pick input:focus-visible + span {
+  outline: 2px solid var(--color-focus, var(--color-text));
+  outline-offset: 2px;
+}
+
+/* Review form */
+.tr-form {
+  border-top: 1px solid var(--color-border);
+  padding-top: 20px;
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 640px;
+}
+.tr-form fieldset {
+  border: none;
+  margin: 0;
+  padding: 0;
+}
+.tr-form legend,
+.tr-form label.tr-label {
+  font-weight: 700;
+  font-size: 14px;
+  margin-bottom: 8px;
+  display: block;
+}
+.tr-stars {
+  display: flex;
+  gap: 4px;
+}
+.tr-star {
+  position: relative;
+  cursor: pointer;
+}
+.tr-star input,
+.tr-tag-pick input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+.tr-star span {
+  display: inline-flex;
+  padding: 4px;
+  border-radius: var(--radius-small);
+  color: var(--color-border-strong);
+}
+.tr-star span.is-on {
+  color: var(--color-gold);
+}
+.tr-tag-pick {
+  position: relative;
+  display: inline-flex;
+  cursor: pointer;
+}
+.tr-tag-pick span {
+  font-size: 13px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-small);
+  padding: 6px 10px;
+  color: var(--color-text-soft);
+}
+.tr-tag-pick input:checked + span {
+  background: var(--color-text);
+  border-color: var(--color-text);
+  color: var(--color-surface);
+}
+.tr-input {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  font-size: 14.5px;
+  border: 1px solid var(--color-input-border);
+  border-radius: var(--radius-small);
+  padding: 10px 12px;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+.tr-input:focus-visible {
+  outline: 2px solid var(--color-focus, var(--color-text));
+  outline-offset: 1px;
+}
+.tr-note {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--color-muted);
+  margin: 0;
+}
+.tr-alert {
+  font-size: 13.5px;
+  color: var(--color-danger);
+  background: var(--color-danger-bg);
+  padding: 9px 12px;
+  border-radius: var(--radius-small);
+  margin: 0;
+}
+.tr-ok {
+  font-size: 13.5px;
+  color: var(--color-green-text);
+  font-weight: 600;
+  margin: 0;
+}
+
+/* Facts (what to expect) */
+.tr-facts {
+  margin: 0;
+  display: grid;
+  grid-template-columns: minmax(140px, 220px) 1fr;
+}
+.tr-facts dt,
+.tr-facts dd {
+  margin: 0;
+  padding: 11px 0;
+  border-top: 1px solid var(--color-border);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.tr-facts dt {
+  font-weight: 700;
+  color: var(--color-text);
+  padding-right: 16px;
+}
+.tr-facts dd {
+  color: var(--color-text-soft);
+  white-space: pre-line;
+}
+.tr-facts dd.is-missing {
+  color: var(--color-muted-light);
+  font-style: italic;
+}
+@media (max-width: 560px) {
+  .tr-facts {
+    grid-template-columns: 1fr;
+  }
+  .tr-facts dd {
+    border-top: none;
+    padding-top: 0;
+  }
+}
+
+/* Host profile: 70/30 */
+.tr-profile {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 40px 24px 96px;
+  box-sizing: border-box;
+}
+.tr-profile-head {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+  padding-bottom: 28px;
+  border-bottom: 1px solid var(--color-border);
+}
+.tr-profile-head h1 {
+  font-family: var(--font-display, "Bricolage Grotesque Variable", system-ui, sans-serif);
+  font-weight: 800;
+  font-size: clamp(30px, 4vw, 44px);
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+  margin: 0;
+  color: var(--color-text);
+}
+.tr-profile-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 7fr) minmax(0, 3fr);
+  gap: 56px;
+  margin-top: 32px;
+}
+.tr-aside {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+.tr-aside h2 {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+  margin: 0 0 10px;
+  font-family: inherit;
+}
+.tr-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.tr-rows li {
+  border-top: 1px solid var(--color-border);
+}
+.tr-rows a,
+.tr-rows button {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 14px 0;
+  background: none;
+  border: none;
+  font: inherit;
+  color: var(--color-text);
+  text-decoration: none;
+  text-align: left;
+  cursor: pointer;
+}
+.tr-rows a:hover strong,
+.tr-rows button:hover strong {
+  text-decoration: underline;
+}
+.tr-rows a:focus-visible,
+.tr-rows button:focus-visible {
+  outline: 2px solid var(--color-focus, var(--color-text));
+  outline-offset: 2px;
+}
+@media (max-width: 900px) {
+  .tr-profile-grid {
+    grid-template-columns: 1fr;
+    gap: 36px;
+  }
+}
+@media (max-width: 560px) {
+  .tr-profile {
+    padding: 28px 16px 72px;
+  }
+  .tr-profile-head {
+    flex-direction: column;
+    gap: 14px;
+  }
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Stacked facts (profile aside): label over value, one rule per pair. */
+.tr-facts.is-stacked {
+  grid-template-columns: 1fr;
+}
+.tr-facts.is-stacked dt {
+  padding-bottom: 2px;
+}
+.tr-facts.is-stacked dd {
+  border-top: none;
+  padding-top: 0;
+}
+.tr-aside a,
+.tr-note a,
+.tr-facts a {
+  color: var(--color-text);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.tr-aside a:focus-visible,
+.tr-note a:focus-visible,
+.tr-facts a:focus-visible {
+  outline: 2px solid var(--color-focus, var(--color-text));
+  outline-offset: 2px;
+}
+
+
+/* My Life — your next plan / recent visits (components/mylife/NextPlan.tsx). */
+.np-next {
+  border-top: 1px solid var(--color-border);
+  padding-top: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.np-kicker {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-orange-dark);
+}
+.np-title {
+  margin: 0;
+  font-family: "Bricolage Grotesque Variable", "Bricolage Grotesque", system-ui, sans-serif;
+  font-weight: 800;
+  font-size: clamp(24px, 3vw, 32px);
+  letter-spacing: -0.015em;
+  line-height: 1.1;
+  color: var(--color-text);
+}
+.np-meta {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  font-size: 14px;
+  color: var(--color-text-soft);
+}
+.np-status {
+  font-weight: 700;
+  color: var(--color-green-text);
+}
+.np-status.is-pending {
+  color: var(--color-orange-dark);
+}
+.np-status.is-cancelled {
+  color: var(--color-danger);
+}
+.np-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 20px;
+}
+.np-more {
+  margin-top: 22px;
+}
+.np-subhead {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+.np-again {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--color-border);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  font-size: 14px;
+}
+.np a:focus-visible {
+  outline: 2px solid var(--color-focus, var(--color-text));
+  outline-offset: 2px;
+}
+
+/* Next plan polish (UX pass). */
+.np-visit {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 14px 32px;
+  align-items: start;
+}
+.np-visit-main {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+.np-visit-state {
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--color-text-soft);
+}
+.np-visit-state.is-review_available,
+.np-visit-state.is-review_submitted {
+  color: var(--color-green-text);
+}
+.np-visit-state.is-missed,
+.np-visit-state.is-declined {
+  color: var(--color-orange-dark);
+}
+.np-visit .np-again {
+  margin-top: 0;
+  padding: 0 0 0 20px;
+  border-top: none;
+  border-left: 1px solid var(--color-border);
+  flex-direction: column;
+  align-items: flex-start;
+}
+.np-again-label {
+  display: block;
+  font-size: 11.5px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+  margin-bottom: 2px;
+}
+@media (max-width: 640px) {
+  .np-visit {
+    grid-template-columns: 1fr;
+  }
+  .np-visit .np-again {
+    padding: 12px 0 0;
+    border-left: none;
+    border-top: 1px solid var(--color-border);
+  }
+}
+.np-next .tr-facts dt,
+.np-next .tr-facts dd {
+  padding: 9px 0;
+}
+
+/* Partner rows (confirm who attended / attendance requests). */
+.tr-org-rows li {
+  border-top: 1px solid var(--color-border);
+}
+.tr-org-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px 16px;
+  align-items: center;
+  padding: 12px 0;
+}
+.tr-org-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.tr-org-tags span {
+  font-size: 12px;
+  color: var(--color-muted);
+  border: 1px solid var(--color-border);
+  border-radius: 2px;
+  padding: 1px 7px;
+}
+.tr-org-tags span.is-ok {
+  color: var(--color-green-text);
+  border-color: currentColor;
+}
+.tr-org-tags span.is-ask {
+  color: var(--color-orange-dark);
+  border-color: currentColor;
+}
+@media (max-width: 640px) {
+  .tr-org-row {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+}
+
+
+
+/* =====================================================================
+   My Life next plan as cards (owner 2026-10-28, v2 after review): photo
+   beside the details at the card's full height (no empty band, no text on
+   the photo except the date, like every card); the title is the heading;
+   facts sit in a compact two-column grid. "Not booked yet" and "Recent
+   visits" are D · compact rows (CompactRow).
+   ===================================================================== */
+.np-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.np-head .mlx-label {
+  margin: 0;
+}
+.np-all {
+  background: none;
+  border: 0;
+  padding: 4px 0;
+  font: inherit;
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--color-text);
+  cursor: pointer;
+}
+.np-all:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.np-card {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card, 16px);
+  overflow: hidden;
+}
+.np-photo {
+  position: relative;
+  display: block;
+  min-height: 260px;
+  background: var(--color-green-bg);
+}
+.np-photo img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.np-photo.is-empty {
+  background: linear-gradient(150deg, #2e5a3d, #172019);
+}
+.np-photo-icon {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(191, 232, 207, 0.55);
+}
+.np-photo-date {
+  position: absolute;
+  left: 14px;
+  bottom: 14px;
+  display: flex;
+  flex-direction: column;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.94);
+  color: #172019;
+  line-height: 1.1;
+}
+.np-photo-date b {
+  font-family: "Bricolage Grotesque Variable", "Bricolage Grotesque", system-ui, sans-serif;
+  font-size: 18px;
+  font-weight: 800;
+}
+.np-photo-date small {
+  font-size: 13px;
+  font-weight: 600;
+}
+.np-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  padding: 22px 24px 22px;
+}
+.np-body .np-kicker {
+  color: var(--color-orange-dark);
+}
+.np-body .np-title {
+  font-size: clamp(22px, 2.4vw, 28px);
+}
+.np-title a {
+  color: inherit;
+  text-decoration: none;
+}
+.np-title a:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.np-body .np-meta {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  font-size: 14px;
+  color: var(--color-text-soft);
+}
+.np-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+  background: var(--color-green-bg);
+  color: var(--color-green-text);
+}
+.np-chip.is-pending {
+  background: var(--color-orange-bg, #fdeee6);
+  color: var(--color-orange-dark);
+}
+.np-chip.is-cancelled {
+  background: var(--color-panel);
+  color: var(--color-muted);
+}
+.np-facts {
+  margin: 4px 0 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 20px;
+  padding-top: 14px;
+  border-top: 1px solid var(--color-border);
+}
+.np-facts dt {
+  font-size: 11.5px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+  margin-bottom: 3px;
+}
+.np-facts dd {
+  margin: 0;
+  font-size: 14.5px;
+  line-height: 1.45;
+  color: var(--color-text);
+}
+.np-body .np-actions {
+  margin-top: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 20px;
+}
+.mlx-btn.np-btn-md {
+  min-height: 42px;
+}
+.np-foot {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-muted);
+}
+.np-text-link {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--color-text);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.np-show {
+  margin-top: 10px;
+}
+.np-row-meta .np-again-link {
+  position: relative;
+  z-index: 2;
+  color: var(--color-text);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.np-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.mlx-btn.np-btn-sm {
+  min-height: 36px;
+  min-width: 0;
+  padding: 0 14px;
+  font-size: 13.5px;
+}
+.np-card a:focus-visible,
+.np-text-link:focus-visible,
+.np-again-link:focus-visible {
+  outline: 2px solid var(--color-focus, var(--color-text));
+  outline-offset: 3px;
+}
+@media (max-width: 720px) {
+  .np-card {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .np-photo {
+    min-height: 0;
+    aspect-ratio: 16 / 9;
+  }
+  .np-body {
+    padding: 16px;
+  }
+  .np-facts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Next plan as the pass (owner 2026-10-28): the pass on the left, what comes
+   after it beside it; stacked on narrow screens. */
+.np-passrow {
+  display: grid;
+  grid-template-columns: minmax(0, 440px) minmax(0, 1fr);
+  gap: 28px;
+  align-items: start;
+}
+.np-passrow.is-solo {
+  grid-template-columns: minmax(0, 440px);
+}
+.np-after .np-subhead {
+  margin-top: 0;
+}
+.np-after .cr-row {
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 12px;
+  padding: 10px 0;
+}
+.np-after .cr-title {
+  font-size: 15.5px;
+}
+.np-after .cr-date b {
+  font-size: 14px;
+}
+.np-pass .hc-pass-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 10px 18px;
+}
+@media (max-width: 900px) {
+  .np-passrow {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .np-pass {
+    max-width: 480px;
+  }
+}
+.np-passrow.is-wide {
+  grid-template-columns: minmax(0, 1fr);
+}
+.np-passrow.is-wide .np-pass {
+  max-width: none;
+}

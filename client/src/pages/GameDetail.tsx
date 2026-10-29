@@ -1,4 +1,5 @@
 import { CategoryBreadcrumb } from "../components/categories/CategoryChips";
+import { WhatToExpect, gameExpectFacts } from "../components/trust/WhatToExpect";
 import { usePageTitle } from "../pageTitle";
 import { useEffect, useState } from "react";
 import { TraderInfo } from "../components/TraderInfo";
@@ -6,7 +7,7 @@ import { ParticipationBlock } from "../components/ParticipationBlock";
 import { useNavigate, useParams } from "react-router-dom";
 import { checkInGame, confirmGameAttendance, fetchGame, isNotFound } from "../api";
 import { AwardIcon, BallIcon, CalendarIcon, CheckIcon, ClockIcon, GridIcon, HomeIcon, PersonIcon, PinIcon, SunIcon, UsersIcon } from "../components/icons";
-import { KeyFacts, Requirements, type KeyFact } from "../components/detail/KeyFacts";
+import { KeyFacts, type KeyFact } from "../components/detail/KeyFacts";
 import { DetailTopBar, detailActionStyle } from "../components/detail/DetailTopBar";
 import { DetailUnavailable } from "../components/detail/DetailUnavailable";
 import { ListingChatButton } from "../components/ListingChats";
@@ -271,21 +272,9 @@ export function GameDetail() {
               </div>
             )}
 
-            <Requirements
-              rows={[
-                { label: "Experience", value: game.experienceRequired },
-                { label: "Accessibility", value: game.accessibilityInfo },
-              ]}
-            />
-
-            {game.equipmentNeeded && (
-              <div style={{ marginBottom: 28 }}>
-                <h3 style={{ display: "flex", alignItems: "center", gap: 7, fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 8px" }}>
-                  <CheckIcon size={14} style={{ color: colors.greenText }} /> What to bring
-                </h3>
-                <p style={{ margin: 0, fontSize: 14, color: colors.muted, lineHeight: 1.5 }}>{game.equipmentNeeded}</p>
-              </div>
-            )}
+            {/* Trust & Retention batch 1 — one "What to expect" list, every field
+                shown, empty ones as "Not provided" rather than left out. */}
+            <WhatToExpect facts={gameExpectFacts(game)} />
 
             <GameParticipants game={game} />
             {isHost && !cancelled && !isPast && <IcebreakerCard game={game} onShared={() => setUpdatesKey((k) => k + 1)} />}
@@ -337,7 +326,7 @@ export function GameDetail() {
                   <PostActivityFeedback
                     kind="game"
                     reference={game.id}
-                    followTarget={!isHost && game.hostVerified ? { type: "host", id: game.hostResidentId } : undefined}
+                    followTarget={!isHost && game.visibility === "public" ? { type: "host", id: game.hostResidentId } : undefined}
                   />
                   {/* "Do it again" (post-audit hardening pass, extended in
                       HelloCircle Manage Phase 23, Host Experience Polish) —
@@ -353,9 +342,9 @@ export function GameDetail() {
                     </Button>
                   </div>
                   <div style={{ marginTop: 20 }}>
-                    <Reviews listingType="game" listingId={game.id} accent="green" />
+                    <Reviews listingType="game" listingId={game.id} accent="green" followAfter={!isHost ? { type: "host", id: game.hostResidentId, name: game.hostName } : undefined} />
                   </div>
-                  {!isHost && game.hostVerified && (
+                  {!isHost && (
                     <div style={{ marginTop: 20 }}>
                       <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 10px" }}>Review {game.hostName}</h3>
                       <Reviews listingType="host" listingId={game.hostResidentId} accent="green" />

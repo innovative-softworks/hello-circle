@@ -51,7 +51,7 @@ describe("POST /reports — review reporting", () => {
       body: JSON.stringify({ targetType: "review", targetId: String(reviewId), reason: "Spam or fake" }),
     });
     expect(createRes.status).toBe(201);
-    expect(await createRes.json()).toEqual({ ok: true });
+    expect(await createRes.json()).toMatchObject({ ok: true, caseRef: expect.stringMatching(/^R-\d{6}$/), category: "content" });
 
     const mineRes = await fetch(`${baseUrl}/reports/mine`, { headers: { "X-Client-Id": clientId } });
     expect(mineRes.status).toBe(200);

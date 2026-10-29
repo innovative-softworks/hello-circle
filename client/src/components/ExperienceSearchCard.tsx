@@ -5,11 +5,13 @@ import { Button } from "./ui";
 import { colors, placeholderStripes } from "../theme";
 import type { ExperienceSearchResult } from "../types";
 import { CardArrow, CardPrice, ListingCard } from "./ListingCard";
+import { cardWord } from "../cardWord";
+import { priceState } from "../exploreFilters";
 
 // Adventure/experience result card — shared by Explore's Results Mode and
 // AskHelloCircle.tsx. Now the shared ListingCard shape (design-system
 // consistency pass); behaviour unchanged.
-export function ExperienceSearchCard({ e }: { e: ExperienceSearchResult }) {
+export function ExperienceSearchCard({ e, chosenWord }: { e: ExperienceSearchResult; chosenWord?: string | null }) {
   const navigate = useNavigate();
   const [fav, toggleFav] = useSavedState("experience", e.id);
   const href = `/${e.kind === "adventure" ? "adventures" : "experiences"}/${e.id}`;
@@ -26,9 +28,10 @@ export function ExperienceSearchCard({ e }: { e: ExperienceSearchResult }) {
       icon={<TreeIconSmall size={26} />}
       iconColor={colors.orange}
       tag={e.kind === "adventure" ? "Adventure" : "Experience"}
+      word={cardWord(e.category, e.kind === "adventure" ? "Adventure" : e.kind === "volunteer" ? "Volunteer" : "Experience", chosenWord)}
       save={<SaveButton saved={fav} onToggle={toggleFav} />}
       details={[where ? { icon: <PinIcon size={13} />, text: where } : null]}
-      facts={<CardPrice cents={e.priceCents} unit="per person" />}
+      facts={priceState(e) === "unknown" ? null : <CardPrice cents={e.priceCents} unit="per person" />}
       action={
         <CardArrow label={`${registerLabel}: ${e.title}`} onClick={() => navigate(href)} />
       }

@@ -1,4 +1,5 @@
 import { Euro } from "lucide-react";
+import { WhatToExpect, programExpectFacts } from "../components/trust/WhatToExpect";
 import { Pass, passDate, passTime } from "../components/pass/Pass";
 import { PlanWithCircle } from "../components/circle/PlanWithCircle";
 import { ExploreWithOthers } from "../components/circle/ExploreWithOthers";
@@ -15,7 +16,7 @@ import { BookingSurface, CheckoutSummary, CouponField, CouponRejectedError, coup
 import { openCheckout } from "../native";
 import { ListingChatButton } from "../components/ListingChats";
 import { BrowseCard } from "../components/BrowseLayout";
-import { AwardIcon, CalendarIcon, CheckIcon, ClockIcon, GraduationCapIcon, ShieldIcon, GridIcon, PersonIcon, PinIcon, ShareIcon, UsersIcon } from "../components/icons";
+import { AwardIcon, CalendarIcon, ClockIcon, GraduationCapIcon, ShieldIcon, GridIcon, PersonIcon, PinIcon, ShareIcon, UsersIcon } from "../components/icons";
 import { IntentCaptureForm } from "../components/IntentCaptureForm";
 import { InviteSheetButton } from "../components/InviteSheetButton";
 import { ShareButton } from "../components/ShareButton";
@@ -36,7 +37,7 @@ import { irelandToday } from "../irelandDate";
 import { CtaBand } from "../components/CtaBand";
 import { VENUE_PAGES_PUBLIC } from "../venueLaunch";
 import { DetailSection, HostRow, LocationBlock, ScheduleList } from "../components/detail/DetailSections";
-import { KeyFacts, PAID_PRICE_NOTE, Requirements } from "../components/detail/KeyFacts";
+import { KeyFacts, PAID_PRICE_NOTE } from "../components/detail/KeyFacts";
 import { FieldError, FormErrorSummary, useFormErrors, type FormError } from "../components/form";
 import { DetailTopBar, detailActionStyle } from "../components/detail/DetailTopBar";
 import { DetailUnavailable } from "../components/detail/DetailUnavailable";
@@ -54,7 +55,6 @@ import { scrollToInterest } from "../components/detail/scrollToInterest";
 
 const sectionDividerStyle: React.CSSProperties = { height: 1, background: colors.border, margin: "28px 0" };
 
-const factLabelStyle: React.CSSProperties = { fontSize: 11.5, color: colors.mutedLight, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0 };
 
 function SectionHeading({ title }: { title: string }) {
   return <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 18, margin: "0 0 14px" }}>{title}</h2>;
@@ -537,20 +537,8 @@ export function ProgramDetail() {
               </div>
             )}
 
-            {program.equipment.length > 0 && (
-              <div style={{ marginBottom: 28 }}>
-                <SectionHeading title="What to bring" />
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {program.equipment.map((item) => (
-                    <div key={item} style={{ display: "flex", alignItems: "flex-start", gap: 9, fontSize: 14, color: colors.textSoft }}>
-                      <CheckIcon size={14} style={{ color: colors.greenText, flex: "none", marginTop: 3 }} /> {item}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <Requirements rows={[{ label: "Accessibility", value: program.accessibilityInfo }]} />
+            {/* Trust & Retention — one "What to expect" list for the programme. */}
+            <WhatToExpect facts={programExpectFacts(program)} contact="Ask the organiser, or" />
             <InfoBlock heading="Guardian rules" body={program.guardianRules} />
             <InfoBlock heading="Safeguarding" body={program.safeguardingInfo} />
 
@@ -661,7 +649,7 @@ export function ProgramDetail() {
               <DetailSection title="Hosted by">
                 <HostRow
                   name={program.vendorName}
-                  verifiedLabel={program.vendorVerified ? "Verified provider" : null}
+                  verifiedLabel={program.vendorVerified ? "Business details checked" : null}
                   href={program.vendorId ? `/provider/${program.vendorId}` : null}
                   linkLabel="View provider"
                 />

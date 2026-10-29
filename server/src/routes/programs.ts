@@ -1,4 +1,6 @@
 import { taxonomyFields, taxonomyFilter } from "../taxonomy.js";
+import { isBusinessChecked } from "../verification.js";
+import { withCardLabels } from "../categoryLabels.js";
 import { customerPaymentCase } from "../payments/paymentReview.js";
 import { Router } from "express";
 import { paymentUnderReview } from "../payments/checkoutAgreement.js";
@@ -79,6 +81,7 @@ export async function toProgramJson(row: ProgramRow) {
     ageRange: row.age_range,
     arrivalInstructions: row.arrival_instructions || null,
     accessibilityInfo: row.accessibility_info || null,
+    newcomerWelcome: (row as { newcomer_welcome?: string | null }).newcomer_welcome ?? null,
     imageUrl: row.image_url,
     priceCents: row.price_cents,
     capacity: row.capacity,
@@ -126,7 +129,7 @@ export async function listProgramsForBrowse(county?: string, category?: string, 
        ORDER BY ns.date, ns.time
        LIMIT 200`
     )
-    .all(today, today, ...(county ? [county] : []), ...(category ? [category] : []), ...(tax ? tax.params : []))) as (Record<string, unknown> & { capacity: number | null; enrolled: number | string; upcomingSessions: number | string })[];
+    .all(today, today, ...(county ? [county] : []), ...(category ? [category] : []), ...(tax ? tax.params : []))) as (Record<string, unknown> & { id: string; capacity: number | null; enrolled: number | string; upcomingSessions: number | string })[];
   return rows.map((r) => {
     const enrolled = Number(r.enrolled);
     return {
@@ -147,7 +150,7 @@ programsRouter.get("/", async (req, res) => {
   if (!listingType || !listingId) {
     const tax = await taxonomyFilter("program", "p.id", req.query as Record<string, unknown>);
     if (tax === "none") return res.json([]);
-    return res.json(await listProgramsForBrowse(county && county !== "All" ? county : undefined, category && category !== "All" ? category : undefined, tax));
+    return res.json(await withCardLabels(await listProgramsForBrowse(county && county !== "All" ? county : undefined, category && category !== "All" ? category : undefined, tax), (p) => ({ type: "program", id: String(p.id) })));
   }
   const rows = (await db
     .prepare(`SELECT * FROM programs WHERE listing_type = ? AND listing_id = ? AND status = 'published' AND ${orgActiveSql("vendor_id")} ORDER BY created_at DESC`)
@@ -191,7 +194,8 @@ programsRouter.get("/:id", async (req, res) => {
     venueSlug: venue?.slug ?? null,
     vendorId: row.vendor_id,
     vendorName: host ? host.businessName || host.name : null,
-    vendorVerified: host ? host.providerTier !== "standard" : false,
+    // Trust & Retention batch 1 — a completed business check, not the commercial tier.
+    vendorVerified: await isBusinessChecked(row.vendor_id),
     ...(await taxonomyFields("program", row.id)),
   });
 });

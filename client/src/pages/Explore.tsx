@@ -1,8 +1,8 @@
 import { Sparkles as SparklesLucide } from "lucide-react";
-import { CategoryChips, CategoryEmptyHint, categoryWord, useCategoryFilter } from "../components/categories/CategoryChips";
+import { CategoryDropdown, CategoryEmptyHint, CategoryTypeDropdown, useCategoryFilter } from "../components/categories/CategoryChips";
 import { CardArrow, CardGrid, ListingCard } from "../components/ListingCard";
 import { CardDate } from "../components/CardDate";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { createSearchAlert, fetchCentres, fetchCircles, fetchClubs, fetchDiscover, fetchExperiences, fetchFollowFeed, fetchFreeTimeOptions, fetchResidentFull, search } from "../api";
 import type { FollowFeedItem } from "../api";
@@ -11,7 +11,8 @@ import { CircleDiscoveryCard } from "../components/CircleDiscoveryCard";
 import { ClubCard } from "../components/ClubCard";
 import { DiscoverCard, DiscoverRow } from "../components/DiscoverRow";
 import { ExperienceSearchCard } from "../components/ExperienceSearchCard";
-import { DropdownOption, FilterDropdown } from "../components/FilterDropdown";
+import { cardWord } from "../cardWord";
+import { DropdownCheckbox, DropdownOption, FilterDropdown } from "../components/FilterDropdown";
 import { QuickIntentChip } from "../components/Chip";
 import { IntentCaptureForm } from "../components/IntentCaptureForm";
 import { ArrowRightIcon, BallIcon, BellIcon, BuildingIcon, CalendarIcon, CheckIcon, CloseIcon, GridIcon, HeartIcon, PinIcon, RepeatIcon, SearchIcon, TreeIconSmall, UsersIcon } from "../components/icons";
@@ -19,12 +20,13 @@ import { VENUE_PAGES_PUBLIC } from "../venueLaunch";
 import { PageTitle } from "../components/PageTitle";
 import { EntityTypeLabel } from "../components/symbols";
 import type { EntityKind } from "../components/symbols";
-import { Button, CardSkeleton, Drawer, EmptyState } from "../components/ui";
+import { Button, CardSkeleton, EmptyState, LoadErrorState } from "../components/ui";
 import { dateLabel, euro } from "../euro";
 import { useGuest } from "../GuestContext";
 import { colors, fonts, maxWidth, placeholderStripes, radius } from "../theme";
 import type { Centre, Circle, Club, DiscoverFeed, DiscoverItem, Experience, SearchResult } from "../types";
 import { irelandToday } from "../irelandDate";
+import { matchesWhen, priceState } from "../exploreFilters";
 import { POPULAR_SEARCHES, loadRecent, pushRecent } from "../recentSearches";
 import { CtaBand } from "../components/CtaBand";
 import { FeaturedPicks } from "../components/FeaturedPicks";
@@ -42,7 +44,7 @@ function FollowFeedRow({ items }: { items: FollowFeedItem[] }) {
   // The shared photo card (owner 2026-10-27), same as every other Explore row.
   return (
     <div>
-      <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: "0 0 14px" }}>From people you follow</h2>
+      <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: "var(--section-title-size, 20px)", margin: "0 0 14px" }}>From people you follow</h2>
       <CardGrid rail style={{ display: "flex", gap: 16, overflowX: "auto", paddingBottom: 4 }}>
         {items.map((item) => (
           <div key={`${item.kind}-${item.id}`} style={{ flex: "none", width: 280, display: "flex" }}>
@@ -104,19 +106,62 @@ const ALL_CATEGORIES: { key: CategoryKey; label: string; desc: string; icon: Rea
 // (otherwise they'd land on /coming-soon); Volunteer added (P2-15).
 const CATEGORIES = ALL_CATEGORIES.filter((c) => VENUE_PAGES_PUBLIC || !c.venue);
 
-const QUICK_INTENTS: { key: string; label: string; apply: (p: URLSearchParams) => void }[] = [
-  { key: "needs-people", label: "Needs people", apply: (p) => p.set("needsPeople", "1") },
-  { key: "free", label: "Free", apply: (p) => p.set("q", [p.get("q"), "free"].filter(Boolean).join(" ")) },
-  { key: "outdoors", label: "Outdoors", apply: (p) => p.set("q", [p.get("q"), "outdoors"].filter(Boolean).join(" ")) },
-  { key: "social", label: "Social", apply: (p) => p.set("q", [p.get("q"), "social"].filter(Boolean).join(" ")) },
-  { key: "sports", label: "Sports", apply: (p) => p.set("q", [p.get("q"), "sport"].filter(Boolean).join(" ")) },
-];
+type SortKey = "recommended" | "soonest" | "price-asc";
+// Every option is a real filter on dated activities (the feed's 7-day
+// window, or the search results' own dates). "Pick a date" waits on Phase 2.
+/** The card word when an activity has no category. */
+const KIND_WORD: Record<string, string> = { game: "Activity", program_session: "Programme", club_session: "Club" };
 
-type SortKey = "recommended" | "soonest" | "needs-people" | "price-asc";
+const RESULT_TYPE_LABELS: Record<string, string> = {
+  activities: "Activities & games",
+  adventures: "Adventures",
+  experiences: "Experiences",
+  volunteering: "Volunteering",
+  programmes: "Programmes",
+  circles: "Circles",
+  places: "Places & clubs",
+};
+
+/** Phone width — the same 560px breakpoint as the app's chip-scroll rows. */
+function useNarrow(): boolean {
+  const query = "(max-width: 560px)";
+  const [narrow, setNarrow] = useState(() => typeof window !== "undefined" && !!window.matchMedia?.(query).matches);
+  useEffect(() => {
+    const mq = window.matchMedia?.(query);
+    if (!mq) return;
+    const update = () => setNarrow(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+  return narrow;
+}
+
+/** A labelled group inside the Filters panel (phones stack Type/Show in it). */
+function FilterGroup({ title, children }: { title: string | null; children: ReactNode }) {
+  return (
+    <div role="group" aria-label={title ?? undefined} style={{ padding: "4px 0" }}>
+      {title && <div style={{ padding: "6px 10px 4px", fontSize: 11.5, fontWeight: 700, color: colors.faint, textTransform: "uppercase" }}>{title}</div>}
+      {children}
+    </div>
+  );
+}
+
+/** "Hiking   5" — a menu option with its count on the right. */
+function CountLabel({ name, count }: { name: string; count: number }) {
+  return (
+    <span style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+      {name}
+      <span style={{ color: colors.mutedLight, fontWeight: 500 }}>{count}</span>
+    </span>
+  );
+}
+
+const WHEN_LABELS: Record<string, string> = { "": "Anytime", today: "Today", tonight: "Tonight", tomorrow: "Tomorrow", weekend: "This weekend", week: "This week" };
+
 const SORT_LABELS: Record<SortKey, string> = {
   recommended: "Recommended",
   soonest: "Soonest",
-  "needs-people": "Needs people",
   "price-asc": "Price: Low to high",
 };
 
@@ -138,6 +183,7 @@ function isWeekendDate(dateIso: string): boolean {
   return dow === 0 || dow === 6;
 }
 
+
 /** feed.today and feed.weekend aren't mutually exclusive — an activity
  * happening today is ALSO in feed.weekend whenever today itself is a
  * Saturday/Sunday (the server buckets independently, see discover.ts) — so
@@ -158,17 +204,9 @@ function sortActivities(items: DiscoverItem[], sort: SortKey): DiscoverItem[] {
   const sorted = [...items];
   if (sort === "soonest") {
     sorted.sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time));
-  } else if (sort === "needs-people") {
-    sorted.sort((a, b) => {
-      const an = needsPeopleGame(a) ? 0 : 1;
-      const bn = needsPeopleGame(b) ? 0 : 1;
-      if (an !== bn) return an - bn;
-      const aLeft = a.spotsLeft ?? Infinity;
-      const bLeft = b.spotsLeft ?? Infinity;
-      return aLeft - bLeft;
-    });
   } else if (sort === "price-asc") {
-    sorted.sort((a, b) => (a.priceCents ?? 0) - (b.priceCents ?? 0));
+    // Unknown prices go last rather than counting as free.
+    sorted.sort((a, b) => (a.priceCents ?? Infinity) - (b.priceCents ?? Infinity));
   }
   // "recommended" — leave server order (already ranked by rankScore()).
   return sorted;
@@ -181,22 +219,29 @@ export function Explore() {
 
   const qParam = searchParams.get("q") ?? "";
   const when = searchParams.get("when") ?? "";
-  const needsPeopleOnly = searchParams.get("needsPeople") === "1";
+  const needsPeopleOnly = ["1", "true"].includes(searchParams.get("needsPeople") ?? "");
+  // "1" is the house style; "true" is accepted so hand-written links work.
+  const isOn = (k: string) => ["1", "true"].includes(searchParams.get(k) ?? "");
+  const freeOnly = isOn("free");
+  const soloOnly = isOn("solo");
   const county = searchParams.get("county") ?? "";
   const radiusKm = Number(searchParams.get("radiusKm") ?? 0) || 0;
   const mood = searchParams.get("mood");
   const moodCounty = searchParams.get("moodCounty") ?? undefined;
-  const sort = (searchParams.get("sort") as SortKey) || "recommended";
+  const sortRaw = searchParams.get("sort") ?? "";
+  // An old or unknown ?sort= (e.g. the retired "needs-people") falls back.
+  const sort: SortKey = sortRaw === "soonest" || sortRaw === "price-asc" ? sortRaw : "recommended";
   const shouldFocus = searchParams.get("focus") === "1";
   const categoryType = (searchParams.get("cat") as CategoryKey | null) ?? null;
   // Category system — ?category=<slug>&sub=<slug> across every listing type
   // (unified search). Separate from ?cat=, which is the listing-type preview.
   const taxonomy = useCategoryFilter("all");
+  const narrow = useNarrow();
   const taxonomyKey = JSON.stringify(taxonomy.serverParams);
   const byCategory = !!taxonomy.serverParams.categorySlug;
   const searching = !!qParam.trim() || byCategory;
 
-  const isResultsMode = searching || when !== "" || needsPeopleOnly || !!mood;
+  const isResultsMode = searching || when !== "" || needsPeopleOnly || freeOnly || soloOnly || !!mood;
 
   const [inputValue, setInputValue] = useState(qParam);
   const [suggestOpen, setSuggestOpen] = useState(false);
@@ -207,12 +252,14 @@ export function Explore() {
   const [feed, setFeed] = useState<DiscoverFeed | null>(null);
   const [result, setResult] = useState<SearchResult | null>(null);
   const [loading, setLoading] = useState(false);
+  // A failed search or feed shows an error with a retry, never an empty list.
+  const [loadFailed, setLoadFailed] = useState<"search" | "feed" | null>(null);
+  const [feedAttempt, setFeedAttempt] = useState(0);
   const [recent, setRecent] = useState<string[]>([]);
   const [alertState, setAlertState] = useState<"idle" | "saving" | "saved">("idle");
   const [moodResults, setMoodResults] = useState<DiscoverItem[] | null>(null);
   const [moodLoading, setMoodLoading] = useState(false);
   const [countyOptions, setCountyOptions] = useState<string[]>([]);
-  const [filtersOpen, setFiltersOpen] = useState(false);
   const [previewItems, setPreviewItems] = useState<(Centre | Club | Circle | Experience)[]>([]);
   // Which category `previewItems` actually belongs to — set atomically with
   // the data itself (never via a separate effect run), so a render can
@@ -259,10 +306,14 @@ export function Explore() {
   // own endpoint.
   useEffect(() => {
     setFeed(null);
+    setLoadFailed((f) => (f === "feed" ? null : f));
     fetchDiscover(county || undefined, radiusKm || undefined)
       .then(setFeed)
-      .catch(() => setFeed({ today: [], weekend: [] }));
-  }, [county, radiusKm]);
+      .catch(() => {
+        setFeed({ today: [], weekend: [] });
+        setLoadFailed("feed");
+      });
+  }, [county, radiusKm, feedAttempt]);
 
   // "From people you follow" (Follow feature) — only fetched for a signed-in
   // resident, and only ever rendered when it actually has something in it
@@ -379,11 +430,16 @@ export function Explore() {
     }
     setLoading(true);
     const withCounty = county && !q.toLowerCase().includes(county.toLowerCase()) ? `${q} ${county}`.trim() : q;
+    setLoadFailed((f) => (f === "search" ? null : f));
     search(withCounty, taxonomy.serverParams)
       .then((r) => {
         setResult(r);
         if (q.trim()) pushRecent(q.trim());
         setRecent(loadRecent());
+      })
+      .catch(() => {
+        setResult(null);
+        setLoadFailed("search");
       })
       .finally(() => setLoading(false));
   };
@@ -449,19 +505,23 @@ export function Explore() {
     setSearchParams(new URLSearchParams());
   };
 
+  // Chips only for filters tucked inside a menu (Filters, a mood) — the
+  // category, When and Where already show their value in their own control.
+  const rtypeParam = searchParams.get("rtype") ?? "";
   const activeFilterChips = useMemo(() => {
     const chips: { key: string; label: string; onRemove: () => void }[] = [];
-    if (when === "today") chips.push({ key: "when", label: "Today", onRemove: () => patchParams((p) => p.delete("when")) });
-    if (when === "tonight") chips.push({ key: "when", label: "Tonight", onRemove: () => patchParams((p) => p.delete("when")) });
-    if (when === "weekend") chips.push({ key: "when", label: "This weekend", onRemove: () => patchParams((p) => p.delete("when")) });
+    // Phones: Type and Show sit inside Filters, so their values show here.
+    if (narrow && taxonomy.selectedSub) chips.push({ key: "type", label: taxonomy.selectedSub.name, onRemove: () => taxonomy.setSub(null) });
+    if (narrow && rtypeParam && RESULT_TYPE_LABELS[rtypeParam]) chips.push({ key: "show", label: RESULT_TYPE_LABELS[rtypeParam], onRemove: () => patchParams((p) => p.delete("rtype")) });
     if (needsPeopleOnly) chips.push({ key: "needsPeople", label: "Needs people", onRemove: () => patchParams((p) => p.delete("needsPeople")) });
-    if (county) chips.push({ key: "county", label: county, onRemove: () => patchParams((p) => p.delete("county")) });
-    if (radiusKm > 0) chips.push({ key: "radius", label: `Within ${radiusKm}km`, onRemove: () => patchParams((p) => p.delete("radiusKm")) });
+    if (freeOnly) chips.push({ key: "free", label: "Free", onRemove: () => patchParams((p) => p.delete("free")) });
+    if (soloOnly) chips.push({ key: "solo", label: "Coming alone welcome", onRemove: () => patchParams((p) => p.delete("solo")) });
     if (mood) chips.push({ key: "mood", label: mood === "surprise" ? "Surprise me" : MOOD_LABELS[mood] ?? mood, onRemove: () => patchParams((p) => { p.delete("mood"); p.delete("moodCounty"); }) });
-    if (taxonomy.label) chips.push({ key: "category", label: taxonomy.label, onRemove: () => taxonomy.setCategory(null) });
     return chips;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [when, needsPeopleOnly, county, radiusKm, mood, taxonomy.label]);
+  }, [needsPeopleOnly, freeOnly, soloOnly, mood, narrow, taxonomy.selectedSub, rtypeParam]);
+  const filtersCount = Number(needsPeopleOnly) + Number(freeOnly) + Number(soloOnly);
+  const anyFilterCount = activeFilterChips.length + Number(!!taxonomy.label) + Number(!!when) + Number(!!county) + Number(radiusKm > 0);
 
   // The activities pool actually in play for Results Mode — from the search
   // API when there's a text query, otherwise from the same feed Discovery
@@ -470,16 +530,20 @@ export function Explore() {
     if (mood) return moodResults ?? [];
     if (searching) return result?.activities ?? [];
     if (!feed) return [];
-    if (when === "today" || when === "tonight") return feed.today;
-    if (when === "weekend") return feed.weekend;
-    return dedupeItems([...feed.today, ...feed.weekend]);
-  }, [mood, moodResults, searching, result, feed, when]);
+    // The whole 7-day window when the server sends it (Tomorrow / This week).
+    return feed.week ?? dedupeItems([...feed.today, ...feed.weekend]);
+  }, [mood, moodResults, searching, result, feed]);
 
   const filteredActivities = useMemo(() => {
     let items = baseActivities;
-    if (searching && (when === "today" || when === "tonight")) items = items.filter((i) => i.date === irelandToday());
-    if (searching && when === "weekend") items = items.filter((i) => isWeekendDate(i.date));
+    if (when) {
+      const today = irelandToday();
+      items = items.filter((i) => matchesWhen(i, when, today));
+    }
     if (needsPeopleOnly) items = items.filter(needsPeopleGame);
+    // Only listings known to be free — an unknown price doesn't count.
+    if (freeOnly) items = items.filter((i) => priceState(i) === "free");
+    if (soloOnly) items = items.filter((i) => !!i.card?.soloFriendly);
     // Batch 2 — a programme is one result (its next session), not one card per
     // session: you enrol in the whole programme. Sessions share the
     // programme's href, so keep the first after sorting.
@@ -490,70 +554,94 @@ export function Explore() {
       seenProgrammes.add(i.href);
       return true;
     });
-  }, [baseActivities, searching, when, needsPeopleOnly, sort]);
+  }, [baseActivities, when, needsPeopleOnly, freeOnly, soloOnly, sort]);
 
-  const showOtherGroups = !needsPeopleOnly && !mood;
-  const allExperiences = searching && showOtherGroups ? result?.experiences ?? [] : [];
+  // Needs people / Coming alone only exist on activities, so they narrow the
+  // results to activities; so does a date, since the rest carry no date here.
+  const showOtherGroups = !needsPeopleOnly && !soloOnly && !mood;
+  const allExperiences = searching && showOtherGroups && !when ? (result?.experiences ?? []).filter((e) => !freeOnly || e.priceCents === 0) : [];
   // Unified search — programmes not already shown as one of their sessions
   // above (no duplicate cards), and Circles (open/approval only, server-side).
   const shownProgrammeHrefs = new Set(filteredActivities.filter((a) => a.kind === "program_session").map((a) => a.href));
-  const allProgrammes = searching && showOtherGroups && !when ? (result?.programmes ?? []).filter((p) => !shownProgrammeHrefs.has(`/programs/${p.id}`)) : [];
+  const allProgrammes = searching && showOtherGroups && !when ? (result?.programmes ?? []).filter((p) => !shownProgrammeHrefs.has(`/programs/${p.id}`) && (!freeOnly || p.priceCents === 0)) : [];
+  // Circles are always free to join (membership is never paid), so Free keeps them.
   const allCircles = searching && showOtherGroups && !when ? result?.circles ?? [] : [];
   // Header audit P0-1 — while venue pages aren't public every centre/club
   // link lands on /coming-soon, so venue results stay out (same rule as
   // CATEGORIES above).
-  const allCentres = VENUE_PAGES_PUBLIC && searching && showOtherGroups ? result?.centres ?? [] : [];
-  const allClubs = VENUE_PAGES_PUBLIC && searching && showOtherGroups ? result?.clubs ?? [] : [];
+  const allCentres = VENUE_PAGES_PUBLIC && searching && showOtherGroups && !freeOnly ? result?.centres ?? [] : [];
+  const allClubs = VENUE_PAGES_PUBLIC && searching && showOtherGroups && !freeOnly ? result?.clubs ?? [] : [];
 
   // Narrows which result group(s) are visible — a filter on top of the
   // results Search already returned, not a re-query.
   const resultType = searchParams.get("rtype") ?? "";
-  const groupCounts = { activities: filteredActivities.length, experiences: allExperiences.length, programmes: allProgrammes.length, circles: allCircles.length, places: allCentres.length + allClubs.length };
+  const expOf = (kind: string) => allExperiences.filter((e) => (e.kind === "adventure" || e.kind === "volunteer" ? e.kind : "experience") === kind);
+  const groups = {
+    activities: filteredActivities,
+    adventures: expOf("adventure"),
+    experiences: expOf("experience"),
+    volunteering: expOf("volunteer"),
+  };
+  const groupCounts = { activities: groups.activities.length, experiences: allExperiences.length, programmes: allProgrammes.length, circles: allCircles.length, places: allCentres.length + allClubs.length };
   const RESULT_TYPE_OPTIONS: { v: string; l: string; count: number }[] = [
     { v: "", l: "All", count: groupCounts.activities + groupCounts.experiences + groupCounts.programmes + groupCounts.circles + groupCounts.places },
-    { v: "activities", l: "Things to do", count: groupCounts.activities },
-    { v: "experiences", l: "Adventures & Experiences", count: groupCounts.experiences },
-    { v: "programmes", l: "Programmes", count: groupCounts.programmes },
-    { v: "circles", l: "Circles", count: groupCounts.circles },
-    { v: "places", l: "Places & Clubs", count: groupCounts.places },
+    { v: "activities", l: RESULT_TYPE_LABELS.activities, count: groups.activities.length },
+    { v: "adventures", l: RESULT_TYPE_LABELS.adventures, count: groups.adventures.length },
+    { v: "experiences", l: RESULT_TYPE_LABELS.experiences, count: groups.experiences.length },
+    { v: "volunteering", l: RESULT_TYPE_LABELS.volunteering, count: groups.volunteering.length },
+    { v: "programmes", l: RESULT_TYPE_LABELS.programmes, count: groupCounts.programmes },
+    { v: "circles", l: RESULT_TYPE_LABELS.circles, count: groupCounts.circles },
+    { v: "places", l: RESULT_TYPE_LABELS.places, count: groupCounts.places },
   ];
   const showActivities = resultType === "" || resultType === "activities";
-  const showExperiences = resultType === "" || resultType === "experiences";
   const showPlaces = resultType === "" || resultType === "places";
-  const experiences = showExperiences ? allExperiences : [];
+  const experiences = resultType === "" ? allExperiences : resultType === "adventures" ? groups.adventures : resultType === "experiences" ? groups.experiences : resultType === "volunteering" ? groups.volunteering : [];
   const programmes = resultType === "" || resultType === "programmes" ? allProgrammes : [];
   const circleResults = resultType === "" || resultType === "circles" ? allCircles : [];
   const centres = showPlaces ? allCentres : [];
   const clubs = showPlaces ? allClubs : [];
   const visibleActivities = showActivities ? filteredActivities : [];
-  const boldWord = byCategory ? categoryWord(taxonomy) : null;
-  const boldTop = boldWord ? visibleActivities.slice(0, 4) : [];
 
-  const isSearchLoading = mood ? moodLoading : searching ? loading : false;
+  // Without a search the results come from the feed, so wait for it too.
+  // The chosen type's name wins on every card ("Hiking"); otherwise each card
+  // shows its own category word.
+  const chosenWord = taxonomy.selectedSub?.name ?? null;
+  const isSearchLoading = mood ? moodLoading : searching ? loading : feed === null;
+  const resultTypeLabel = RESULT_TYPE_OPTIONS.find((o) => o.v === resultType)?.l ?? "All";
+  const showMenuOn = isResultsMode && !isSearchLoading && (!!resultType || RESULT_TYPE_OPTIONS.filter((o) => o.v !== "" && o.count > 0).length > 1);
+  const typeMenuOn = !!taxonomy.selected && taxonomy.selected.subcategories.length > 1;
+  const showOptions = RESULT_TYPE_OPTIONS.filter((o) => o.v === "" || o.v === resultType || o.count > 0).map((o) => (
+    <DropdownOption key={o.v} label={<CountLabel name={o.l} count={o.count} />} active={resultType === o.v} onClick={() => patchParams((p) => (o.v ? p.set("rtype", o.v) : p.delete("rtype")))} />
+  ));
+  // On phones Type and Show live inside Filters, so they count in its badge.
+  const filtersBadge = filtersCount + (narrow ? Number(!!taxonomy.selectedSub) + Number(!!resultType) : 0);
   const totalMatches = groupCounts.activities + groupCounts.experiences + groupCounts.programmes + groupCounts.circles + groupCounts.places;
   const visibleMatches = visibleActivities.length + experiences.length + programmes.length + circleResults.length + centres.length + clubs.length;
   const hasNoData = !isSearchLoading && totalMatches === 0;
+  // Zero because of a filter on top of the search/category (not the search itself).
+  const resultsFailed = !isSearchLoading && !mood && loadFailed === (searching ? "search" : "feed");
+  const narrowed = !!resultType || filtersCount > 0 || !!when || !!county || radiusKm > 0 || !!taxonomy.selectedSub;
   // Narrowed the "Things to do / Adventures / Places" filter down to a
   // group with nothing in it — different from a genuine zero-result search,
   // so it gets a lighter "show all" nudge rather than the full demand-
   // capture empty state.
   const hasNoVisibleData = !isSearchLoading && totalMatches > 0 && visibleMatches === 0;
 
-  const contextTitle = mood
+  // The line under the count: what's being shown, then each narrowing
+  // ("Outdoors & adventure › Hiking near Cork · Tomorrow · Free").
+  const contextBase = mood
     ? mood === "surprise" ? "A surprise for you" : `Feeling like: ${MOOD_LABELS[mood] ?? mood}`
     : qParam.trim()
-      ? `"${qParam.trim()}"${taxonomy.label ? ` in ${taxonomy.label}` : ""}${county ? ` near ${county}` : ""}`
-      : taxonomy.label
-      ? `${taxonomy.label}${county ? ` near ${county}` : ""}`
-      : needsPeopleOnly
-        ? "Plans that need a few more people"
-        : when === "today"
-          ? "Happening today"
-          : when === "tonight"
-            ? "Happening tonight"
-            : when === "weekend"
-              ? "This weekend"
-              : "Explore";
+      ? `"${qParam.trim()}"${taxonomy.label ? ` in ${taxonomy.label}` : ""}`
+      : taxonomy.label ?? "All listings";
+  const contextTitle = [
+    `${contextBase}${county ? ` near ${county}` : ""}`,
+    when ? WHEN_LABELS[when] : null,
+    // Type is already in the category label; Show is said by the count line.
+    ...activeFilterChips.filter((c) => !["mood", "type", "show"].includes(c.key)).map((c) => c.label),
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
   const emptyStateActivityLabel = result?.parsed?.keywords.join(" ") || qParam || (mood ? MOOD_LABELS[mood] ?? mood : "") || (needsPeopleOnly ? "" : when);
   const emptyStateCounty = result?.parsed?.county || county || moodCounty || "";
@@ -569,10 +657,11 @@ export function Explore() {
   }, [feed]);
 
   return (
-    <div className="fade-panel">
+    // Explore's section titles run larger than the shared 20px default (owner, 2026-10-28).
+    <div className="fade-panel" style={{ "--section-title-size": "clamp(28px, 3.2vw, 42px)" } as CSSProperties}>
       <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "36px 24px 90px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, marginBottom: 8 }}>
-          <PageTitle style={{ margin: 0 }}>Explore</PageTitle>
+          <PageTitle style={{ margin: 0 }}>Find something worth doing.</PageTitle>
           {/* PUB-09 — Compare is a centres tool; while venue pages are gated it
               would only lead to the coming-soon page, so it isn't offered. */}
           {VENUE_PAGES_PUBLIC && (
@@ -581,7 +670,7 @@ export function Explore() {
             </button>
           )}
         </div>
-        <p style={{ color: colors.mutedLight, fontSize: 15, margin: "0 0 20px" }}>What do you feel like doing?</p>
+        <p style={{ color: colors.mutedLight, fontSize: 15, margin: "0 0 20px" }}>Discover activities, experiences and people around you.</p>
 
         {/* Shared search bar — the input plus its two most-used filters
             (Location, When) live in one row/card, matching the merge
@@ -642,13 +731,6 @@ export function Explore() {
               </div>
             </FilterDropdown>
 
-            {/* When — the same tonight/weekend split the Filters drawer also
-                reads/writes, just reachable inline too. */}
-            <FilterDropdown label={<span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><CalendarIcon size={13} />{when === "tonight" ? "Tonight" : when === "weekend" ? "This weekend" : "Anytime"}</span>} active={when !== ""}>
-              {[{ v: "", l: "Anytime" }, { v: "tonight", l: "Tonight" }, { v: "weekend", l: "This weekend" }].map((o) => (
-                <DropdownOption key={o.v} label={o.l} active={when === o.v} onClick={() => patchParams((p) => (o.v ? p.set("when", o.v) : p.delete("when")))} />
-              ))}
-            </FilterDropdown>
           </div>
 
           {/* Recent/Popular — an on-focus suggestions panel, not permanent
@@ -684,75 +766,68 @@ export function Explore() {
           )}
         </div>
 
-        {/* Quick intentions — one-tap shortcuts for what isn't already a
-            dropdown above (Tonight/Weekend live in When; distance lives in
-            Location, shown in its label once set). */}
-        <div className="chips-scroll-mobile" style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 24 }}>
-          {QUICK_INTENTS.map((qi) => (
-            <QuickIntentChip
-              key={qi.key}
-              label={qi.label}
-              onClick={() =>
-                patchParams((p) => {
-                  qi.apply(p);
-                })
-              }
-            />
-          ))}
+        {/* Toolbar (owner, 2026-10-28). Desktop: Category | Type | When | Show
+            | Filters | Sort. Phones keep one line — Category | When | Filters |
+            Sort — with Type and Show inside Filters, shown as removable chips
+            once chosen. Show and Sort only once there are results. */}
+        <div role="toolbar" aria-label="Filter and sort" className="explore-toolbar" style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 20 }}>
+          <CategoryDropdown state={taxonomy} floating={narrow} />
+          {!narrow && <CategoryTypeDropdown state={taxonomy} />}
+          <FilterDropdown label={<span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><CalendarIcon size={13} />{WHEN_LABELS[when] ?? "Anytime"}</span>} active={when !== ""} closeOnSelect floating={narrow}>
+            {Object.entries(WHEN_LABELS).map(([v, l]) => (
+              <DropdownOption key={v} label={l} active={when === v} onClick={() => patchParams((p) => (v ? p.set("when", v) : p.delete("when")))} />
+            ))}
+          </FilterDropdown>
+          {/* Stays visible while a type is chosen, so it can always be undone. */}
+          {!narrow && showMenuOn && (
+            <FilterDropdown label={resultType ? `Show: ${resultTypeLabel}` : "Show"} active={!!resultType} closeOnSelect>
+              {showOptions}
+            </FilterDropdown>
+          )}
+          <FilterDropdown label={`Filters${filtersBadge ? ` · ${filtersBadge}` : ""}`} active={filtersBadge > 0} floating={narrow}>
+            {narrow && typeMenuOn && taxonomy.selected && (
+              <FilterGroup title="Type">
+                <DropdownOption label={`All ${taxonomy.selected.name.toLowerCase()}`} active={!taxonomy.selectedSub} onClick={() => taxonomy.setSub(null)} />
+                {taxonomy.selected.subcategories.map((sc) => (
+                  <DropdownOption key={sc.id} label={<CountLabel name={sc.name} count={sc.count} />} active={taxonomy.selectedSub?.id === sc.id} onClick={() => taxonomy.setSub(sc.slug)} />
+                ))}
+              </FilterGroup>
+            )}
+            {narrow && showMenuOn && <FilterGroup title="Show">{showOptions}</FilterGroup>}
+            <FilterGroup title={narrow && (typeMenuOn || showMenuOn) ? "Only" : null}>
+              <DropdownCheckbox label="Needs people" checked={needsPeopleOnly} onChange={() => patchParams((p) => (needsPeopleOnly ? p.delete("needsPeople") : p.set("needsPeople", "1")))} />
+              <DropdownCheckbox label="Free" checked={freeOnly} onChange={() => patchParams((p) => (freeOnly ? p.delete("free") : p.set("free", "1")))} />
+              <DropdownCheckbox label="Coming alone welcome" checked={soloOnly} onChange={() => patchParams((p) => (soloOnly ? p.delete("solo") : p.set("solo", "1")))} />
+            </FilterGroup>
+          </FilterDropdown>
+          {isResultsMode && (
+            <FilterDropdown label={sort === "recommended" ? "Sort" : `Sort: ${SORT_LABELS[sort]}`} align="right" closeOnSelect floating={narrow}>
+              {(Object.keys(SORT_LABELS) as SortKey[]).map((k) => (
+                <DropdownOption key={k} label={SORT_LABELS[k]} active={sort === k} onClick={() => patchParams((p) => (k === "recommended" ? p.delete("sort") : p.set("sort", k)))} />
+              ))}
+            </FilterDropdown>
+          )}
         </div>
-
-        {/* Category system — the most-listed categories only (one scrolling
-            row), then the chosen category's subcategories. */}
-        <CategoryChips state={taxonomy} limit={10} />
 
         {isResultsMode ? (
           <>
-            {/* Results toolbar (Batch 2): type chips with counts first, then one
-                row with the count on the left and Filters + Sort on the right,
-                then any active filters. Same controls as before, less height. */}
+            {/* Results bar — title and count on the left; every way to narrow
+                the results is a dropdown on the right (owner, 2026-10-28:
+                no extra chip rows). */}
             <div style={{ marginBottom: 18 }}>
-              {!isSearchLoading && [groupCounts.activities, groupCounts.experiences, groupCounts.programmes, groupCounts.circles, groupCounts.places].filter((n) => n > 0).length > 1 && (
-                <div className="chips-scroll-mobile" style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
-                  {RESULT_TYPE_OPTIONS.filter((o) => o.v === "" || o.count > 0).map((o) => (
-                    <button
-                      key={o.v}
-                      onClick={() => patchParams((p) => (o.v ? p.set("rtype", o.v) : p.delete("rtype")))}
-                      style={{
-                        border: "none", borderRadius: radius.pill, padding: "6px 13px", fontSize: 12.5, fontWeight: 700, cursor: "pointer",
-                        background: resultType === o.v ? colors.dark : colors.panel, color: resultType === o.v ? "#fff" : colors.muted,
-                      }}
-                    >
-                      {o.l} ({o.count})
-                    </button>
-                  ))}
-                </div>
-              )}
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
                 <div style={{ minWidth: 0 }}>
-                  <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 19, margin: 0, display: "inline" }}>{contextTitle}</h2>
-                  {!isSearchLoading && (
-                    <span style={{ fontSize: 13.5, color: colors.mutedLight, marginLeft: 8 }}>
-                      {visibleMatches} result{visibleMatches === 1 ? "" : "s"}
-                      {resultType && visibleMatches !== totalMatches ? ` of ${totalMatches}` : ""}
-                    </span>
-                  )}
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <button onClick={() => setFiltersOpen(true)} className="btn" style={{ border: `1px solid ${colors.borderStrong}`, background: colors.surface, borderRadius: "var(--radius-button)", padding: "8px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
-                    Filters{activeFilterChips.length > 0 ? ` · ${activeFilterChips.length}` : ""}
-                  </button>
-                  <select
-                    aria-label="Sort results"
-                    value={sort}
-                    onChange={(e) => patchParams((p) => p.set("sort", e.target.value))}
-                    style={{ padding: "8px 12px", border: `1px solid ${colors.inputBorder}`, borderRadius: radius.control, fontSize: 13.5, background: colors.bg, color: colors.text, outline: "none", fontWeight: 600 }}
-                  >
-                    {(Object.keys(SORT_LABELS) as SortKey[]).map((k) => (
-                      <option key={k} value={k}>
-                        Sort: {SORT_LABELS[k]}
-                      </option>
-                    ))}
-                  </select>
+                  <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: "var(--section-title-size, 22px)", lineHeight: 1.1, margin: 0 }}>
+                    {isSearchLoading ? "Looking…" : resultsFailed ? "Results unavailable" : `${visibleMatches} ${visibleMatches === 1 ? "thing" : "things"} to explore`}
+                  </h2>
+                  <p style={{ fontSize: 14, color: colors.mutedLight, margin: "4px 0 0" }}>
+                    {contextTitle}
+                    {!isSearchLoading && resultType && visibleMatches !== totalMatches ? ` · ${visibleMatches} of ${totalMatches} shown` : ""}
+                  </p>
+                  {/* Announces the new count after every filter change. */}
+                  <span className="visually-hidden" role="status" aria-live="polite">
+                    {isSearchLoading || resultsFailed ? "" : `${visibleMatches} ${visibleMatches === 1 ? "thing" : "things"} to explore`}
+                  </span>
                 </div>
               </div>
               {(activeFilterChips.length > 0 || (resident && result?.parsed && (result.parsed.county || result.parsed.keywords.length > 0))) && (
@@ -765,9 +840,9 @@ export function Explore() {
                       </button>
                     </span>
                   ))}
-                  {activeFilterChips.length > 1 && (
+                  {activeFilterChips.length > 0 && anyFilterCount > 1 && (
                     <button onClick={clearAll} style={{ background: "none", border: "none", color: colors.muted, fontWeight: 700, fontSize: 12.5, cursor: "pointer" }}>
-                      Clear all
+                      Reset all
                     </button>
                   )}
                 {resident && result?.parsed && (result.parsed.county || result.parsed.keywords.length > 0) && (
@@ -795,6 +870,30 @@ export function Explore() {
               <div className="listing-grid">
                 {Array.from({ length: 6 }, (_, i) => <CardSkeleton key={i} />)}
               </div>
+            ) : resultsFailed ? (
+              <LoadErrorState
+                title="We couldn't load these results"
+                onRetry={() => (searching ? runSearch(qParam) : setFeedAttempt((n) => n + 1))}
+              />
+            ) : hasNoData && narrowed ? (
+              // Filters took it to zero — offer to undo each one instead of a
+              // dead end (the demand form below is for a genuine zero search).
+              <div style={{ background: colors.panel, borderRadius: radius.card, padding: "28px 24px", textAlign: "center" }}>
+                <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 19, margin: "0 0 6px" }}>Nothing matches those filters just yet.</h3>
+                <p style={{ fontSize: 14.5, color: colors.muted, margin: "0 0 16px" }}>Try removing one of them.</p>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center" }}>
+                  {/* Type and Show have their own buttons below. */}
+                  {activeFilterChips.filter((c) => c.key !== "type" && c.key !== "show").map((c) => (
+                    <Button key={c.key} variant="ghost" onClick={c.onRemove}>Remove {c.label}</Button>
+                  ))}
+                  {when && <Button variant="ghost" onClick={() => patchParams((p) => p.delete("when"))}>Any date</Button>}
+                  {(county || radiusKm > 0) && <Button variant="ghost" onClick={() => patchParams((p) => { p.delete("county"); p.delete("radiusKm"); })}>Anywhere</Button>}
+                  {resultType && <Button variant="ghost" onClick={() => patchParams((p) => p.delete("rtype"))}>Show all types</Button>}
+                  {taxonomy.selectedSub && <Button variant="ghost" onClick={() => taxonomy.setSub(null)}>All {taxonomy.selected?.name.toLowerCase()}</Button>}
+                  <Button variant="ghost" onClick={clearAll}>Clear all filters</Button>
+                </div>
+                <CategoryEmptyHint state={taxonomy} basePath="/explore" />
+              </div>
             ) : hasNoData ? (
               <EmptyState
                 icon={<SearchIcon size={22} />}
@@ -819,22 +918,14 @@ export function Explore() {
                 {/* Batch 2 — one grid for every result type (the type chips
                     above already narrow it), instead of a headed section per
                     type that left half-empty rows. */}
-                {/* Category page (owner plan, 2026-10-23): the first row in
-                    the Bold typography style, named after the chosen
-                    category; the rest stay compact for comparing. */}
-                {boldTop.length > 0 && (
-                  <div className="listing-grid" style={{ marginBottom: 20 }}>
-                    {boldTop.map((a) => (
-                      <DiscoverCard key={`${a.kind}-${a.id}`} item={a} isToday={a.date === irelandToday()} fill look="bold" category={boldWord} />
-                    ))}
-                  </div>
-                )}
+                {/* The normal cards, each with its Bold word over the photo
+                    (owner, 2026-10-28). Circles keep their own card. */}
                 <CardGrid>
-                  {visibleActivities.slice(boldTop.length).map((a) => (
-                    <DiscoverCard key={`${a.kind}-${a.id}`} item={a} isToday={a.date === irelandToday()} fill />
+                  {visibleActivities.map((a) => (
+                    <DiscoverCard key={`${a.kind}-${a.id}`} item={a} isToday={a.date === irelandToday()} fill word={cardWord(a.category, KIND_WORD[a.kind] ?? "Activity", chosenWord)} />
                   ))}
-                  {experiences.map((e) => <ExperienceSearchCard key={e.id} e={e} />)}
-                  {programmes.map((p) => <ProgrammeResultCard key={`programme-${p.id}`} p={p} />)}
+                  {experiences.map((e) => <ExperienceSearchCard key={e.id} e={e} chosenWord={chosenWord} />)}
+                  {programmes.map((p) => <ProgrammeResultCard key={`programme-${p.id}`} p={p} word={cardWord(p.category, "Programme", chosenWord)} />)}
                   {circleResults.map((c) => <CircleResultCard key={`circle-${c.id}`} c={c} />)}
                   {centres.map((c) => <CentreCard key={c.id} centre={c} />)}
                   {clubs.map((c) => <ClubCard key={c.id} club={c} />)}
@@ -869,7 +960,7 @@ export function Explore() {
             {categoryType ? (
               <div style={{ marginBottom: 36 }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-                  <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: 0 }}>
+                  <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: "var(--section-title-size, 20px)", margin: 0 }}>
                     {CATEGORIES.find((c) => c.key === categoryType)?.label}
                   </h2>
                   <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
@@ -1043,33 +1134,6 @@ export function Explore() {
         text="Tell us what you'd like to do and where — we'll help you get people together."
         action={{ label: "Make it happen", to: "/make-it-happen" }}
       />
-      <Drawer open={filtersOpen} onClose={() => setFiltersOpen(false)} title="Filters">
-        <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-          {/* When/Distance already live in the search bar above (and Location
-              there covers county) — this drawer only holds what isn't already
-              reachable inline. */}
-          <div>
-            <div style={{ fontSize: 12.5, fontWeight: 700, color: colors.muted, marginBottom: 8 }}>AVAILABILITY</div>
-            <button
-              onClick={() => patchParams((p) => (needsPeopleOnly ? p.delete("needsPeople") : p.set("needsPeople", "1")))}
-              style={{ border: "none", borderRadius: radius.pill, padding: "7px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer", background: needsPeopleOnly ? colors.orange : colors.panel, color: needsPeopleOnly ? "#fff" : colors.muted }}
-            >
-              Needs people
-            </button>
-          </div>
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-            <button onClick={clearAll} style={{ background: "none", border: "none", color: colors.muted, fontWeight: 700, fontSize: 13.5, cursor: "pointer" }}>
-              Clear all
-            </button>
-            <button
-              onClick={() => setFiltersOpen(false)}
-              className="btn-cta" style={{ background: "var(--color-cta)", color: "var(--color-on-cta)", border: "none", borderRadius: "var(--radius-button)", minWidth: "var(--button-min-width)", padding: "9px 20px", fontSize: 13.5, fontWeight: 700, cursor: "pointer" }}
-            >
-              Show {totalMatches} match{totalMatches === 1 ? "" : "es"}
-            </button>
-          </div>
-        </div>
-      </Drawer>
     </div>
   );
 }
@@ -1078,7 +1142,7 @@ type SearchProgramme = NonNullable<SearchResult["programmes"]>[number];
 type SearchCircle = NonNullable<SearchResult["circles"]>[number];
 
 /** Unified-search programme result (the programme, not one of its sessions). */
-function ProgrammeResultCard({ p }: { p: SearchProgramme }) {
+function ProgrammeResultCard({ p, word }: { p: SearchProgramme; word: string }) {
   const navigate = useNavigate();
   const href = `/programs/${p.id}`;
   return (
@@ -1090,8 +1154,9 @@ function ProgrammeResultCard({ p }: { p: SearchProgramme }) {
       icon={<GridIcon size={20} />}
       iconColor={colors.green}
       tag="Programme"
+      word={word}
       details={[{ icon: <PinIcon size={13} />, text: [p.parentName, p.area || p.county].filter(Boolean).join(" · ") }]}
-      facts={<span>{p.nextSessionDate ? `Next: ${dateLabel(p.nextSessionDate)}` : "Ongoing"}{p.priceCents ? ` · ${euro(p.priceCents / 100)}` : " · Free"}</span>}
+      facts={<span>{p.nextSessionDate ? `Next: ${dateLabel(p.nextSessionDate)}` : "Ongoing"}{priceState(p) === "unknown" ? "" : p.priceCents ? ` · ${euro(p.priceCents / 100)}` : " · Free"}</span>}
       action={
         <CardArrow label={`View programme: ${p.title}`} onClick={() => navigate(href)} />
       }

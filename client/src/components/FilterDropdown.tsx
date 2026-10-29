@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { ChevronDownIcon } from "./icons";
 import { colors, radius } from "../theme";
 
@@ -14,16 +14,62 @@ export function FilterDropdown({
   label,
   active,
   accent = "green",
+  align = "left",
+  closeOnSelect = false,
+  floating = false,
   children,
 }: {
   label: ReactNode;
   /** Whether to paint the trigger in its "something is selected" state. */
   active?: boolean;
   accent?: "green" | "orange";
+  /** "right" for a trigger near the right edge, so the panel opens inward. */
+  align?: "left" | "right";
+  /** Close once an option button is picked (single-choice menus). */
+  closeOnSelect?: boolean;
+  /** Open the panel at a fixed screen position, for a trigger inside a
+   * sideways-scrolling row (which would otherwise clip it). It follows its
+   * button when the page or row scrolls. */
+  floating?: boolean;
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  // Sideways nudge so the panel never opens past the screen edge (phones).
+  const [nudge, setNudge] = useState(0);
+  const [fixedAt, setFixedAt] = useState<{ top: number; left: number } | null>(null);
+  useLayoutEffect(() => {
+    if (!open || !floating || !triggerRef.current) return setFixedAt(null);
+    const place = () => {
+      const r = triggerRef.current?.getBoundingClientRect();
+      if (r) setFixedAt({ top: r.bottom + 6, left: align === "right" ? r.right : r.left });
+    };
+    place();
+    const onScroll = (e: Event) => {
+      if (!panelRef.current?.contains(e.target as Node)) place();
+    };
+    window.addEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", place);
+    return () => {
+      window.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("resize", place);
+    };
+  }, [open, floating, align]);
+  useLayoutEffect(() => {
+    if (!open || !panelRef.current) return setNudge(0);
+    const r = panelRef.current.getBoundingClientRect();
+    const gutter = 8;
+    // Measured with the current nudge applied, so undo it first.
+    setNudge((prev) => {
+      const left = r.left - prev;
+      const right = r.right - prev;
+      if (left < gutter) return gutter - left;
+      if (right > window.innerWidth - gutter) return window.innerWidth - gutter - right;
+      return 0;
+    });
+  }, [open, fixedAt]);
 
   useEffect(() => {
     function onDocClick(e: MouseEvent) {
@@ -33,11 +79,27 @@ export function FilterDropdown({
     return () => document.removeEventListener("mousedown", onDocClick);
   }, []);
 
+  // Escape closes the panel and hands focus back to its button.
+  useEffect(() => {
+    if (!open) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== "Escape") return;
+      setOpen(false);
+      triggerRef.current?.focus();
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open]);
+
   void accent; // selected = forest pill everywhere (design-system pass)
 
   return (
     <div ref={ref} style={{ position: "relative" }}>
       <button
+        ref={triggerRef}
+        type="button"
+        aria-expanded={open}
+        aria-haspopup="true"
         onClick={() => setOpen((o) => !o)}
         className="btn"
         style={{
@@ -59,10 +121,25 @@ export function FilterDropdown({
       </button>
       {open && (
         <div
+          ref={panelRef}
+          onClick={
+            closeOnSelect
+              ? (e) => {
+                  if (!(e.target as HTMLElement).closest("button")) return;
+                  setOpen(false);
+                  triggerRef.current?.focus();
+                }
+              : undefined
+          }
           style={{
-            position: "absolute",
-            top: "calc(100% + 6px)",
-            left: 0,
+            ...(floating && fixedAt
+              ? { position: "fixed" as const, top: fixedAt.top, left: fixedAt.left, transform: `translateX(calc(${align === "right" ? "-100%" : "0px"} + ${nudge}px))` }
+              : {
+                  position: "absolute" as const,
+                  top: "calc(100% + 6px)",
+                  ...(align === "right" ? { right: 0 } : { left: 0 }),
+                  transform: nudge ? `translateX(${nudge}px)` : undefined,
+                }),
             zIndex: 30,
             background: colors.surface,
             border: `1px solid ${colors.border}`,
@@ -86,6 +163,8 @@ export function FilterDropdown({
 export function DropdownOption({ label, active, onClick }: { label: ReactNode; active: boolean; onClick: () => void }) {
   return (
     <button
+      type="button"
+      aria-pressed={active}
       onClick={onClick}
       style={{
         display: "block",

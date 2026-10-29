@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { reviewClaimKey } from "../reviewClaimKey.js";
 import mysql from "mysql2/promise";
 import { FEE_CLAIM_DRAFT_CORRECTIONS, POLICY_SEEDS } from "../policy/drafts.js";
 import type { Pool, PoolConnection } from "mysql2/promise";
@@ -4385,6 +4386,173 @@ async function initCommerceSchema(
       PRIMARY KEY (resident_id, alert_key)
     );
   `);
+
+  // Trust & Retention batch 1 (2026-10-28, docs/trust-retention/).
+  //
+  // Reviews become attendance-based: each new review names the occurrence it
+  // is about (occurrence_kind/ref — a booking, registration, enrolment,
+  // experience booking or a Session place) and who wrote it (author_key =
+  // resident id, or "c:<client id>" for a guest booking), so the unique key
+  // allows one review per attendee per occurrence per subject. Reviews written
+  // before this have NULL occurrence and stay as they are (MySQL unique keys
+  // ignore NULLs). attendance_basis records what the organiser confirmed:
+  // 'person' (this reviewer's own place), 'booking' (the booking was attended,
+  // not necessarily by the person who paid — group bookings, a child's
+  // registration, a hall hire) or 'self_reported' (only the attendee said so).
+  await ensureColumn("reviews", "resident_id", "resident_id VARCHAR(191) NULL");
+  await ensureColumn("reviews", "author_key", "author_key VARCHAR(191) NULL");
+  await ensureColumn("reviews", "occurrence_kind", "occurrence_kind VARCHAR(20) NULL");
+  await ensureColumn("reviews", "occurrence_ref", "occurrence_ref VARCHAR(191) NULL");
+  await ensureColumn("reviews", "occurrence_date", "occurrence_date VARCHAR(20) NULL");
+  await ensureColumn("reviews", "attendance_basis", "attendance_basis VARCHAR(20) NULL");
+  await ensureColumn("reviews", "tags", "tags VARCHAR(255) NOT NULL DEFAULT ''");
+  await ensureColumn("reviews", "updated_at", "updated_at DATETIME NULL");
+  await ensureColumn("reviews", "hidden_reason", "hidden_reason TEXT NULL");
+  await ensureColumn("reviews", "hidden_by", "hidden_by VARCHAR(191) NULL");
+  await ensureColumn("reviews", "hidden_at", "hidden_at DATETIME NULL");
+  await ensureColumn("reviews", "vendor_reply_by", "vendor_reply_by VARCHAR(191) NULL");
+  if (!((await db.prepare(`SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'reviews' AND INDEX_NAME = 'uq_review_occurrence' LIMIT 1`).all()) as unknown[]).length) {
+    try {
+      await db.exec(`ALTER TABLE reviews ADD UNIQUE INDEX uq_review_occurrence (listing_type, occurrence_kind, occurrence_ref, author_key)`);
+    } catch (e) {
+      const code = (e as { code?: string }).code;
+      if (code === "ER_DUP_ENTRY") {
+        // Rows that already break the rule (only possible after a partial or
+        // hand-edited upgrade — older reviews have NULL occurrence and never
+        // conflict). Never delete or rewrite reviews to make the index fit:
+        // report the groups and keep booting. reviews.ts also refuses a
+        // duplicate in code, so new duplicates can't be added meanwhile.
+        const groups = (await db
+          .prepare(
+            `SELECT listing_type as listingType, occurrence_kind as kind, occurrence_ref as ref, author_key as authorKey, COUNT(*) as n, GROUP_CONCAT(id ORDER BY id) as ids
+             FROM reviews WHERE occurrence_ref IS NOT NULL GROUP BY listing_type, occurrence_kind, occurrence_ref, author_key HAVING COUNT(*) > 1`
+          )
+          .all()) as unknown[];
+        console.error(`[schema] uq_review_occurrence NOT created: ${groups.length} conflicting review group(s) need a decision (docs/trust-retention/04-batch-1-follow-up.md):`, JSON.stringify(groups));
+      } else if (code !== "ER_DUP_KEYNAME") throw e;
+    }
+  }
+  await ensureIndex("reviews", "idx_reviews_listing", "(listing_type, listing_id, hidden)");
+  // Review invitations (myLifePlans.ts): one row per confirmed resident +
+  // occurrence (unique), scheduled for when it ends, sent once after an
+  // eligibility + preference re-check, or skipped/voided — never re-sent.
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS review_invitations (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      resident_id VARCHAR(191) NOT NULL,
+      listing_type VARCHAR(20) NOT NULL,
+      listing_id VARCHAR(191) NOT NULL,
+      occurrence_kind VARCHAR(20) NOT NULL,
+      occurrence_ref VARCHAR(191) NOT NULL,
+      send_after DATETIME NOT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'scheduled',
+      reason VARCHAR(40) NULL,
+      path VARCHAR(255) NOT NULL,
+      label VARCHAR(255) NOT NULL DEFAULT '',
+      notification_id INT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      sent_at DATETIME NULL,
+      UNIQUE KEY uq_review_invitation (resident_id, occurrence_kind, occurrence_ref),
+      KEY idx_review_invitations_due (status, send_after)
+    );
+  `);
+
+  // One claim per (subject, occurrence, author) — inserted in the same
+  // transaction as the review, so a duplicate fails atomically on this primary
+  // key even where uq_review_occurrence couldn't be created over legacy
+  // conflicts. Backfill claims the earliest review of each existing group;
+  // later conflicting rows keep no claim and are left untouched (reported
+  // above). Deleting a review by its author releases its claim.
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS review_claims (
+      claim_key CHAR(40) PRIMARY KEY,
+      review_id INT NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      KEY idx_review_claims_review (review_id)
+    );
+  `);
+  {
+    const groups = (await db
+      .prepare(
+        `SELECT listing_type as t, occurrence_kind as k, occurrence_ref as r, author_key as a, MIN(id) as id FROM reviews
+         WHERE occurrence_ref IS NOT NULL AND author_key IS NOT NULL GROUP BY listing_type, occurrence_kind, occurrence_ref, author_key`
+      )
+      .all()) as { t: string; k: string; r: string; a: string; id: number }[];
+    for (const g of groups) {
+      await db.prepare(`INSERT IGNORE INTO review_claims (claim_key, review_id) VALUES (?, ?)`).run(reviewClaimKey(g.t, g.k, g.r, g.a), g.id);
+    }
+  }
+
+  // "Who welcomes newcomers" (newcomerWelcome.ts) — one short public line per
+  // listing, written by its host or partner. NULL = not provided.
+  for (const t of ["games", "experiences", "programs", "clubs", "centres"]) {
+    await ensureColumn(t, "newcomer_welcome", "newcomer_welcome VARCHAR(300) NULL");
+  }
+
+  // Reports: a safety concern is its own category (prioritised in the admin
+  // queue), and a signed-in reporter is remembered by resident id as well as
+  // the anonymous client id. Neither is ever shown to the reported person.
+  await ensureColumn("reports", "category", "category VARCHAR(20) NOT NULL DEFAULT 'content'");
+  await ensureColumn("reports", "reporter_resident_id", "reporter_resident_id VARCHAR(191) NULL");
+
+  await db.exec(`
+    -- A participant asks for their attendance record to be corrected (marked
+    -- as a no-show, or never recorded). The organiser who owns the booking
+    -- decides; a declined request can be taken to HelloCircle through the
+    -- complaints process. Accepting writes the attendance row (source
+    -- 'correction'); nothing here touches payments.
+    CREATE TABLE IF NOT EXISTS attendance_corrections (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      kind VARCHAR(20) NOT NULL,
+      ref VARCHAR(191) NOT NULL,
+      resident_id VARCHAR(191) NULL,
+      client_id VARCHAR(191) NULL,
+      note TEXT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'open',
+      owner_vendor_id VARCHAR(191) NULL,
+      owner_host_resident_id VARCHAR(191) NULL,
+      decision_note TEXT NULL,
+      decided_by VARCHAR(191) NULL,
+      decided_by_kind VARCHAR(20) NULL,
+      decided_at DATETIME NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      open_key VARCHAR(191) NULL,
+      UNIQUE KEY uq_attendance_correction_open (open_key),
+      KEY idx_attendance_corrections_ref (kind, ref)
+    );
+
+    -- Verification checks a person or business has actually passed. One row
+    -- per check case; a public label shows only while a row is 'approved' and
+    -- not past expires_at. evidence_note is an admin-only record of what was
+    -- looked at (never public, never shown to the partner, only to admin roles
+    -- holding decisions.internal_notes.view). No documents are stored here.
+    CREATE TABLE IF NOT EXISTS verification_checks (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      subject_type VARCHAR(20) NOT NULL,
+      subject_id VARCHAR(191) NOT NULL,
+      check_type VARCHAR(30) NOT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'pending',
+      submitted_details TEXT NULL,
+      info_request TEXT NULL,
+      evidence_note TEXT NULL,
+      decision_reason TEXT NULL,
+      requested_by VARCHAR(191) NULL,
+      decided_by VARCHAR(191) NULL,
+      decided_at DATETIME NULL,
+      expires_at DATETIME NULL,
+      row_version INT NOT NULL DEFAULT 0,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      open_key VARCHAR(191) NULL,
+      UNIQUE KEY uq_verification_open (open_key),
+      KEY idx_verification_subject (subject_type, subject_id, check_type)
+    );
+  `);
+
+  // Who raised an attendance confirmation: the participant ('participant',
+  // via a request) or the organiser directly ('organiser'). 'withdrawn' is a
+  // status an organiser can set on their own confirmation (audited).
+  await ensureColumn("attendance_corrections", "origin", "origin VARCHAR(20) NOT NULL DEFAULT 'participant'");
 }
 
 export const COUNTY_CENTROIDS: Record<string, { lat: number; lng: number }> = {

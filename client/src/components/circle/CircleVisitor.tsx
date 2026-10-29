@@ -322,7 +322,7 @@ export function VisitorPeopleCard({ view }: { view: CircleVisitorView }) {
           <div>
             <p className="cv-organiser-name">{organiser.name}</p>
             <p className="cv-muted">
-              Organiser{organiser.verified ? " · Verified host" : ""}
+              Organiser{organiser.verified ? " · Host application approved" : ""}
             </p>
           </div>
         </div>

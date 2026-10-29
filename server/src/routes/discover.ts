@@ -1,4 +1,5 @@
 import { withGameCardFacts } from "../gameCardFacts.js";
+import { activityRef, withCategoryLabels } from "../categoryLabels.js";
 import { Router } from "express";
 import { db } from "../db/index.js";
 import { haversineKm, resolveRadiusFilter } from "../geo.js";
@@ -23,6 +24,8 @@ export type DiscoverItem = ScheduledActivity & { matchReasons: string[]; fitLabe
 export interface DiscoverFeed {
   today: DiscoverItem[];
   weekend: DiscoverItem[];
+  /** The whole 7-day window, soonest first (Explore's Tomorrow / This week). */
+  week: DiscoverItem[];
   /** Set when a radius was asked for but nothing with a confirmed location
    * was inside it, so the feed shows this county instead (no distance claim). */
   radiusFallback?: { county: string };
@@ -84,7 +87,8 @@ export async function scoreActivities(
         isLive: item.isLive,
         minutesUntilStart: minutesUntil(now, item.date, item.time),
         fillRatio: item.kind === "game" && item.joined !== null && item.spotsLeft !== null && item.joined + item.spotsLeft > 0 ? item.joined / (item.joined + item.spotsLeft) : null,
-        isFree: !item.priceCents,
+        // Only a stated 0 is free — a missing price is unknown (owner, 2026-10-28).
+        isFree: item.priceCents === 0,
         hasPhoto: !!item.imageUrl,
         personalizationBonus: personalization.bonus,
       });
@@ -179,11 +183,14 @@ discoverRouter.get("/", async (req, res) => {
   const byScore = (a: { score: number; item: DiscoverItem }, b: { score: number; item: DiscoverItem }) => b.score - a.score || a.item.time.localeCompare(b.item.time);
   today.sort(byScore);
   weekend.sort(byScore);
+  // Everything in the 7-day window, for Explore's Tomorrow / This week (additive).
+  const week = [...scored].sort((a, b) => a.item.date.localeCompare(b.item.date) || byScore(a, b));
 
   const residentId = req.resident?.id ?? null;
   res.json({
-    today: await withGameCardFacts(today.map((e) => e.item), residentId),
-    weekend: await withGameCardFacts(weekend.map((e) => e.item), residentId),
+    today: await withCategoryLabels(await withGameCardFacts(today.map((e) => e.item), residentId), activityRef),
+    weekend: await withCategoryLabels(await withGameCardFacts(weekend.map((e) => e.item), residentId), activityRef),
+    week: await withCategoryLabels(await withGameCardFacts(week.map((e) => e.item), residentId), activityRef),
     ...(radiusFallback ? { radiusFallback } : {}),
   } satisfies DiscoverFeed);
 });
@@ -478,7 +485,8 @@ export async function buildForYouSections(residentId: string, homeCounty: string
     profile?.home && i.lat !== null && i.lng !== null && i.locationSource === "confirmed"
       ? haversineKm(profile.home.lat, profile.home.lng, i.lat, i.lng) <= profile.radiusKm
       : !!homeCounty && i.county?.toLowerCase() === homeCounty.toLowerCase();
-  const free = (i: DiscoverItem) => !i.priceCents;
+  // Only a stated 0 is free — a missing price is unknown (owner, 2026-10-28).
+  const free = (i: DiscoverItem) => i.priceCents === 0;
   const easy = (i: DiscoverItem) => attrsOf(i).some((a) => ["beginner_friendly", "no_experience", "first_timers_welcome"].includes(a));
   const whenFree = (i: DiscoverItem) => {
     if (!profile?.availability.size) return false;

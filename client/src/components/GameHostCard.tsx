@@ -10,19 +10,18 @@ import type { Game, HostProfile } from "../types";
 // data HostProfile.tsx itself renders); this app has no "show-up rate" or
 // "member since" anywhere, so — per the spec's own explicit instruction not
 // to fabricate trust signals — those are simply never shown. HostProfile
-// only ever resolves for a verified host (see HostProfile.tsx's own
-// comment), so the extra fetch only fires when hostVerified is true; an
-// unverified host still gets a name + avatar, just no stats/CTA.
+// resolves for anyone who hosts in public (Trust & Retention batch 1); when it
+// doesn't (a host with only private activities) the card keeps the name and
+// avatar and simply has no profile link.
 
 export function GameHostCard({ game }: { game: Game }) {
   const [profile, setProfile] = useState<HostProfile | null>(null);
 
   useEffect(() => {
-    if (!game.hostVerified) return;
     fetchHostProfile(game.hostResidentId)
       .then(setProfile)
-      .catch(() => {});
-  }, [game.hostResidentId, game.hostVerified]);
+      .catch(() => setProfile(null));
+  }, [game.hostResidentId]);
 
   if (!game.hostName) return null;
 
@@ -32,21 +31,23 @@ export function GameHostCard({ game }: { game: Game }) {
       <HostRow
         name={game.hostName}
         avatarUrl={game.hostAvatarUrl ?? profile?.avatarUrl}
-        verifiedLabel={game.hostVerified ? "Verified Host" : null}
+        verifiedLabel={game.hostVerified ? "Host application approved" : null}
         meta={
           profile ? (
             <>
               <span>Hosted {profile.gamesHostedTotal} {profile.gamesHostedTotal === 1 ? "activity" : "activities"}</span>
-              {profile.reviews > 0 && (
+              {profile.reviews > 0 ? (
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
                   <StarIcon size={12} style={{ color: colors.gold }} /> {profile.rating} ({profile.reviews})
                 </span>
+              ) : (
+                <span>New to HelloCircle — no reviews yet</span>
               )}
             </>
           ) : null
         }
         bio={profile?.bio}
-        href={game.hostVerified ? `/host/${game.hostResidentId}` : null}
+        href={profile ? `/host/${game.hostResidentId}` : null}
       />
     </DetailSection>
   );

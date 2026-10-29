@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { VenueGetReady } from "../components/trust/VenueGetReady";
+import { AfterYourVisit, type VisitInfo } from "../components/trust/AfterYourVisit";
 import { ExperienceGetReady, GameGetReady, ProgrammeJourneyView } from "../components/experience/BookingPrep";
 import type { Game } from "../types";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
@@ -29,7 +31,9 @@ import { irelandToday } from "../irelandDate";
 import { usePageTitle } from "../pageTitle";
 import { VENUE_PAGES_PUBLIC } from "../venueLaunch";
 import { bookingState, isBookingKind, type BookingKind } from "./bookingDetailModel";
-import { Pass, passDate, passTime, type PassKind, type PassLook, type PassTone } from "../components/pass/Pass";
+import { passDate, passTime, type PassKind, type PassLook, type PassTone } from "../components/pass/Pass";
+import { BoardingPass } from "../components/pass/BoardingPass";
+import "./bookingDetail.css";
 import { gamePassCode } from "../components/pass/ScanPassModal";
 
 // Booking details (Batch 2, approved 2026-10-22) — one page per booking at
@@ -62,8 +66,10 @@ interface Rec {
   extra: string | null;
   /** The pass (owner 2026-10-27): what it shows for this booking. */
   pass: { kind: PassKind; look: PassLook; who?: string | null; whoLabel?: string; date?: string | null; time?: string | null; where?: string | null; fields: [string, string][]; gameId?: string; progress?: { done: number; total: number } | null };
+  /** Trust & Retention batch 1 — attendance, review and correction after the visit. */
+  visit?: VisitInfo;
   /** Experience 3.0 — what the preparation / journey sections need. */
-  prep?: { kind: "experience"; experienceId: string } | { kind: "game"; game: Game } | { kind: "program" };
+  prep?: { kind: "experience"; experienceId: string } | { kind: "game"; game: Game } | { kind: "program" } | { kind: "venue"; centreId: string };
 }
 
 const past = (date: string | null | undefined) => !!date && date.slice(0, 10) < irelandToday();
@@ -89,6 +95,8 @@ async function load(kind: BookingKind, ref: string, lookupEmail?: string): Promi
       cancel: active && (b.canCancel ?? true) ? { label: "Cancel booking", title: "Cancel this booking?", message: `${label}, ${dateLabel(b.date)} at ${b.time}.${refundNote(!!b.paidOnline, b.totalCents)} This can't be undone.`, run: () => cancelBooking(b.ref, lookupEmail) } : null,
       listing: null, ics: active ? () => downloadBookingIcs(b.ref) : null, extra: null,
       pass: { kind: "room", look: "ticket", date: passDate(b.date), time: b.time, where: b.centreName, fields: b.roomName ? [["Room", b.roomName]] : [] },
+      prep: b.centreId ? { kind: "venue", centreId: b.centreId } : undefined,
+      visit: { placeKind: "booking", ref: b.ref, organiser: "venue", review: b.centreId ? { listingType: "centre", listingId: b.centreId, href: VENUE_PAGES_PUBLIC ? `/centres/${b.centreId}` : null } : null },
     };
   }
   if (kind === "registration") {
@@ -104,6 +112,7 @@ async function load(kind: BookingKind, ref: string, lookupEmail?: string): Promi
       cancel: active && (r.canCancel ?? true) ? { label: "Cancel registration", title: "Cancel this registration?", message: `${child} at ${r.clubName}.${refundNote(!!r.paidOnline, r.totalCents)} This can't be undone.`, run: () => cancelRegistration(r.ref, lookupEmail) } : null,
       listing: VENUE_PAGES_PUBLIC ? { label: "View the club", href: `/clubs/${r.clubId}` } : null, ics: null, extra: null,
       pass: { kind: "club", look: "lanyard", whoLabel: r.trial ? "Free trial" : "Member", who: child || null, where: r.sport, fields: r.team ? [["Team", r.team]] : [] },
+      visit: { placeKind: "registration", ref: r.ref, organiser: "club", review: { listingType: "club", listingId: r.clubId, href: VENUE_PAGES_PUBLIC ? `/clubs/${r.clubId}` : null } },
     };
   }
   if (kind === "program") {
@@ -124,6 +133,8 @@ async function load(kind: BookingKind, ref: string, lookupEmail?: string): Promi
         fields: p.sessionsAttended || p.sessionsMissed ? [["Attended", String(p.sessionsAttended ?? 0)], ["Missed", String(p.sessionsMissed ?? 0)]] : [],
       },
       prep: { kind: "program" },
+      // Trust & Retention — one row per past session, each confirmable on its own.
+      visit: { placeKind: "program", ref: p.ref, organiser: "organiser", review: { listingType: "program", listingId: p.programId, href: `/programs/${p.programId}` } },
     };
   }
   if (kind === "experience") {
@@ -142,6 +153,7 @@ async function load(kind: BookingKind, ref: string, lookupEmail?: string): Promi
         who: e.participantName || null, date: passDate(e.date), time: e.time, fields: [["People", String(e.partySize)]],
       },
       prep: { kind: "experience", experienceId: e.experienceId },
+      visit: { placeKind: "experience", ref: e.ref, organiser: "organiser", review: { listingType: "experience", listingId: e.experienceId, href: `/${e.kind === "adventure" ? "adventures" : "experiences"}/${e.experienceId}` } },
     };
   }
   if (kind === "game") {
@@ -161,6 +173,7 @@ async function load(kind: BookingKind, ref: string, lookupEmail?: string): Promi
         where: g.centreName ?? (g.locationText || null), fields: [[g.circleId ? "Organiser" : "Host", g.hostName], ["Going", `${g.joined} of ${g.capacity}`]], gameId: g.id,
       },
       prep: { kind: "game", game: g },
+      visit: { placeKind: "game", ref: g.id, organiser: "host", review: { listingType: "game", listingId: g.id, href: `/games/${g.id}` } },
     };
   }
   const pass = (await fetchMyPasses()).find((x) => String(x.id) === ref);
@@ -252,64 +265,118 @@ export function BookingDetailPage() {
   const paidLine = rec.totalCents ? `${formatCents(rec.totalCents)}${rec.paidOnline ? " paid by card" : " — nothing charged online"}` : "Free";
   const showReceipt = !!resident && rec.paidOnline && !!rec.totalCents && kind !== "game" && kind !== "pass";
 
+  const going = state.key === "confirmed";
+  const passCode = kind === "game" && rec.pass.gameId && resident && going ? gamePassCode(rec.pass.gameId, resident.id) : null;
+  const passRef = kind === "game" || kind === "pass" ? null : ref;
+  const mapsHref = rec.pass.where ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(rec.pass.where)}` : null;
+  const who = rec.pass.who ?? (kind === "game" ? resident?.name ?? null : null);
+  const stamp = state.key === "completed" ? "Completed" : state.key === "cancelled" || state.key === "refunded" || state.key === "refund_pending" ? "Cancelled" : null;
+
   return (
     <BookingSurface page>
-      <ConfirmationPanel
-        variant={state.variant}
-        title={state.title}
-        lead={cancelNote ?? state.lead}
-        summary={
-          // The pass (owner 2026-10-27) — the booking as you show up with it.
-          // A code only while it's good to use; never while a payment is open.
-          <Pass
-            look={rec.pass.look}
-            kind={rec.pass.kind}
-            tone={PASS_TONE[state.key]}
-            status={state.key === "confirmed" ? CONFIRMED_STATUS[kind as BookingKind] : state.title}
-            title={rec.title}
-            whoLabel={rec.pass.whoLabel}
-            who={rec.pass.who ?? (kind === "game" ? resident?.name ?? null : null)}
-            date={rec.pass.date}
-            time={rec.pass.time}
-            where={rec.pass.where}
-            fields={[...rec.pass.fields, ["Payment", paidLine] as [string, string]].slice(0, 4)}
-            reference={kind === "game" || kind === "pass" ? null : ref}
-            code={kind === "game" && rec.pass.gameId && resident && state.key === "confirmed" ? gamePassCode(rec.pass.gameId, resident.id) : null}
-            codeActive={state.key === "confirmed"}
-            listLine={kind === "pass" ? { title: "Use it when you book", text: "Pick the pass at checkout" } : undefined}
-          />
-        }
-        actions={
-          <>
-            {rec.ics && state.key === "confirmed" && <BkButton variant="dark" onClick={() => void rec.ics!()}>Add to calendar</BkButton>}
-            {rec.listing && <BkButton variant={rec.ics && state.key === "confirmed" ? "secondary" : "dark"} onClick={() => navigate(rec.listing!.href)}>{rec.listing.label}</BkButton>}
-            {showReceipt && <BkButton variant="secondary" onClick={() => navigate(`/receipts/${encodeURIComponent(ref!)}`)}>View receipt</BkButton>}
-            <BkButton variant="quiet" onClick={() => navigate("/my-life")}>Back to My Life</BkButton>
-          </>
-        }
-      >
-        <dl style={{ margin: 0, display: "grid", gridTemplateColumns: "minmax(0, 140px) 1fr", gap: "8px 16px", fontSize: 15 }}>
-          <dt style={{ opacity: 0.7 }}>Payment</dt>
-          <dd style={{ margin: 0 }}>{paidLine}</dd>
-          {rec.extra && (
-            <>
-              <dt style={{ opacity: 0.7 }}>Note</dt>
-              <dd style={{ margin: 0 }}>{rec.extra}</dd>
-            </>
-          )}
-        </dl>
-        {state.key === "confirmed" && (rec.cancelDeadline || rec.cancel) && <PolicySummary cancelDeadline={rec.cancelDeadline} contact={rec.contact} />}
-        {state.key === "confirmed" && rec.cancel && (
-          <div>
-            <BkButton variant="danger" onClick={() => setConfirming(true)}>{rec.cancel.label}</BkButton>
+      {/* Booking page v2 (owner 2026-10-28): the horizontal pass leads, with
+          getting ready and after-the-visit under it; payment, cancellation and
+          leaving sit in a side panel instead of being repeated around the pass. */}
+      <section className="bd-page" aria-labelledby="bk-confirmation-title">
+        <header className="bd-head">
+          <span className="bd-bar" aria-hidden="true" data-variant={state.variant} />
+          <p className="bd-kicker">{rec.typeLabel}</p>
+          <h1 id="bk-confirmation-title">{state.title}</h1>
+          <p className="bd-lead" role={state.variant === "pending" ? "status" : undefined}>
+            {cancelNote ?? state.lead}
+          </p>
+        </header>
+        <div className="bd-grid">
+          <div className="bd-main">
+            <BoardingPass
+              kind={rec.pass.kind}
+              tone={PASS_TONE[state.key]}
+              status={going ? CONFIRMED_STATUS[kind as BookingKind] : state.title}
+              title={rec.title}
+              titleHref={rec.listing?.href ?? null}
+              as="h2"
+              topRight="HelloCircle"
+              columns={[
+                ...(rec.pass.date ? [{ label: "Date", value: rec.pass.date, big: true }] : []),
+                ...(rec.pass.time ? [{ label: "Time", value: rec.pass.time, big: true }] : []),
+                ...(rec.pass.where ? [{ label: "Where", value: rec.pass.where }] : []),
+                ...(who ? [{ label: rec.pass.whoLabel ?? "Admit", value: who }] : []),
+              ]}
+              extra={[
+                ...rec.pass.fields.filter(([k]) => k !== "Payment"),
+                ...(rec.pass.progress && rec.pass.progress.total > 1 ? [["Sessions", `${rec.pass.progress.done} of ${rec.pass.progress.total} done`] as [string, string]] : []),
+              ]}
+              reference={passRef}
+              code={passCode}
+              codeActive={going}
+              stubText={kind === "game" ? "Check yourself in when you arrive" : undefined}
+              emptyStub={kind === "pass" ? { title: "Use it when you book", text: "Pick the pass at checkout" } : undefined}
+              stubLine={rec.pass.date ? `${rec.pass.date}${rec.pass.time ? ` · ${rec.pass.time.split(" ")[0]}` : ""}` : null}
+              stamp={stamp}
+            >
+              {rec.ics && going && (
+                <BkButton variant="dark" onClick={() => void rec.ics!()}>
+                  Add to calendar
+                </BkButton>
+              )}
+              {rec.listing && (
+                <BkButton variant={rec.ics && going ? "secondary" : "dark"} onClick={() => navigate(rec.listing!.href)}>
+                  {rec.listing.label}
+                </BkButton>
+              )}
+              {going && !rec.isPast && mapsHref && (
+                <a className="bd-link" href={mapsHref} target="_blank" rel="noreferrer">
+                  Directions
+                </a>
+              )}
+            </BoardingPass>
+            {/* Experience 3.0 — preparation for a confirmed, upcoming booking; the
+                programme journey whenever there's a programme. */}
+            {rec.prep?.kind === "experience" && going && !rec.isPast && <ExperienceGetReady experienceId={rec.prep.experienceId} />}
+            {rec.prep?.kind === "game" && going && !rec.isPast && <GameGetReady game={rec.prep.game} />}
+            {rec.prep?.kind === "venue" && going && !rec.isPast && <VenueGetReady centreId={rec.prep.centreId} />}
+            {rec.prep?.kind === "program" && ref && <ProgrammeJourneyView bookingRef={ref} />}
+            {rec.visit && state.key !== "cancelled" && (rec.isPast || kind === "registration" || kind === "program") && <AfterYourVisit info={rec.visit} />}
           </div>
-        )}
-      </ConfirmationPanel>
-      {/* Experience 3.0 — preparation for a confirmed, upcoming booking; the
-          programme journey whenever there's a programme. */}
-      {rec.prep?.kind === "experience" && state.key === "confirmed" && !rec.isPast && <ExperienceGetReady experienceId={rec.prep.experienceId} />}
-      {rec.prep?.kind === "game" && state.key === "confirmed" && !rec.isPast && <GameGetReady game={rec.prep.game} />}
-      {rec.prep?.kind === "program" && ref && <ProgrammeJourneyView bookingRef={ref} />}
+          <aside className="bd-aside" aria-labelledby="bd-aside-title">
+            <h2 id="bd-aside-title">Your booking</h2>
+            <dl className="bd-facts">
+              <div>
+                <dt>Payment</dt>
+                <dd>{paidLine}</dd>
+              </div>
+              {passRef && (
+                <div>
+                  <dt>Reference</dt>
+                  <dd className="bd-ref">{passRef}</dd>
+                </div>
+              )}
+              {rec.extra && (
+                <div>
+                  <dt>Note</dt>
+                  <dd>{rec.extra}</dd>
+                </div>
+              )}
+            </dl>
+            {going && (rec.cancelDeadline || rec.cancel) && <PolicySummary cancelDeadline={rec.cancelDeadline} contact={rec.contact} />}
+            <div className="bd-aside-links">
+              {showReceipt && (
+                <button type="button" className="bd-link" onClick={() => navigate(`/receipts/${encodeURIComponent(ref!)}`)}>
+                  View receipt
+                </button>
+              )}
+              <button type="button" className="bd-link" onClick={() => navigate("/my-life")}>
+                Back to My Life
+              </button>
+              {going && rec.cancel && (
+                <button type="button" className="bd-link is-danger" onClick={() => setConfirming(true)}>
+                  {rec.cancel.label}
+                </button>
+              )}
+            </div>
+          </aside>
+        </div>
+      </section>
       {rec.cancel && (
         <ConfirmDialog
           open={confirming}

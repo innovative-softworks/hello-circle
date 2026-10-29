@@ -1,6 +1,6 @@
 import { Compass } from "lucide-react";
 import type { CategoryFamily } from "../api";
-import { CategoryChips, CategoryEmptyHint, CategoryTypeOptions, categoryWord, hasCategoryTypes, useCategoryFilter } from "./categories/CategoryChips";
+import { CategoryChips, CategoryEmptyHint, CategoryTypeOptions, hasCategoryTypes, useCategoryFilter } from "./categories/CategoryChips";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowRightIcon, ClockIcon, CloseIcon, GridIcon, LightbulbIcon, PinIcon, SearchIcon, UsersIcon } from "./icons";
@@ -100,6 +100,8 @@ export interface BrowseItem {
   /** Real duration / skill level, shown by the Adventure card style when set. */
   durationMinutes?: number | null;
   skill?: string | null;
+  /** The Bold word over the photo (see cardWord). */
+  word?: string | null;
 }
 
 export interface BrowseConfig {
@@ -227,7 +229,9 @@ function SaveSlot({ save }: { save: NonNullable<BrowseItem["save"]> }) {
   return <SaveButton saved={saved} onToggle={toggleSaved} />;
 }
 
-export function BrowseCard({ e, icon, kindLabel }: { e: BrowseItem; icon: ReactNode; kindLabel?: string }) {
+/** `showWord`: the Bold word over the photo, only on search results (a
+ * search, category or filter applied — owner, 2026-10-28). */
+export function BrowseCard({ e, icon, kindLabel, showWord = false }: { e: BrowseItem; icon: ReactNode; kindLabel?: string; showWord?: boolean }) {
   const navigate = useNavigate();
   const session = e.next;
   const open = () => navigate(e.href);
@@ -247,6 +251,7 @@ export function BrowseCard({ e, icon, kindLabel }: { e: BrowseItem; icon: ReactN
       fallbackLine={session ? formatDateTime(session.date, session.time) : "No dates yet"}
       dateOn={session ? <CardDate date={session.date} time={session.time} label={itemCardLabel({ date: session.date, time: session.time, spotsLeft: session.spotsLeft })} /> : undefined}
       rowOnPhone
+      word={showWord ? e.word : null}
       status={low && session ? { label: formatAvailability(session.spotsLeft as number) } : null}
       save={e.save ? <SaveSlot save={e.save} /> : null}
       details={[
@@ -387,22 +392,20 @@ export function BrowseLayout({ config }: { config: BrowseConfig }) {
   const filtered = useMemo(() => countWith({}), [items, query, county, showTagFilter, tags, whens, whenDate, prices]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const sorted = useMemo(() => [...filtered].sort((a, b) => compareItems(a, b, sort)), [filtered, sort]);
-  // Premium row (owner plan, 2026-10-23): a chosen category shows its first
-  // listings in the Bold typography style; otherwise featured listings use
-  // the page's style. Only listings with what the style needs; the rest of
-  // the grid stays compact.
-  const boldWord = categoryWord(taxonomy);
-  const rowStyle: FeatureVariant | null = boldWord ? "bold" : config.featureStyle ?? null;
+  // Premium row (owner plan, 2026-10-23): featured listings use the page's
+  // style. Every other result is the normal card with its Bold word on the
+  // photo (owner, 2026-10-28) — a chosen category no longer switches style.
+  const rowStyle: FeatureVariant | null = config.featureStyle ?? null;
   const featureRow = !rowStyle
     ? []
-    : sorted
-        .filter((e) => (rowStyle === "bold" || e.featured) && featureFits(rowStyle, { image: e.imageUrl, date: e.next?.date, category: boldWord }))
-        .slice(0, 4);
+    : sorted.filter((e) => e.featured && featureFits(rowStyle, { image: e.imageUrl, date: e.next?.date })).slice(0, 4);
   const featureIds = new Set(featureRow.map((e) => e.id));
   const gridItems = sorted.filter((e) => !featureIds.has(e.id));
   const visibleItems = gridItems.slice(0, visibleCount);
 
   const activeCount = [county !== "All", showTagFilter && tags.length > 0, whens.length > 0, prices.length > 0, !!taxonomy.selected].filter(Boolean).length;
+  // Search results: something typed, a category or a filter applied.
+  const isSearching = query.trim() !== "" || activeCount > 0;
   const toggle = <T,>(list: T[], v: T) => (list.includes(v) ? list.filter((x) => x !== v) : [...list, v]);
 
   const activeChips = useMemo(() => {
@@ -651,14 +654,14 @@ export function BrowseLayout({ config }: { config: BrowseConfig }) {
                 {featureRow.length > 0 && rowStyle && (
                   <div className="listing-grid" style={{ marginBottom: 20 }}>
                     {featureRow.map((e) => (
-                      <BrowseFeatureCard key={e.id} e={e} variant={rowStyle} category={boldWord} />
+                      <BrowseFeatureCard key={e.id} e={e} variant={rowStyle} category={null} />
                     ))}
                   </div>
                 )}
 
                   <CardGrid>
                     {visibleItems.map((e) => (
-                      <BrowseCard key={e.id} e={e} icon={config.icon} kindLabel={config.kindLabel} />
+                      <BrowseCard key={e.id} e={e} icon={config.icon} kindLabel={config.kindLabel} showWord={isSearching} />
                     ))}
                   </CardGrid>
                 {visibleCount < gridItems.length && (

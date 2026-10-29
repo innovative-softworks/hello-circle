@@ -1,4 +1,5 @@
 import { heldRefsFor, shortenReviewHolds } from "../payments/paymentReview.js";
+import { flagReviewsAfterAttendanceChange, isAbsence } from "../reviewAttendanceFlags.js";
 import { cancelProgramEnrollmentAsProvider } from "../hallBookingCancel.js";
 import { assertCreatorStillMember } from "../orgStatus.js";
 import crypto from "node:crypto";
@@ -307,6 +308,8 @@ vendorProgramsRouter.post("/program-sessions/:sessionId/attendance/:enrollmentId
        ON DUPLICATE KEY UPDATE checked_in_at = NOW(), checked_in_by = VALUES(checked_in_by), status = VALUES(status)`
     )
     .run(ref, req.user!.id, status);
+  // Trust & Retention — a no-show after a review was published flags it for moderation (never hides it).
+  if (isAbsence(status)) await flagReviewsAfterAttendanceChange("program_session", ref, "the organiser recorded this session as missed", { id: req.user!.id, kind: "user" });
   res.json({ ok: true });
 });
 

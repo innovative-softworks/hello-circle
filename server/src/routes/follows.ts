@@ -1,4 +1,5 @@
 import { orgActiveSql } from "../orgSql.js";
+import { discoverableGameSql } from "../gameVisibility.js";
 import { Router } from "express";
 import { db } from "../db/index.js";
 import { requireResident } from "../residents.js";
@@ -30,8 +31,27 @@ async function isFollowable(type: FollowedType, id: string): Promise<boolean> {
     const row = await db.prepare(`SELECT id FROM centres WHERE id = ? AND status = 'approved' AND ${orgActiveSql("vendor_id")}`).get(id);
     return !!row;
   }
-  const row = await db.prepare(`SELECT id FROM residents WHERE id = ? AND host_status = 'verified'`).get(id);
+  // Trust & Retention — any host with a public profile can be followed (an
+  // approved host, or anyone hosting a discoverable activity or open Circle) —
+  // the same rule as GET /api/residents/:id/host-profile.
+  const row = await db
+    .prepare(
+      `SELECT r.id FROM residents r WHERE r.id = ? AND r.deactivated_at IS NULL AND (r.host_status = 'verified'
+         OR EXISTS (SELECT 1 FROM games g WHERE g.host_resident_id = r.id AND g.status != 'cancelled' AND ${discoverableGameSql("g")})
+         OR EXISTS (SELECT 1 FROM circles c WHERE c.created_by_resident_id = r.id AND c.status = 'active' AND c.join_mode = 'open'))`
+    )
+    .get(id);
   return !!row;
+}
+
+/** You can't follow yourself, your own organisation, or your own venue. */
+async function isSelf(residentId: string, type: FollowedType, id: string): Promise<boolean> {
+  if (type === "host") return id === residentId;
+  const vendorId = type === "vendor" ? id : ((await db.prepare(`SELECT vendor_id as v FROM centres WHERE id = ?`).get(id)) as { v: string } | undefined)?.v;
+  if (!vendorId) return false;
+  return !!(await db
+    .prepare(`SELECT 1 FROM users u WHERE u.resident_id = ? AND (u.id = ? OR (u.org_id IS NOT NULL AND u.org_id = (SELECT org_id FROM users WHERE id = ?)))`)
+    .get(residentId, vendorId, vendorId));
 }
 
 interface FollowRow {
@@ -95,6 +115,7 @@ followsRouter.post("/", async (req, res) => {
     return res.status(400).json({ error: "followedType and followedId are required" });
   }
   if (!(await isFollowable(followedType, followedId))) return res.status(404).json({ error: "Nothing to follow here" });
+  if (await isSelf(req.resident!.id, followedType, followedId)) return res.status(400).json({ error: "You can't follow yourself" });
 
   await db
     .prepare(`INSERT INTO follows (resident_id, followed_type, followed_id) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE resident_id = resident_id`)
@@ -182,9 +203,13 @@ export async function notifyVendorFollowers(vendorId: string, params: { title: s
  * levels, since a single host's activity volume is low enough that
  * Highlights/Everything don't need to diverge the way they do for a vendor
  * with many listings. */
-export async function notifyHostFollowers(hostResidentId: string, params: { title: string; body: string; ref: string }) {
+export async function notifyHostFollowers(hostResidentId: string, params: { title: string; body: string; ref: string }, minLevel: "highlights" | "everything" = "highlights") {
   try {
-    const followers = (await db.prepare(`SELECT resident_id as residentId FROM follows WHERE followed_type = 'host' AND followed_id = ?`).all(hostResidentId)) as { residentId: string }[];
+    // Trust & Retention — levels now differ for hosts: "Highlights" = each new
+    // activity (a series' first date); "Everything" = also every further date.
+    const followers = (await db
+      .prepare(`SELECT resident_id as residentId FROM follows WHERE followed_type = 'host' AND followed_id = ? ${minLevel === "everything" ? "AND notification_level = 'everything'" : ""}`)
+      .all(hostResidentId)) as { residentId: string }[];
     await Promise.all(
       followers.map((f) =>
         notifyResident({ residentId: f.residentId, kind: "host_update", title: params.title, body: params.body, listingType: "host", listingId: hostResidentId, ref: params.ref })

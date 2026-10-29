@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { priceState } from "../exploreFilters";
 import { joinGameConfirm, joinWaitlistConfirm } from "../confirmCopy";
 import { isMinAgeRefusal } from "../gameCta";
 import { useConfirm } from "./ConfirmProvider";
@@ -146,6 +147,7 @@ export function DiscoverCard({
   fill = false,
   look,
   category,
+  word,
 }: {
   item: ActivitySummary;
   isToday: boolean;
@@ -156,6 +158,8 @@ export function DiscoverCard({
   look?: FeatureVariant;
   /** Real category name (Bold style). */
   category?: string | null;
+  /** The Bold word over the normal card's photo (see cardWord). */
+  word?: string | null;
 }) {
   const navigate = useNavigate();
   const meta = kindMeta(item.kind);
@@ -208,7 +212,8 @@ export function DiscoverCard({
             time: item.time,
             durationMinutes: null,
             going: isJoinableGame ? item.joined : null,
-            price: centsPriceSignal(item.priceCents) ? "Free" : formatPrice(item.priceCents),
+            // An unknown price shows nothing, never "Free".
+            price: priceState(item) === "unknown" ? null : centsPriceSignal(item.priceCents) ? "Free" : formatPrice(item.priceCents),
             spotsLeft: isJoinableGame ? item.spotsLeft : null,
           }}
           save={saveButton}
@@ -236,6 +241,7 @@ export function DiscoverCard({
         fallbackKind={KIND_LABEL[item.kind] ?? null}
         fallbackLine={formatDateTime(item.date, item.time)}
         rowOnPhone={fill}
+        word={word}
         status={status}
         dateOn={<CardDate date={item.date} time={item.time} label={discoverCardLabel(item)} href={href} onGo={navigate} />}
         save={saveButton}
@@ -246,12 +252,12 @@ export function DiscoverCard({
           place || (isJoinableGame && item.joined)
             ? { icon: <PinIcon size={13} />, text: [place ? `${place}${item.area ? `, ${item.area}` : ""}` : null, isJoinableGame && item.joined ? `${item.joined} going` : null].filter(Boolean).join(" · ") }
             : null,
-          item.hostVerified ? { icon: <AwardIcon size={13} />, text: "Verified host" } : null,
+          item.hostVerified ? { icon: <AwardIcon size={13} />, text: "Approved host" } : null,
         ]}
         going={null}
         facts={
           <>
-            <CardPrice cents={item.priceCents} unit={priceUnitFor(item.kind)} />
+            {priceState(item) !== "unknown" && <CardPrice cents={item.priceCents} unit={priceUnitFor(item.kind)} />}
             {isJoinableGame && <CardAvailability spotsLeft={item.spotsLeft} />}
             {/* "Good fit · Why?" sits on the price row, not a line of its own. */}
             <span className="lc-why">
@@ -332,7 +338,7 @@ export function DiscoverRow({
       <>
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, marginBottom: 14 }}>
           <div>
-            <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: 0, letterSpacing: 0 }}>{title}</h2>
+            <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: "var(--section-title-size, 20px)", margin: 0, letterSpacing: 0 }}>{title}</h2>
             {subtitle && <p style={{ margin: "4px 0 0", fontSize: 13.5, color: colors.mutedLight }}>{subtitle}</p>}
           </div>
           {hasMore && (
@@ -363,7 +369,7 @@ export function DiscoverRow({
     <>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
         <div>
-          <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: 0, letterSpacing: 0 }}>{title}</h2>
+          <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: "var(--section-title-size, 20px)", margin: 0, letterSpacing: 0 }}>{title}</h2>
           {subtitle && <p style={{ margin: "4px 0 0", fontSize: 13.5, color: colors.mutedLight }}>{subtitle}</p>}
         </div>
         {visibleItems.length > 3 && (

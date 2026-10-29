@@ -1,4 +1,5 @@
 import { fetchMyHostReviews, replyToHostReview } from "../api";
+import { AttendanceRequestsPanel } from "./trust/AttendanceRequestsPanel";
 import { ComplaintsAboutYou } from "./workspace/ComplaintsAboutYou";
 import { fetchHostComplaints, respondToHostComplaint } from "../api";
 import type { HostReview } from "../api";
@@ -13,6 +14,7 @@ export function HostReviewsTab() {
   const state = useAdminData<HostReview[]>(() => fetchMyHostReviews());
   return (
     <div className="adm-stack">
+      <AttendanceRequestsPanel asHost />
       <Loaded state={state} title="Couldn't load your reviews">
         {(reviews) => (
           <ReviewsView

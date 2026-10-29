@@ -37,7 +37,8 @@ export interface FeatureCardData {
   skill?: string | null;
   blurb?: string | null;
   going?: number | null;
-  price: string;
+  /** null when the price isn't known — shows nothing rather than "Free". */
+  price: string | null;
   spotsLeft?: number | null;
 }
 
@@ -78,7 +79,7 @@ export function FeatureCard({
   const footer = (
     <div className="fc-footer">
       <div className="lc-facts">
-        <span className="lc-price">{d.price}</span>
+        {d.price && <span className="lc-price">{d.price}</span>}
         <CardAvailability spotsLeft={d.spotsLeft} />
       </div>
       <div className="stretched-link-above">

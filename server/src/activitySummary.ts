@@ -1,4 +1,5 @@
 import { orgActiveSql } from "./orgSql.js";
+import { businessCheckedSql } from "./verification.js";
 import { db } from "./db/index.js";
 import {
   ASSUMED_DURATION_MINUTES,
@@ -176,7 +177,7 @@ export interface ExperienceSessionRow {
   booked: number;
   vendor_business_name: string;
   vendor_name: string;
-  vendor_provider_tier: string;
+  vendor_business_checked: number | string;
 }
 
 /** Every scheduled, still-open Experience/Adventure session in [from, to],
@@ -192,7 +193,7 @@ export async function listUpcomingExperienceSessionRows(opts: { county?: string;
       `SELECT es.id, es.date, es.time, es.capacity, e.id as experience_id, e.title, e.price_cents, e.image_url, e.area, e.county, e.lat, e.lng, e.location_source,
               e.capacity as experience_capacity,
               (SELECT COALESCE(SUM(party_size), 0) FROM experience_bookings eb WHERE eb.session_id = es.id AND eb.payment_status = 'paid' AND eb.status != 'cancelled') as booked,
-              u.business_name as vendor_business_name, u.name as vendor_name, u.provider_tier as vendor_provider_tier
+              u.business_name as vendor_business_name, u.name as vendor_name, ${businessCheckedSql("u.id")} as vendor_business_checked
        FROM experience_sessions es
        JOIN experiences e ON e.id = es.experience_id
        JOIN users u ON u.id = e.vendor_id
@@ -240,7 +241,7 @@ export function experienceToActivitySummary(row: ExperienceSessionRow & { experi
     // Experiences are vendor-run, not host-organised — reuses the same
     // trust-badge concept as Games' Verified Host, derived from
     // provider_tier the same way experiences.ts's own toExperienceJson does.
-    hostVerified: row.vendor_provider_tier !== "standard",
+    hostVerified: !!Number(row.vendor_business_checked),
     vendorName: row.vendor_business_name || row.vendor_name,
     circleId: null,
   };

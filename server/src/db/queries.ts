@@ -29,6 +29,7 @@ interface CentreRow {
   location_source: string;
   phone: string;
   accessibility: string;
+  newcomer_welcome?: string | null;
   featured: number;
   slug: string | null;
 }
@@ -56,6 +57,7 @@ interface ClubRow {
   location_source: string;
   phone: string;
   accessibility: string;
+  newcomer_welcome?: string | null;
   category: string;
   featured: number;
   slug: string | null;
@@ -161,6 +163,8 @@ async function toCentre(row: CentreRow): Promise<Centre> {
     locationSource: (row.location_source as "confirmed" | "approximate" | "unknown") || "unknown",
     phone: row.phone,
     accessibility: row.accessibility ? row.accessibility.split(",").filter(Boolean) : [],
+    // Trust & Retention — who meets newcomers on arrival (NULL = not provided).
+    newcomerWelcome: row.newcomer_welcome ?? null,
     featured: !!row.featured,
     openBookingEnabled,
     slug: row.slug,
@@ -201,6 +205,8 @@ async function toClub(row: ClubRow): Promise<Club> {
     locationSource: (row.location_source as "confirmed" | "approximate" | "unknown") || "unknown",
     phone: row.phone,
     accessibility: row.accessibility ? row.accessibility.split(",").filter(Boolean) : [],
+    // Trust & Retention — who meets newcomers on arrival (NULL = not provided).
+    newcomerWelcome: row.newcomer_welcome ?? null,
     category: row.category,
     featured: !!row.featured,
     slug: row.slug,

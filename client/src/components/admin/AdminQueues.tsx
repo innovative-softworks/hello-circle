@@ -475,7 +475,7 @@ function HostApplicationRecord({ app, onBack, onDecided }: { app: HostApplicatio
       <ConfirmDialog
         open={confirm === "verified"}
         title={`Approve ${app.name} as a Verified Host?`}
-        message="They get the Verified Host badge on their profile and the activities they host. Their ability to host doesn't change. They aren't notified automatically."
+        message="Their profile and the activities they host show “Host application approved” (it says plainly that it isn't an identity check). Their ability to host doesn't change. They aren't notified automatically."
         confirmLabel="Approve as Verified Host"
         tone="neutral"
         onConfirm={() => decide("verified")}

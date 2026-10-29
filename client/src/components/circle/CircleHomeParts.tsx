@@ -460,7 +460,7 @@ export function CircleDetailsCard({ circle }: { circle: Circle }) {
                   ) : (
                     <strong>{circle.hostName}</strong>
                   )}
-                  <span style={{ display: "block", fontSize: 12, color: "var(--color-muted-light)" }}>Organiser{circle.hostVerified ? " · Verified" : ""}</span>
+                  <span style={{ display: "block", fontSize: 12, color: "var(--color-muted-light)" }}>Organiser{circle.hostVerified ? " · Host application approved" : ""}</span>
                 </span>
               </span>
             </dd>
