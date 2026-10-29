@@ -222,6 +222,33 @@ async function initParticipationPhase2Schema(ensureColumn: EnsureColumn, ensureI
   // Phase 2 columns created at VARCHAR(10). Widening keeps every existing value.
   await widenVarchar("registration_questions", "input_type", 20, "NOT NULL DEFAULT 'text'");
   await widenVarchar("registration_answers", "input_type_snapshot", 20, "NOT NULL");
+  // Phase G — sections, simple conditions, drafts and templates.
+  await ensureColumn("registration_questions", "section", "section VARCHAR(120) NULL");
+  await ensureColumn("registration_questions", "show_if_json", "show_if_json TEXT NULL");
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS registration_form_drafts (
+      listing_type VARCHAR(20) NOT NULL,
+      listing_id VARCHAR(191) NOT NULL,
+      base_version INT NOT NULL,
+      draft_json TEXT NOT NULL,
+      updated_by VARCHAR(191) NOT NULL,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (listing_type, listing_id)
+    );
+    CREATE TABLE IF NOT EXISTS registration_form_templates (
+      id VARCHAR(191) PRIMARY KEY,
+      org_id VARCHAR(191) NOT NULL,
+      form_type VARCHAR(40) NOT NULL,
+      name VARCHAR(120) NOT NULL,
+      description VARCHAR(300) NOT NULL DEFAULT '',
+      questions_json TEXT NOT NULL,
+      status VARCHAR(12) NOT NULL DEFAULT 'active',
+      created_by VARCHAR(191) NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      KEY idx_form_templates_org (org_id, status)
+    );
+  `);
   // The admin field policy: one row, versioned; every change is audited.
   await db.exec(`
     CREATE TABLE IF NOT EXISTS field_policies (

@@ -70,13 +70,13 @@ test("P2-PARTNER: a manager builds questions; a sensitive question is refused", 
         await page.getByLabel(/^Question\b/).first().fill("Name on badge");
         await page.getByLabel(/^Why you're asking/).first().fill("Printed on your name badge");
         await page.getByLabel("Show the answer to door staff").first().check();
-        await page.getByRole("button", { name: "Save questions" }).click();
-        await expect(page.getByRole("status").filter({ hasText: "Saved." })).toBeVisible();
+        await page.getByRole("button", { name: "Publish", exact: true }).click();
+        await expect(page.getByRole("status").filter({ hasText: "Published as version" })).toBeVisible();
         await shot(page, "01-partner-questions");
         await page.getByRole("button", { name: "Add your own question" }).click();
         await page.getByLabel(/^Question\b/).nth(1).fill("Any allergies?");
         await page.getByLabel(/^Why you're asking/).nth(1).fill("For the kitchen");
-        await page.getByRole("button", { name: "Save questions" }).click();
+        await page.getByRole("button", { name: "Publish", exact: true }).click();
         await expect(page.getByText(/sensitive/).first()).toBeVisible();
         await shot(page, "02-partner-sensitive-refused");
         const saved = await rows(f, "SELECT label, door_visible FROM registration_questions WHERE listing_id = ? AND active = 1", [exp.id]);

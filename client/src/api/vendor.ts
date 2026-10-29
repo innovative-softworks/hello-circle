@@ -995,7 +995,7 @@ export function downloadVendorStatement(month: string): Promise<void> {
 
 // --- Participation Phase 2: attendees, questions, check-in staff, door -----------
 
-export function fetchExperienceQuestions(id: string): Promise<{ questions: import("../types").VendorRegistrationQuestion[]; version: number; enabled: boolean; specialCategoryEnabled: boolean } & Partial<import("../types").QuestionBuilderOptions>> {
+export function fetchExperienceQuestions(id: string): Promise<{ questions: import("../types").VendorRegistrationQuestion[]; version: number; enabled: boolean; specialCategoryEnabled: boolean; draft?: import("../types").FormDraft | null; suggestedFormType?: string | null } & Partial<import("../types").QuestionBuilderOptions>> {
   return request(`/vendor/experiences/${id}/questions`);
 }
 /** Replaces the whole question set; 409 when stale, 400 `special_category` for sensitive questions. */
@@ -1043,3 +1043,37 @@ export function doorCheckIn(sessionId: string, ref: string, attendeeNos: number[
 export function doorUndo(sessionId: string, ref: string, attendeeNo: number): Promise<{ ok: true; booking: import("../types").DoorBooking }> {
   return request(`/vendor/door/sessions/${sessionId}/checkins/${encodeURIComponent(ref)}/${attendeeNo}`, { method: "DELETE" });
 }
+
+// --- Configuration Phase G: form builder (drafts, publish, history, templates) ----------
+type Q = import("../types").VendorRegistrationQuestion;
+export function saveQuestionsDraft(id: string, questions: Q[]): Promise<{ draft: import("../types").FormDraft }> {
+  return request(`/vendor/experiences/${id}/questions/draft`, { method: "PUT", body: JSON.stringify({ questions }) });
+}
+export function discardQuestionsDraft(id: string): Promise<{ discarded: boolean }> {
+  return request(`/vendor/experiences/${id}/questions/draft`, { method: "DELETE" });
+}
+export function publishQuestionsDraft(id: string): Promise<{ version: number; questions: Q[] }> {
+  return request(`/vendor/experiences/${id}/questions/publish`, { method: "POST" });
+}
+export function draftQuestionsFrom(id: string, from: { templateId: string } | { version: number }): Promise<{ draft: import("../types").FormDraft }> {
+  return request(`/vendor/experiences/${id}/questions/draft/from`, { method: "POST", body: JSON.stringify(from) });
+}
+export function fetchQuestionVersions(id: string): Promise<{ versions: import("../types").FormVersion[] }> {
+  return request(`/vendor/experiences/${id}/questions/versions`);
+}
+export function fetchQuestionVersion(id: string, version: number): Promise<{ version: number; questions: Q[] }> {
+  return request(`/vendor/experiences/${id}/questions/versions/${version}`);
+}
+export function fetchFormTemplates(includeArchived = false): Promise<{ templates: import("../types").FormTemplate[] }> {
+  return request(`/vendor/form-templates${includeArchived ? "?archived=1" : ""}`);
+}
+export function createFormTemplate(input: { name: string; description?: string; formType: string; questions: Q[] }): Promise<{ id: string }> {
+  return request(`/vendor/form-templates`, { method: "POST", body: JSON.stringify(input) });
+}
+export function duplicateFormTemplate(templateId: string): Promise<{ id: string }> {
+  return request(`/vendor/form-templates/${encodeURIComponent(templateId)}/duplicate`, { method: "POST" });
+}
+export function setFormTemplateArchived(templateId: string, archived: boolean): Promise<{ ok: true }> {
+  return request(`/vendor/form-templates/${encodeURIComponent(templateId)}/${archived ? "archive" : "restore"}`, { method: "POST" });
+}
+

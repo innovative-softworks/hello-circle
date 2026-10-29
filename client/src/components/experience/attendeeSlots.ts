@@ -63,11 +63,12 @@ export function missingAnswers(
   for (const q of questions) {
     if (!q.required || q.inputType === "info") continue;
     if (q.scope === "booking") {
+      if (!questionShown(q, answers.booking, {})) continue;
       if (empty(answers.booking[q.key])) out.push({ fieldId: questionFieldId(q.key, 0), message: `Answer "${q.label}"` });
       continue;
     }
     people.forEach((p, i) => {
-      if (appliesTo(q, p.personType) && empty(answers.attendees[i]?.[q.key])) out.push({ fieldId: questionFieldId(q.key, i + 1), message: `${p.name || `Person ${i + 1}`}: answer "${q.label}"` });
+      if (appliesTo(q, p.personType) && questionShown(q, answers.booking, answers.attendees[i] ?? {}) && empty(answers.attendees[i]?.[q.key])) out.push({ fieldId: questionFieldId(q.key, i + 1), message: `${p.name || `Person ${i + 1}`}: answer "${q.label}"` });
     });
   }
   return out;
@@ -107,4 +108,13 @@ export function withDefaults(
     }
   }
   return { booking, attendees };
+}
+
+/** Phase G — is a question shown, given the answers so far? (The server applies the same rule.) */
+export function questionShown(q: RegistrationQuestion, booking: Record<string, AnswerValue>, own: Record<string, AnswerValue>): boolean {
+  if (!q.showIf) return true;
+  const v = booking[q.showIf.key] ?? own[q.showIf.key];
+  if (v === undefined || v === "" || v === false) return false;
+  const picked = Array.isArray(v) ? v : v === true ? ["yes"] : [String(v)];
+  return picked.some((x) => q.showIf!.values.includes(x));
 }

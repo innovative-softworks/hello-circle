@@ -2,7 +2,7 @@ import { inputStyle, labelStyle } from "../ui";
 import { FieldError } from "../form";
 import { colors, radius } from "../../theme";
 import type { AnswerValue, RegistrationQuestion } from "../../types";
-import { appliesTo, questionFieldId, type PersonDraft, type PersonSlot } from "./attendeeSlots";
+import { appliesTo, questionFieldId, questionShown, type PersonDraft, type PersonSlot } from "./attendeeSlots";
 
 // Participation Phase 2 — "Who's coming" in the booking popup: a name for
 // each person, adult or child (fixed when the option is for one or the
@@ -81,20 +81,41 @@ export function AttendeeFields({ slots, people, onPeople, questions, answers, on
                 <FieldError fieldId={`exp-guardian-${no}`} message={fe.messageFor(`exp-guardian-${no}`)} />
               </div>
             )}
-            {personQs.filter((q) => appliesTo(q, p.personType)).map((q) => (
-              <QuestionInput key={q.key} question={q} fieldId={questionFieldId(q.key, no)} value={answers.attendees[i]?.[q.key]} onChange={(v) => setAnswer(no, q.key, v)} fe={fe} />
-            ))}
+            <QuestionList
+              questions={personQs.filter((q) => appliesTo(q, p.personType) && questionShown(q, answers.booking, answers.attendees[i] ?? {}))}
+              render={(q) => <QuestionInput key={q.key} question={q} fieldId={questionFieldId(q.key, no)} value={answers.attendees[i]?.[q.key]} onChange={(v) => setAnswer(no, q.key, v)} fe={fe} />}
+            />
           </div>
         );
       })}
       {bookingQs.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {bookingQs.map((q) => (
-            <QuestionInput key={q.key} question={q} fieldId={questionFieldId(q.key, 0)} value={answers.booking[q.key]} onChange={(v) => setAnswer(0, q.key, v)} fe={fe} />
-          ))}
+          <QuestionList
+            questions={bookingQs.filter((q) => questionShown(q, answers.booking, {}))}
+            render={(q) => <QuestionInput key={q.key} question={q} fieldId={questionFieldId(q.key, 0)} value={answers.booking[q.key]} onChange={(v) => setAnswer(0, q.key, v)} fe={fe} />}
+          />
         </div>
       )}
     </fieldset>
+  );
+}
+
+/** Phase G — questions in order, with a heading where a section starts. */
+export function QuestionList({ questions, render }: { questions: RegistrationQuestion[]; render: (q: RegistrationQuestion) => JSX.Element }) {
+  let last: string | null = null;
+  return (
+    <>
+      {questions.map((q) => {
+        const heading = q.section && q.section !== last ? q.section : null;
+        last = q.section ?? last;
+        return (
+          <div key={q.key} style={{ display: "contents" }}>
+            {heading && <h3 style={{ fontSize: 14, margin: "6px 0 0", color: colors.text }}>{heading}</h3>}
+            {render(q)}
+          </div>
+        );
+      })}
+    </>
   );
 }
 

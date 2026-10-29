@@ -10,6 +10,7 @@ import { readOrderLinesFor } from "../participation/lines.js";
 import { attendeesOn, checkinOn, specialCategoryQuestionsOn } from "../participation/options.js";
 import { activeQuestions, cleanQuestionSet, questionsVersion, QuestionError, readAnswersFor, replaceQuestions } from "../participation/questions.js";
 import { attendanceSummary, checkinsFor } from "../participation/checkin.js";
+import { cleanDraft, cleanTemplateMeta, createTemplate, discardDraft, findTemplate, getDraft, listTemplates, publishDraft, saveDraft, setTemplateStatus, usableTemplateQuestions, versionHistory, versionQuestions } from "../participation/forms.js";
 
 // Participation Phase 2 (docs/participation-expansion/11 X2–X3, 12) — the
 // partner side of attendees, registration questions and check-in staff for
@@ -108,6 +109,9 @@ vendorAttendeesRouter.get("/experiences/:id/questions", async (req, res) => {
     library: LIBRARY.filter((f) => policy.library[f.key]),
     allowedTypes: INPUT_TYPES.filter((t) => policy.customTypes[t]),
     classes: DATA_CLASSES.map((c) => ({ key: c, label: CLASS_LABELS[c], exportable: policy.classes[c].exportable, retentionDays: policy.classes[c].retentionDays })),
+    // Phase G — the listing's category may suggest a form (Phase E), and any draft in progress.
+    suggestedFormType: await suggestedFormFor(exp.id),
+    draft: await getDraft(exp.id, await specialCategoryQuestionsOn()),
   });
 });
 
@@ -253,3 +257,152 @@ vendorAttendeesRouter.get("/experiences/:id/attendees.csv", requirePlatformRole(
   res.setHeader("Content-Disposition", `attachment; filename="attendees-${exp.id}.csv"`);
   res.send(lines.join("\r\n"));
 });
+
+// --- form builder: drafts, publish, history, templates (configuration Phase G) ---------
+// Same roles as the question set: anyone in the organisation (bar check-in-only)
+// reads; the two managers change. Writes need participation.attendees and the
+// organisation's registration_questions capability.
+
+async function suggestedFormFor(experienceId: string): Promise<string | null> {
+  const row = (await db
+    .prepare(`SELECT c.suggested_form AS f FROM listing_taxonomy lt JOIN taxonomy_categories c ON c.id = lt.category_id WHERE lt.listing_type = 'experience' AND lt.listing_id = ?`)
+    .get(experienceId)) as { f: string | null } | undefined;
+  return row?.f ?? null;
+}
+
+async function canEditForm(req: Request, res: Response, exp: { vendorId: string }): Promise<boolean> {
+  if (!(await attendeesOn())) {
+    res.status(404).json({ error: "Registration questions aren't available yet" });
+    return false;
+  }
+  return assertCapability(req, res, "registration_questions", exp.vendorId);
+}
+
+function formError(res: Response, e: unknown): boolean {
+  if (e instanceof QuestionError) {
+    res.status(e.status).json({ error: e.message, code: e.code });
+    return true;
+  }
+  return false;
+}
+
+vendorAttendeesRouter.put("/experiences/:id/questions/draft", requirePlatformRole(...EDIT_ROLES), async (req, res) => {
+  const exp = await ownedExperience(req, res);
+  if (!exp || !(await canEditForm(req, res, exp))) return;
+  try {
+    const questions = cleanDraft((req.body ?? {}).questions);
+    const base = await getDraft(exp.id, false);
+    await saveDraft(exp.id, questions, base?.baseVersion ?? (await questionsVersion(exp.id)), req.user!.id);
+    res.json({ draft: await getDraft(exp.id, await specialCategoryQuestionsOn()) });
+  } catch (e) {
+    if (!formError(res, e)) throw e;
+  }
+});
+
+vendorAttendeesRouter.delete("/experiences/:id/questions/draft", requirePlatformRole(...EDIT_ROLES), async (req, res) => {
+  const exp = await ownedExperience(req, res);
+  if (!exp) return;
+  res.json({ discarded: await discardDraft(exp.id) });
+});
+
+vendorAttendeesRouter.post("/experiences/:id/questions/publish", requirePlatformRole(...EDIT_ROLES), async (req, res) => {
+  const exp = await ownedExperience(req, res);
+  if (!exp || !(await canEditForm(req, res, exp))) return;
+  try {
+    const draft = await getDraft(exp.id, false);
+    const max = await capabilityLimit(exp.vendorId, "registration_questions", "max_questions");
+    if (draft && draft.questions.length > max) return res.status(400).json({ error: `Your organisation can ask at most ${max} questions per listing` });
+    const result = await publishDraft(exp.id, await specialCategoryQuestionsOn(), req.user!.id);
+    await writeAudit({
+      actorUserId: req.user!.id,
+      action: "experience.questions_published",
+      objectType: "experience",
+      objectId: exp.id,
+      previousValue: { questions: result.before.map((q) => ({ key: q.key, label: q.label })) },
+      newValue: { version: result.version, questions: result.questions.map((q) => ({ key: q.key, label: q.label, section: q.section, showIf: q.showIf })) },
+    });
+    res.json({ version: result.version, questions: result.questions });
+  } catch (e) {
+    if (!formError(res, e)) throw e;
+  }
+});
+
+vendorAttendeesRouter.get("/experiences/:id/questions/versions", async (req, res) => {
+  const exp = await ownedExperience(req, res);
+  if (!exp) return;
+  res.json({ versions: await versionHistory(exp.id) });
+});
+
+vendorAttendeesRouter.get("/experiences/:id/questions/versions/:version", async (req, res) => {
+  const exp = await ownedExperience(req, res);
+  if (!exp) return;
+  const v = Number(req.params.version);
+  if (!Number.isInteger(v) || v < 1) return res.status(400).json({ error: "Unknown version" });
+  res.json({ version: v, questions: await versionQuestions(exp.id, v) });
+});
+
+/** Fills the draft from a template or an older version (nothing goes live until publish). */
+vendorAttendeesRouter.post("/experiences/:id/questions/draft/from", requirePlatformRole(...EDIT_ROLES), async (req, res) => {
+  const exp = await ownedExperience(req, res);
+  if (!exp || !(await canEditForm(req, res, exp))) return;
+  const { templateId, version } = (req.body ?? {}) as { templateId?: unknown; version?: unknown };
+  let questions;
+  if (typeof templateId === "string") {
+    const t = await findTemplate(templateId, req.user!.orgId ?? null, await fieldPolicy());
+    if (!t || t.status !== "active") return res.status(404).json({ error: "Template not found" });
+    questions = t.scope === "platform" ? usableTemplateQuestions(t.questions, await fieldPolicy()) : t.questions;
+  } else if (typeof version === "number" && Number.isInteger(version)) {
+    questions = await versionQuestions(exp.id, version);
+    if (!questions.length && version !== 0) return res.status(404).json({ error: "Unknown version" });
+  } else {
+    return res.status(400).json({ error: "Choose a template or a version" });
+  }
+  await saveDraft(exp.id, questions, await questionsVersion(exp.id), req.user!.id);
+  res.json({ draft: await getDraft(exp.id, await specialCategoryQuestionsOn()) });
+});
+
+vendorAttendeesRouter.get("/form-templates", async (req, res) => {
+  res.json({ templates: await listTemplates(req.user!.orgId ?? null, req.query.archived === "1", await fieldPolicy()) });
+});
+
+/** Saves a set of questions (usually the current draft or live form) as an organisation template. */
+vendorAttendeesRouter.post("/form-templates", requirePlatformRole(...EDIT_ROLES), async (req, res) => {
+  const orgId = req.user!.orgId;
+  if (!orgId) return res.status(403).json({ error: "No organisation" });
+  try {
+    const meta = cleanTemplateMeta(req.body);
+    const set = cleanQuestionSet((req.body ?? {}).questions, await specialCategoryQuestionsOn(), await fieldPolicy());
+    const id = await createTemplate(orgId, meta, set, req.user!.id);
+    await writeAudit({ actorUserId: req.user!.id, action: "form_template.created", objectType: "form_template", objectId: id, newValue: { name: meta.name, formType: meta.formType, questions: set.length } });
+    res.status(201).json({ id });
+  } catch (e) {
+    if (!formError(res, e)) throw e;
+  }
+});
+
+vendorAttendeesRouter.post("/form-templates/:templateId/duplicate", requirePlatformRole(...EDIT_ROLES), async (req, res) => {
+  const orgId = req.user!.orgId;
+  if (!orgId) return res.status(403).json({ error: "No organisation" });
+  const policy = await fieldPolicy();
+  const t = await findTemplate(req.params.templateId, orgId, policy);
+  if (!t) return res.status(404).json({ error: "Template not found" });
+  try {
+    const set = cleanQuestionSet(t.scope === "platform" ? usableTemplateQuestions(t.questions, policy) : t.questions, await specialCategoryQuestionsOn(), policy);
+    const id = await createTemplate(orgId, { name: `${t.name} (copy)`.slice(0, 120), description: t.description, formType: t.formType }, set, req.user!.id);
+    await writeAudit({ actorUserId: req.user!.id, action: "form_template.duplicated", objectType: "form_template", objectId: id, newValue: { from: t.id } });
+    res.status(201).json({ id });
+  } catch (e) {
+    if (!formError(res, e)) throw e;
+  }
+});
+
+for (const [path, status] of [["archive", "archived"], ["restore", "active"]] as const) {
+  vendorAttendeesRouter.post(`/form-templates/:templateId/${path}`, requirePlatformRole(...EDIT_ROLES), async (req, res) => {
+    const orgId = req.user!.orgId;
+    if (!orgId || req.params.templateId.startsWith("platform:")) return res.status(403).json({ error: "HelloCircle's templates can't be changed — duplicate one instead" });
+    if (!(await setTemplateStatus(req.params.templateId, orgId, status))) return res.status(404).json({ error: "Template not found" });
+    await writeAudit({ actorUserId: req.user!.id, action: `form_template.${status}`, objectType: "form_template", objectId: req.params.templateId });
+    res.json({ ok: true });
+  });
+}
+

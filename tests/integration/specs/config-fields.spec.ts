@@ -48,15 +48,15 @@ test("CFG-FIELDS: admin field policy, partner ready-made + own fields, sensitive
         await page.getByRole("button", { name: "Add your own question" }).click();
         await page.getByLabel(/^Question\b/).last().fill("Your PPS number");
         await page.getByLabel(/^Why you're asking/).last().fill("For our records");
-        await page.getByRole("button", { name: "Save questions" }).click();
+        await page.getByRole("button", { name: "Publish", exact: true }).click();
         await expect(page.getByText(/identity-document details can't be collected/).first()).toBeVisible();
         await page.getByLabel(/^Question\b/).last().fill("Which sessions will you join?");
         await page.getByLabel(/^Why you're asking/).last().fill("To plan numbers for each session");
         await page.getByLabel(/^Answer$/).last().selectOption("multi_select");
         await page.getByLabel(/^Choices/).last().fill("Morning\nAfternoon");
         await page.getByLabel("Include in the attendee export").last().check();
-        await page.getByRole("button", { name: "Save questions" }).click();
-        await expect(page.getByRole("status").filter({ hasText: "Saved." })).toBeVisible();
+        await page.getByRole("button", { name: "Publish", exact: true }).click();
+        await expect(page.getByRole("status").filter({ hasText: "Published as version" })).toBeVisible();
         await shot(page, "08-partner-fields");
         const saved = await rows(f, "SELECT field_key, input_type, exportable FROM registration_questions WHERE listing_id = ? AND active = 1 ORDER BY sort_order", [exp.id]);
         expect(saved).toEqual([{ field_key: "tshirt_size", input_type: "select", exportable: 0 }, { field_key: null, input_type: "multi_select", exportable: 1 }]);

@@ -67,12 +67,21 @@ export interface Question {
   maxLength: number | null;
   editability: Editability;
   exportable: boolean;
+  /** Phase G — section heading (null = none) and simple conditional visibility. */
+  section: string | null;
+  showIf: ShowIf | null;
+}
+
+/** Shown only when an earlier question's answer is one of `values`. */
+export interface ShowIf {
+  key: string;
+  values: string[];
 }
 
 /** What a person answering sees (no internal category, export flag or ids). */
-export type PublicQuestion = Pick<Question, "key" | "scope" | "inputType" | "label" | "help" | "purpose" | "required" | "choices" | "min" | "max" | "appliesTo" | "doorVisible" | "placeholder" | "defaultValue" | "minLength" | "maxLength" | "editability">;
-export const toPublicQuestion = ({ key, scope, inputType, label, help, purpose, required, choices, min, max, appliesTo, doorVisible, placeholder, defaultValue, minLength, maxLength, editability }: Question): PublicQuestion => ({
-  key, scope, inputType, label, help, purpose, required, choices, min, max, appliesTo, doorVisible, placeholder, defaultValue, minLength, maxLength, editability,
+export type PublicQuestion = Pick<Question, "key" | "scope" | "inputType" | "label" | "help" | "purpose" | "required" | "choices" | "min" | "max" | "appliesTo" | "doorVisible" | "placeholder" | "defaultValue" | "minLength" | "maxLength" | "editability" | "section" | "showIf">;
+export const toPublicQuestion = ({ key, scope, inputType, label, help, purpose, required, choices, min, max, appliesTo, doorVisible, placeholder, defaultValue, minLength, maxLength, editability, section, showIf }: Question): PublicQuestion => ({
+  key, scope, inputType, label, help, purpose, required, choices, min, max, appliesTo, doorVisible, placeholder, defaultValue, minLength, maxLength, editability, section, showIf,
 });
 
 export class QuestionError extends Error {
@@ -119,9 +128,13 @@ export interface QuestionInput {
   maxLength?: unknown;
   editability?: unknown;
   exportable?: unknown;
+  section?: unknown;
+  showIf?: unknown;
 }
 
-export type CleanQuestion = Omit<Question, "id" | "version" | "sortOrder" | "key"> & { key: string | null };
+/** Every question leaving validation has a key (kept, or newly made), so conditions can point at it. */
+export type CleanQuestion = Omit<Question, "id" | "version" | "sortOrder">;
+const CONDITION_TYPES: readonly InputType[] = ["select", "radio", "multi_select", "checkbox"];
 
 /**
  * Validates a whole question set against the field registry and the admin
@@ -137,7 +150,7 @@ export function cleanQuestionSet(raw: unknown, specialAllowed: boolean, policy: 
   if (raw.length > MAX_QUESTIONS) throw new QuestionError(`Ask at most ${MAX_QUESTIONS} questions — only ask what you need`);
   const keys = new Set<string>();
   const libraryUsed = new Set<string>();
-  return raw.map((r, i) => {
+  const out = raw.map((r, i) => {
     let q = (r ?? {}) as QuestionInput;
     const n = `Question ${i + 1}`;
     let fieldKey: string | null = null;
@@ -223,12 +236,14 @@ export function cleanQuestionSet(raw: unknown, specialAllowed: boolean, policy: 
       if (inputType === "number" && !Number.isInteger(Number(defaultValue))) throw new QuestionError(`${n}: the pre-filled answer must be a whole number`);
     }
     const editability: Editability = q.editability === "locked" ? "locked" : "until_start";
-    let key: string | null = null;
+    let key = `q_${crypto.randomBytes(5).toString("hex")}`;
     if (typeof q.key === "string" && /^q_[a-z0-9]{6,20}$/.test(q.key)) {
       if (keys.has(q.key)) throw new QuestionError(`${n}: duplicate question`);
-      keys.add(q.key);
       key = q.key;
     }
+    keys.add(key);
+    const section = str(q.section, 120) || null;
+    if (section && section.length > 120) throw new QuestionError(`${n}: keep the section name under 120 characters`);
     const info = inputType === "info";
     return {
       key,
@@ -251,11 +266,31 @@ export function cleanQuestionSet(raw: unknown, specialAllowed: boolean, policy: 
       maxLength,
       editability,
       exportable: !info && q.exportable === true,
+      section,
+      showIf: null as ShowIf | null,
+      _showIf: q.showIf,
     };
   });
+  // Phase G — conditions point at an EARLIER question with fixed answers; a
+  // once-per-booking question can't depend on one person's answer.
+  out.forEach((cq, i) => {
+    const raw = (cq as { _showIf?: unknown })._showIf;
+    delete (cq as { _showIf?: unknown })._showIf;
+    if (raw === undefined || raw === null) return;
+    const n = `Question ${i + 1}`;
+    const c = raw as { key?: unknown; values?: unknown };
+    const target = out.slice(0, i).find((x) => x.key === c.key);
+    if (!target) throw new QuestionError(`${n}: it can only depend on a question above it`);
+    if (!CONDITION_TYPES.includes(target.inputType)) throw new QuestionError(`${n}: it can only depend on a pick-from-a-list or tick-box question`);
+    if (cq.scope === "booking" && target.scope === "attendee") throw new QuestionError(`${n}: a once-per-booking question can't depend on one person's answer`);
+    const allowed = target.inputType === "checkbox" ? ["yes"] : target.choices;
+    if (!Array.isArray(c.values) || c.values.length === 0 || !c.values.every((v) => typeof v === "string" && allowed.includes(v))) throw new QuestionError(`${n}: choose which answers show it`);
+    cq.showIf = { key: target.key, values: [...new Set(c.values as string[])] };
+  });
+  return out;
 }
 
-interface QuestionRow {
+export interface QuestionRow {
   id: string;
   qkey: string;
   version: number;
@@ -279,9 +314,12 @@ interface QuestionRow {
   max_length: number | null;
   editability: string | null;
   exportable: number | null;
+  section: string | null;
+  show_if_json: string | null;
 }
 
-function toQuestion(r: QuestionRow): Question {
+/** Maps a stored row (any version, active or not). */
+export function questionFromRow(r: QuestionRow): Question {
   let choices: string[] = [];
   try {
     choices = r.choices_json ? (JSON.parse(r.choices_json) as string[]) : [];
@@ -312,14 +350,26 @@ function toQuestion(r: QuestionRow): Question {
     maxLength: r.max_length === null || r.max_length === undefined ? null : Number(r.max_length),
     editability: r.editability === "locked" ? "locked" : "until_start",
     exportable: Number(r.exportable ?? 0) === 1,
+    section: r.section ?? null,
+    showIf: parseShowIf(r.show_if_json),
   };
+}
+
+function parseShowIf(v: string | null | undefined): ShowIf | null {
+  if (!v) return null;
+  try {
+    const o = JSON.parse(v) as ShowIf;
+    return o && typeof o.key === "string" && Array.isArray(o.values) ? o : null;
+  } catch {
+    return null;
+  }
 }
 
 export async function activeQuestions(listingType: "experience", listingId: string, tx: Tx = db): Promise<Question[]> {
   const rows = (await tx
     .prepare(`SELECT * FROM registration_questions WHERE listing_type = ? AND listing_id = ? AND active = 1 ORDER BY sort_order, created_at`)
     .all(listingType, listingId)) as QuestionRow[];
-  return rows.map(toQuestion);
+  return rows.map(questionFromRow);
 }
 
 export async function questionsVersion(listingId: string, tx: Tx = db): Promise<number> {
@@ -340,13 +390,13 @@ export async function replaceQuestions(listingId: string, set: CleanQuestion[], 
       await tx
         .prepare(
           `INSERT INTO registration_questions (id, listing_type, listing_id, qkey, version, scope, input_type, label, help, purpose, required, choices_json, min_value, max_value, applies_to, door_visible, category, sort_order, active, created_by_user_id,
-           field_key, placeholder, default_value, min_length, max_length, editability, exportable)
-           VALUES (?, 'experience', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)`
+           field_key, placeholder, default_value, min_length, max_length, editability, exportable, section, show_if_json)
+           VALUES (?, 'experience', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           crypto.randomUUID(),
           listingId,
-          q.key ?? `q_${crypto.randomBytes(5).toString("hex")}`,
+          q.key,
           version,
           q.scope,
           q.inputType,
@@ -368,7 +418,9 @@ export async function replaceQuestions(listingId: string, set: CleanQuestion[], 
           q.minLength,
           q.maxLength,
           q.editability,
-          q.exportable ? 1 : 0
+          q.exportable ? 1 : 0,
+          q.section,
+          q.showIf ? JSON.stringify(q.showIf) : null
         );
     }
     await tx.prepare(`UPDATE experiences SET questions_version = ? WHERE id = ?`).run(version, listingId);
@@ -461,20 +513,39 @@ export function cleanAnswers(questions: Question[], raw: unknown, people: Pick<C
   const bookingIn = body.booking && typeof body.booking === "object" ? body.booking : {};
   const peopleIn = Array.isArray(body.attendees) ? body.attendees : [];
   const out: CleanAnswer[] = [];
+  // Phase G — a question whose condition isn't met is hidden: never required,
+  // and anything sent for it is dropped. Conditions only point at earlier
+  // questions, so one pass in order sees every value they depend on.
+  const bookingVals = new Map<string, string>();
+  const personVals = people.map(() => new Map<string, string>());
+  const met = (q: Question, own: Map<string, string> | null) => {
+    if (!q.showIf) return true;
+    const v = bookingVals.get(q.showIf.key) ?? own?.get(q.showIf.key);
+    if (v === undefined) return false;
+    const picked = v.startsWith("[") ? ((): string[] => { try { return JSON.parse(v) as string[]; } catch { return [v]; } })() : [v];
+    return picked.some((x) => q.showIf!.values.includes(x));
+  };
   for (const q of questions) {
     if (q.inputType === "info") continue;
     if (q.scope === "booking") {
+      if (!met(q, null)) continue;
       const value = normalise(q, bookingIn[q.key], "");
       if (value === null && q.required) throw new QuestionError(`Answer "${q.label}"`, 400, "answer_required");
-      if (value !== null) out.push({ attendeeNo: 0, question: q, value });
+      if (value !== null) {
+        out.push({ attendeeNo: 0, question: q, value });
+        bookingVals.set(q.key, value);
+      }
       continue;
     }
     people.forEach((p, i) => {
-      if (!appliesToPerson(q, p.personType)) return;
+      if (!appliesToPerson(q, p.personType) || !met(q, personVals[i])) return;
       const given = (peopleIn[i] ?? {}) as Record<string, unknown>;
       const value = normalise(q, given[q.key], `${p.name}: `);
       if (value === null && q.required) throw new QuestionError(`${p.name}: answer "${q.label}"`, 400, "answer_required");
-      if (value !== null) out.push({ attendeeNo: p.attendeeNo, question: q, value });
+      if (value !== null) {
+        out.push({ attendeeNo: p.attendeeNo, question: q, value });
+        personVals[i].set(q.key, value);
+      }
     });
   }
   return out;

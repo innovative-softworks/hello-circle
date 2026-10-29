@@ -2239,6 +2239,9 @@ export interface RegistrationQuestion {
   maxLength?: number | null;
   /** "locked" = can't be changed after booking. */
   editability?: "until_start" | "locked";
+  /** Configuration Phase G — section heading, and shown only when an earlier answer is one of `values`. */
+  section?: string | null;
+  showIf?: { key: string; values: string[] } | null;
 }
 
 /** A question as the partner edits it. */
@@ -2252,6 +2255,31 @@ export interface VendorRegistrationQuestion extends RegistrationQuestion {
 }
 
 /** Phase F — what the question builder may offer (GET /vendor/experiences/:id/questions). */
+/** Phase G — a draft form (never seen by anyone booking until published). */
+export interface FormDraft {
+  questions: VendorRegistrationQuestion[];
+  baseVersion: number;
+  updatedAt: string;
+  issues: string[];
+}
+export interface FormTemplate {
+  id: string;
+  scope: "platform" | "organisation";
+  formType: string;
+  name: string;
+  description: string;
+  status: "active" | "archived";
+  questions: VendorRegistrationQuestion[];
+  updatedAt: string | null;
+}
+export interface FormVersion {
+  version: number;
+  questions: number;
+  publishedAt: string;
+  publishedBy: string | null;
+  live: boolean;
+}
+
 export interface QuestionBuilderOptions {
   library: { key: string; fieldClass: string; label: string; purpose: string; help: string; scope: "booking" | "attendee"; inputType: QuestionInputType; choices: string[]; appliesTo: "all" | "adult" | "child"; dataClass: string }[];
   allowedTypes: QuestionInputType[];
