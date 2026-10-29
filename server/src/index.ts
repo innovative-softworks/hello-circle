@@ -57,6 +57,7 @@ import { hostSplitsRouter, vendorSplitsRouter } from "./routes/venueSplits.js";
 import { hostPlanRouter, residentCreditsRouter, vendorPlanRouter } from "./routes/partnerPlan.js";
 import { discoverRouter } from "./routes/discover.js";
 import { experiencesRouter } from "./routes/experiences.js";
+import { orderFormsRouter } from "./routes/orderForms.js";
 import { spotAlertsRouter, sweepSpotAlerts } from "./spotAlerts.js";
 import { myLifeRouter, sweepMyLifeAlerts } from "./myLife.js";
 import { sweepCirclePlanReminders } from "./circlePlanNotices.js";
@@ -241,6 +242,8 @@ app.use("/api/experiences", spotAlertsRouter);
 // Experience 3.0 — Passport, programme journey, Plan My Day (each switch-gated).
 app.use("/api/experience", experienceHubRouter);
 app.use("/api/experiences", experiencesRouter);
+// Phases I–J — a resident's registration (people, answers, attendance) on any booking.
+app.use("/api/orders", orderFormsRouter);
 app.use("/api/vendor/org", orgRouter);
 app.use("/api/invites", publicInviteRouter);
 app.use("/api/reports", reportsRouter);

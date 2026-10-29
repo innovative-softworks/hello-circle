@@ -388,3 +388,26 @@ export async function notifyRefund(params: NotifyParams & { refundedCents: numbe
     });
   }
 }
+
+/**
+ * Phase K (docs/participation-expansion/20) — a resident changed their
+ * registration answers: the listing's partner gets an in-app note (never the
+ * answers themselves, which stay behind the roster roles on the record page).
+ * In-app only; never throws.
+ */
+export async function notifyAnswersChanged(params: { kind: NotifyParams["kind"]; listingType: string; listingId: string; listingName: string; vendorId: string | null; ref: string; changed: number }) {
+  if (!params.vendorId || params.changed === 0) return;
+  try {
+    await insertNotification.run({
+      recipientId: params.vendorId,
+      kind: params.kind,
+      title: `Registration answers updated: ${params.listingName}`,
+      body: `${params.ref}: ${params.changed} ${params.changed === 1 ? "answer was" : "answers were"} updated by the person who booked.`,
+      listingType: params.listingType,
+      listingId: params.listingId,
+      ref: params.ref,
+    });
+  } catch (e) {
+    console.error("[notifications] answers-changed notify failed:", e);
+  }
+}

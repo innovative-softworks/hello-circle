@@ -1,80 +1,107 @@
 import { useEffect, useState } from "react";
-import { ApiError, fetchBookingPeople, saveBookingAnswers } from "../../api";
+import { ApiError, fetchOrderRegistration, saveOrderAnswers } from "../../api";
 import { Button } from "../ui";
 import { FormErrorSummary, useFormErrors } from "../form";
 import { colors, radius } from "../../theme";
-import type { AnswerValue, BookingPeopleDetails, RegistrationQuestion } from "../../types";
+import type { AnswerValue, OrderAttendance, OrderRegistration, OrderSource, RegistrationQuestion } from "../../types";
 import { QuestionInput, type AnswersDraft } from "./AttendeeFields";
 import { answerLabel, appliesTo, missingAnswers, optionNote, questionFieldId } from "./attendeeSlots";
 
-// Participation Phase 2 — My Life booking page: who is coming, the answers
-// given (with the question as it was asked), and who has checked in at the
-// door. Only the booker's device or resident account can load it (server).
-// Answers can be changed until the start while the organiser asks questions;
-// the organiser can read them but never change them.
+// Participation Phase 2, Phase I — My Life booking page: who is taking part,
+// the answers given (with the question as it was asked and the form version),
+// attendance, and what still needs an answer. Any booking type: an
+// experience's group, a club's registrant, a programme's participant, or a
+// hall booking's once-per-booking answers. Only the booker's device or
+// resident account can load it (server). Answers can be changed where the
+// organiser's form and the booking allow it; an answer marked "can't be
+// changed after booking" stays as given. The organiser reads, never edits.
 
 const timeOf = (iso: string) => new Date(iso).toLocaleTimeString("en-IE", { hour: "2-digit", minute: "2-digit" });
+const dayOf = (iso: string) => new Date(iso).toLocaleDateString("en-IE", { day: "numeric", month: "short" });
 
-export function BookingPeople({ bookingRef }: { bookingRef: string }) {
-  const [d, setD] = useState<BookingPeopleDetails | null>(null);
+const TITLE: Record<OrderSource, string> = { experience: "Who's coming", registration: "Your registration", program: "Your enrolment", booking: "Your booking details" };
+
+function attendanceText(a: OrderAttendance): string | null {
+  if (a.kind === "order") return a.status === "attended" ? `Checked in ${a.checkedInAt ? `${dayOf(a.checkedInAt)} · ${timeOf(a.checkedInAt)}` : ""}`.trim() : a.status === "no_show" ? "Marked as not attended" : null;
+  if (a.kind === "sessions") return a.sessionsTotal ? `Attended ${a.sessionsAttended ?? 0} of ${a.sessionsTotal} sessions so far` : null;
+  return null;
+}
+
+export function BookingPeople({ bookingRef, source = "experience" }: { bookingRef: string; source?: OrderSource }) {
+  const [d, setD] = useState<OrderRegistration | null>(null);
   const [editing, setEditing] = useState(false);
-  const load = () => fetchBookingPeople(bookingRef).then(setD).catch(() => setD(null));
+  const load = () => fetchOrderRegistration(source, bookingRef).then(setD).catch(() => setD(null));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => void load(), [bookingRef]);
+  useEffect(() => void load(), [bookingRef, source]);
   if (!d) return null;
   const people = d.attendees.filter((a) => a.status === "active");
   const anyCheckin = people.some((a) => a.checkedInAt);
-  // Nothing new to show for a one-person booking made before attendee details.
-  if (!people.some((a) => a.recorded) && d.answers.length === 0 && d.questions.length === 0 && !anyCheckin && people.length <= 1) return null;
+  const attendance = attendanceText(d.attendance);
+  // Nothing new to show: no form, no answers, no attendance and (for an experience) one person booked before attendee details.
+  const nothing = d.answers.length === 0 && d.questions.length === 0 && !anyCheckin && !attendance;
+  if (nothing && (source !== "experience" || (!people.some((a) => a.recorded) && people.length <= 1))) return null;
   const bookingAnswers = d.answers.filter((a) => a.attendeeNo === 0);
   const show = (a: { inputType: string; value: string; display?: string }) => a.display ?? (a.inputType === "checkbox" ? "Yes" : a.value);
+  const locked = (key: string, no: number) => d.lockedAnswers.some((l) => l.key === key && l.attendeeNo === no);
+  const answerRow = (a: (typeof d.answers)[number]) => (
+    <div key={`${a.attendeeNo}-${a.key}`} style={{ fontSize: 13, color: colors.muted, marginTop: 2 }}>
+      {answerLabel(a.label)}
+      <span style={{ color: colors.text }}>{show(a)}</span>
+      {locked(a.key, a.attendeeNo) && <span style={{ marginLeft: 6, fontSize: 12 }}>· can't be changed</span>}
+    </div>
+  );
+  const versions = d.answeredVersions;
+  const showPeople = source === "experience" || people.length > 0;
 
   return (
     <section aria-labelledby="bp-title" style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: 18 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
-        <h2 id="bp-title" style={{ fontSize: 17, margin: 0 }}>Who's coming</h2>
+        <h2 id="bp-title" style={{ fontSize: 17, margin: 0 }}>{TITLE[source]}</h2>
         {anyCheckin && <span style={{ fontSize: 13, color: colors.greenText, fontWeight: 700 }}>{people.filter((p) => p.checkedInAt).length} of {people.length} checked in</span>}
+        {attendance && <span style={{ fontSize: 13, color: d.attendance.status === "no_show" ? colors.muted : colors.greenText, fontWeight: 700 }}>{attendance}</span>}
       </div>
       {d.missingAnswers.length > 0 && !editing && (
-        <p role="status" style={{ margin: "10px 0 0", fontSize: 13.5, color: colors.orangeDark }}>
-          The organiser has a new question for you: {d.missingAnswers.join("; ")}.
+        <p role="status" style={{ margin: "10px 0 0", fontSize: 13.5, color: colors.orangeDark, fontWeight: 600 }}>
+          Needs your attention — the organiser is waiting for: {d.missingAnswers.join("; ")}.
         </p>
       )}
       {editing ? (
-        <EditAnswers details={d} onDone={(next) => { if (next) setD(next); setEditing(false); }} />
+        <EditAnswers details={d} source={source} onDone={(next) => { if (next) setD(next); setEditing(false); }} />
       ) : (
         <>
-          <ul data-testid="booking-people" style={{ listStyle: "none", margin: "12px 0 0", padding: 0, display: "flex", flexDirection: "column", gap: 8 }}>
-            {people.map((p) => (
-              <li key={p.attendeeNo} style={{ background: colors.bg, borderRadius: radius.control, padding: "10px 12px", fontSize: 14 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-                  <span>
-                    <strong>{p.name}</strong>
-                    <span style={{ color: colors.muted }}>
-                      {" · "}{p.personType === "child" ? "Child" : "Adult"}
-                      {optionNote(p.lineLabel, p.personType) ? ` · ${optionNote(p.lineLabel, p.personType)}` : ""}
-                      {p.guardianName ? ` · with ${p.guardianName}` : ""}
+          {showPeople && (
+            <ul data-testid="booking-people" style={{ listStyle: "none", margin: "12px 0 0", padding: 0, display: "flex", flexDirection: "column", gap: 8 }}>
+              {people.map((p) => (
+                <li key={p.attendeeNo} style={{ background: colors.bg, borderRadius: radius.control, padding: "10px 12px", fontSize: 14 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                    <span>
+                      <strong>{p.name}</strong>
+                      <span style={{ color: colors.muted }}>
+                        {" · "}{p.personType === "child" ? "Child" : "Adult"}
+                        {optionNote(p.lineLabel, p.personType) ? ` · ${optionNote(p.lineLabel, p.personType)}` : ""}
+                        {p.guardianName ? ` · with ${p.guardianName}` : ""}
+                      </span>
                     </span>
-                  </span>
-                  <span style={{ fontSize: 13, color: p.checkedInAt ? colors.greenText : colors.muted }}>{p.checkedInAt ? `Checked in ${timeOf(p.checkedInAt)}` : "Not checked in yet"}</span>
-                </div>
-                {d.answers.filter((a) => a.attendeeNo === p.attendeeNo).map((a) => (
-                  <div key={a.key} style={{ fontSize: 13, color: colors.muted, marginTop: 2 }}>{answerLabel(a.label)}<span style={{ color: colors.text }}>{show(a)}</span></div>
-                ))}
-              </li>
-            ))}
-          </ul>
-          {bookingAnswers.length > 0 && (
-            <dl style={{ margin: "10px 0 0", fontSize: 13.5 }}>
-              {bookingAnswers.map((a) => (
-                <div key={a.key}><dt style={{ display: "inline", color: colors.muted }}>{answerLabel(a.label)}</dt><dd style={{ display: "inline", margin: 0 }}>{show(a)}</dd></div>
+                    {d.attendance.kind === "door" && <span style={{ fontSize: 13, color: p.checkedInAt ? colors.greenText : colors.muted }}>{p.checkedInAt ? `Checked in ${timeOf(p.checkedInAt)}` : "Not checked in yet"}</span>}
+                  </div>
+                  {d.answers.filter((a) => a.attendeeNo === p.attendeeNo).map(answerRow)}
+                </li>
               ))}
-            </dl>
+            </ul>
           )}
-          {d.canEditAnswers && (
+          {bookingAnswers.length > 0 && <div style={{ margin: "10px 0 0", fontSize: 13.5 }}>{bookingAnswers.map(answerRow)}</div>}
+          {versions.length > 0 && (
+            <p style={{ margin: "10px 0 0", fontSize: 12.5, color: colors.muted }}>
+              Answered on form version {versions.join(" and ")}.
+              {d.questionsVersion > Math.max(...versions) ? ` The organiser has since updated the form (version ${d.questionsVersion}); your answers are kept as you gave them.` : ""}
+            </p>
+          )}
+          {d.canEditAnswers ? (
             <div style={{ marginTop: 12 }}>
               <Button variant="ghost" onClick={() => setEditing(true)}>{d.missingAnswers.length ? "Answer now" : "Change answers"}</Button>
             </div>
+          ) : (
+            d.editNote && d.answers.length > 0 && <p style={{ margin: "10px 0 0", fontSize: 12.5, color: colors.muted }}>{d.editNote}, so these answers can't be changed.</p>
           )}
         </>
       )}
@@ -82,7 +109,7 @@ export function BookingPeople({ bookingRef }: { bookingRef: string }) {
   );
 }
 
-function EditAnswers({ details: d, onDone }: { details: BookingPeopleDetails; onDone: (next: BookingPeopleDetails | null) => void }) {
+function EditAnswers({ details: d, source, onDone }: { details: OrderRegistration; source: OrderSource; onDone: (next: OrderRegistration | null) => void }) {
   const people = d.attendees.filter((a) => a.status === "active");
   const initial = (): AnswersDraft => {
     const v = (a: { inputType: string; value: string }): AnswerValue => {
@@ -116,7 +143,7 @@ function EditAnswers({ details: d, onDone }: { details: BookingPeopleDetails; on
     if (missing.length) return fe.fail(missing.map((m) => ({ field: m.fieldId, fieldId: m.fieldId, message: m.message })));
     setBusy(true);
     try {
-      onDone(await saveBookingAnswers(d.ref, answers, d.questionsVersion));
+      onDone(await saveOrderAnswers(source, d.ref, answers, d.questionsVersion));
     } catch (e) {
       if (e instanceof ApiError && e.status === 409) {
         fe.fail([{ field: "answers", message: e.message }]);
@@ -138,7 +165,7 @@ function EditAnswers({ details: d, onDone }: { details: BookingPeopleDetails; on
             onChange={(v) => set(personNo, q.key, v)}
             fe={fe}
             // Phase F — an answer marked "can't be changed after booking" stays as given.
-            locked={q.editability === "locked" && d.answers.some((a) => a.key === q.key && a.attendeeNo === personNo)}
+            locked={d.lockedAnswers.some((l) => l.key === q.key && l.attendeeNo === personNo)}
           />
         ))}
       </div>

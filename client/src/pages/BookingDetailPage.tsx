@@ -338,8 +338,8 @@ export function BookingDetailPage() {
             {/* Experience 3.0 — preparation for a confirmed, upcoming booking; the
                 programme journey whenever there's a programme. */}
             {rec.prep?.kind === "experience" && going && !rec.isPast && <ExperienceGetReady experienceId={rec.prep.experienceId} />}
-            {/* Participation Phase 2 — attendees, answers and door check-in (any state, so a cancelled booking still shows who was on it). */}
-            {kind === "experience" && ref && <BookingPeople bookingRef={ref} />}
+            {/* Participation Phase 2 / Phase I — people, answers, attendance and what still needs an answer (any state, so a cancelled booking still shows who was on it). */}
+            {(kind === "experience" || kind === "registration" || kind === "program" || kind === "booking") && ref && <BookingPeople bookingRef={ref} source={kind} />}
             {rec.prep?.kind === "game" && going && !rec.isPast && <GameGetReady game={rec.prep.game} />}
             {rec.prep?.kind === "venue" && going && !rec.isPast && <VenueGetReady centreId={rec.prep.centreId} />}
             {rec.prep?.kind === "program" && ref && <ProgrammeJourneyView bookingRef={ref} />}

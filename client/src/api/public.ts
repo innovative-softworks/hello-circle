@@ -903,6 +903,14 @@ export function respondToBookingChange(token: string, accept: boolean, note?: st
 // --- Participation Phase 2: the booker's own attendees and answers -------------
 
 /** Who is coming, their answers and check-in (the booker's device or resident account only). */
+/** Phase I — the booker's registration on any booking type (their own booking only). */
+export function fetchOrderRegistration(source: import("../types").OrderSource, ref: string): Promise<import("../types").OrderRegistration> {
+  return request(`/orders/${source}/${encodeURIComponent(ref)}/registration`);
+}
+export function saveOrderAnswers(source: import("../types").OrderSource, ref: string, answers: import("../types").RegistrationAnswersInput, questionsVersion: number): Promise<import("../types").OrderRegistration> {
+  return request(`/orders/${source}/${encodeURIComponent(ref)}/answers`, { method: "PUT", body: JSON.stringify({ answers, questionsVersion }) });
+}
+
 export function fetchBookingPeople(ref: string): Promise<import("../types").BookingPeopleDetails> {
   return request(`/experiences/bookings/${encodeURIComponent(ref)}/details`);
 }

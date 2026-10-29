@@ -2358,6 +2358,33 @@ export interface BookingPeopleDetails {
   missingAnswers: string[];
 }
 
+/** Phases I–J — the four participation order types that carry a registration. */
+export type OrderSource = "experience" | "registration" | "program" | "booking";
+
+export interface OrderAttendance {
+  /** door: per person at the door (experiences); order: one check-in per booking; sessions: programme sessions. */
+  kind: "door" | "order" | "sessions" | "none";
+  status: string | null;
+  checkedInAt: string | null;
+  sessionsAttended?: number;
+  sessionsMarked?: number;
+  sessionsTotal?: number;
+}
+
+/** GET /orders/:source/:ref/registration — the booker's own registration, any type. */
+export interface OrderRegistration extends Omit<BookingPeopleDetails, "date" | "time"> {
+  source: OrderSource;
+  date: string | null;
+  time: string | null;
+  attendance: OrderAttendance;
+  /** The form versions the answers were given on. */
+  answeredVersions: number[];
+  /** Why answers can't be changed now (null when they can, or there's no form). */
+  editNote: string | null;
+  /** Answers kept as given ("can't be changed after booking"). */
+  lockedAnswers: { key: string; attendeeNo: number }[];
+}
+
 /** One booking on the partner attendee list. */
 export interface VendorAttendeeBooking {
   ref: string;

@@ -18,7 +18,7 @@ import { buildIcsEvent } from "../ics.js";
 import { irelandWallTimeToUtc } from "../irelandTime.js";
 import { cancelDeadlineIso, experienceCancelBlock, refundStateOf } from "../selfCancel.js";
 import { cleanParticipantNames, minAgeError, recordOrderAcknowledgements, recordParticipantNames } from "../orderAcknowledgements.js";
-import { notifyCancellation, notifyNewBookingOrRegistration } from "../notifications.js";
+import { notifyAnswersChanged, notifyCancellation, notifyNewBookingOrRegistration } from "../notifications.js";
 import { computePricing, evaluateCoupon } from "../pricing.js";
 import { QuoteError, consumeQuote, createOrder, createQuote, engineEnabledFor, engineLineItems, legacyColumns, priceWithRules, releaseQuote, shadowPrice, syncOrderFromSource, vendorPartner } from "../commerce/engine.js";
 import { BadRequestError, ConflictError, clientIdFrom, generateRef, isValidEmail } from "../util.js";
@@ -962,6 +962,8 @@ experiencesRouter.put("/bookings/:ref/answers", async (req, res) => {
     objectId: row.ref,
     newValue: { questionsVersion: version, keys: [...new Set(cleaned.map((a) => a.question.key))] },
   });
+  // Phase K — the partner hears that answers changed (never the answers).
+  void notifyAnswersChanged({ kind: "experience", listingType: "experience", listingId: row.experienceId, listingName: row.title, vendorId: row.vendorId, ref: row.ref, changed: new Set(toWrite.map((a) => a.question.key)).size });
   res.json(await bookingDetailsJson(row));
 });
 
