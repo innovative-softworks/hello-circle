@@ -74,8 +74,10 @@ describe("D-A4 — no new free-text health information", () => {
         if (e.isDirectory()) walk(p);
         else if (/\.ts$/.test(e.name) && !/\.test\.ts$/.test(e.name) && !p.includes(`${path.sep}scripts${path.sep}`)) {
           const text = fs.readFileSync(p, "utf8");
-          // Any SELECT, export or JSON field that mentions the column.
-          for (const m of text.matchAll(/SELECT[\s\S]{0,400}?\bFROM\s+registrations\b/gi)) if (/\bmedical\b/.test(m[0])) offenders.push(`${path.relative(root, p)}: SELECT`);
+          // Any SELECT, export or JSON field that mentions the column. The one
+          // value-free use allowed is "is there a note" (medical <> ''), which the
+          // privacy review counts need (privacyCounts.ts: counts only, doc 18).
+          for (const m of text.matchAll(/SELECT[\s\S]{0,400}?\bFROM\s+registrations\b/gi)) if (/\bmedical\b/.test(m[0].replace(/\bmedical\s*<>\s*''/g, ""))) offenders.push(`${path.relative(root, p)}: SELECT`);
           if (/\b(r|reg|row|registration)\.medical\b/.test(text)) offenders.push(`${path.relative(root, p)}: field read`);
           if (/medical:\s*body\.medical/.test(text)) offenders.push(`${path.relative(root, p)}: stores body.medical`);
         }
