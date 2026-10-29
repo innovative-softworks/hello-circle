@@ -228,6 +228,44 @@ async function initParticipationPhase2Schema(ensureColumn: EnsureColumn, ensureI
   // Phase H — the same form engine for club registrations, programme enrolments
   // and hall bookings: each listing keeps its own published-version counter.
   for (const table of ["clubs", "programs", "centres"]) await ensureColumn(table, "questions_version", "questions_version INT NOT NULL DEFAULT 0");
+  // Phase K — partner messages: who sent it, to which audience, from which
+  // template; one delivery row per person and channel (status, attempts),
+  // and one row per (sender, idempotency key) so a repeated send is a no-op.
+  // Deliveries keep the order reference, not the address (looked up at send).
+  for (const [col, ddl] of [
+    ["org_id", "org_id VARCHAR(191) NULL"],
+    ["sent_by_user_id", "sent_by_user_id VARCHAR(191) NULL"],
+    ["audience_json", "audience_json TEXT NULL"],
+    ["template_key", "template_key VARCHAR(40) NULL"],
+    ["recipient_count", "recipient_count INT NOT NULL DEFAULT 0"],
+  ] as const) await ensureColumn("vendor_messages", col, ddl);
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS vendor_message_deliveries (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      message_id INT NOT NULL,
+      recipient_key VARCHAR(80) NOT NULL,
+      channel VARCHAR(10) NOT NULL,
+      source_type VARCHAR(20) NOT NULL,
+      order_ref VARCHAR(191) NOT NULL,
+      resident_id VARCHAR(191) NULL,
+      first_name VARCHAR(60) NOT NULL DEFAULT '',
+      status VARCHAR(24) NOT NULL DEFAULT 'queued',
+      attempts INT NOT NULL DEFAULT 0,
+      last_error VARCHAR(120) NULL,
+      sent_at DATETIME NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_message_delivery (message_id, recipient_key, channel),
+      KEY idx_message_delivery_status (status, attempts)
+    );
+    CREATE TABLE IF NOT EXISTS vendor_message_requests (
+      vendor_id VARCHAR(191) NOT NULL,
+      idem_key VARCHAR(80) NOT NULL,
+      message_id INT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (vendor_id, idem_key)
+    );
+  `);
   await db.exec(`
     CREATE TABLE IF NOT EXISTS registration_form_drafts (
       listing_type VARCHAR(20) NOT NULL,

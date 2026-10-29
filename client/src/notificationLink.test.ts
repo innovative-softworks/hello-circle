@@ -53,4 +53,9 @@ describe("D-03 moderation notices", () => {
     expect(notificationHref({ kind: "moderation", listingType: "host", listingId: "r1", ref: "" })).toBe("/profile?tab=hosting");
     expect(notificationHref({ kind: "moderation", listingType: "place_suggestion", listingId: "s1", ref: "" })).toBe("/suggest-place");
   });
+
+  it("Phase K — reminders and organiser messages open the booking they're about", () => {
+    expect(notificationHref({ kind: "reminder", listingType: "experience", listingId: "e1", ref: "experience/EX-1" })).toBe("/bookings/experience/EX-1");
+    expect(notificationHref({ kind: "organiser_message", listingType: "club", listingId: "c1", ref: "registration/CR-1" })).toBe("/bookings/registration/CR-1");
+  });
 });

@@ -12,6 +12,7 @@ import { vendorAttendeesRouter } from "./vendorAttendees.js";
 import { vendorFormsRouter } from "./vendorForms.js";
 import { vendorOrdersRouter } from "./vendorOrders.js";
 import { vendorReportsRouter } from "./vendorReports.js";
+import { vendorMessagesRouter } from "./vendorMessages.js";
 import { vendorDoorRouter } from "./vendorDoor.js";
 
 // Split from a single 1088-line file into domain sub-routers — see
@@ -62,4 +63,5 @@ vendorRouter.use(vendorAttendeesRouter);
 vendorRouter.use(vendorFormsRouter);
 vendorRouter.use(vendorOrdersRouter);
 vendorRouter.use(vendorReportsRouter);
+vendorRouter.use(vendorMessagesRouter);
 vendorRouter.use("/door", vendorDoorRouter);

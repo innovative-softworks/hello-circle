@@ -327,11 +327,35 @@ export function markVendorNotificationRead(id: number): Promise<{ ok: boolean }>
 
 // --- vendor: messages / demand / check-in (NEXT / FUTURE) ------------------
 
-export function sendVendorMessage(input: { listingType: "centre" | "club"; listingId: string; subject: string; body: string }): Promise<{ ok: boolean; recipientCount: number }> {
+// Phase K — partner messages: audience resolved on the server from the
+// organisation's own listing; preview shows counts and first names only.
+export type MessageListingType = "centre" | "club" | "program" | "experience";
+export interface MessageAudience {
+  listingType: MessageListingType;
+  listingId: string;
+  sessionId?: string | null;
+  date?: string | null;
+  filter?: "all" | "checked_in" | "not_checked_in" | "waiting_answers";
+}
+export interface MessagePreview { recipients: number; inApp: number; email: number; emailHeldBack: number; sample: string[]; more: number }
+export type DeliverySummary = Record<string, Record<string, number>>;
+export interface MessageTemplate { key: string; label: string; subject: string; body: string }
+
+export function fetchMessageTemplates(): Promise<{ templates: MessageTemplate[] }> {
+  return request(`/vendor/messages/templates`);
+}
+export function previewVendorMessage(audience: MessageAudience): Promise<MessagePreview> {
+  return request(`/vendor/messages/preview`, { method: "POST", body: JSON.stringify({ audience }) });
+}
+export function sendVendorMessage(input: { audience: MessageAudience; templateKey?: string; subject: string; body: string; idempotencyKey: string }): Promise<{ ok: boolean; messageId: number; duplicate: boolean; recipientCount: number; delivery: DeliverySummary }> {
   return request(`/vendor/messages`, { method: "POST", body: JSON.stringify(input) });
 }
+/** Sends the rendered message to the sender's own email only. */
+export function sendTestVendorMessage(input: { audience: MessageAudience; subject: string; body: string }): Promise<{ sent: string; to: string }> {
+  return request(`/vendor/messages/test`, { method: "POST", body: JSON.stringify(input) });
+}
 
-export function fetchVendorMessages(): Promise<{ id: number; listingType: string; listingId: string; subject: string; body: string; createdAt: string }[]> {
+export function fetchVendorMessages(): Promise<{ id: number; listingType: string; listingId: string; subject: string; body: string; createdAt: string; templateKey?: string | null; recipientCount?: number; delivery?: DeliverySummary }[]> {
   return request(`/vendor/messages`);
 }
 

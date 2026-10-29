@@ -154,6 +154,26 @@ export function setQaMailObserver(observer: MailObserver | null): void {
   if (process.env.NODE_ENV === "test" && process.env.QA_E2E_ENABLED === "true") qaMailObserver = observer;
 }
 
+/**
+ * Phase K — the same delivery as sendMail, reporting the outcome so a caller
+ * can record delivery status and retry: "unavailable" when no transport is
+ * configured (dev/test), "failed" when the provider refused. Never throws.
+ */
+export async function deliverMail(msg: MailMessage): Promise<"sent" | "failed" | "unavailable"> {
+  if (qaMailObserver) {
+    try { qaMailObserver(msg); } catch { /* observer must never affect delivery */ }
+  }
+  if (!transporter) return "unavailable";
+  try {
+    const html = wrapEmailHtml(msg.subject, textToHtmlBody(msg.text, msg.cta));
+    await transporter.sendMail({ from: MAIL_FROM, to: msg.to, subject: msg.subject, text: msg.text, html, replyTo: msg.replyTo });
+    return "sent";
+  } catch {
+    console.error("[email] delivery failed");
+    return "failed";
+  }
+}
+
 export async function sendMail(msg: MailMessage): Promise<void> {
   if (qaMailObserver) {
     try { qaMailObserver(msg); } catch { /* observer must never affect delivery */ }

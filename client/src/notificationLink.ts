@@ -28,7 +28,8 @@ export function notificationHref(n: Pick<ResidentNotification, "kind" | "listing
   // Phase 12 — a withdrawn invitation is informational only: no link.
   if (n.kind === "invite_withdrawn") return null;
   // Trust & Retention — opens the booking page, which shows the live attendance/review state.
-  if (n.kind === "review_invite") return `/bookings/${n.ref}`;
+  // Phase K — a booking reminder and an organiser's message open that booking (ref is "<kind>/<ref>").
+  if (n.kind === "review_invite" || n.kind === "reminder" || n.kind === "organiser_message") return `/bookings/${n.ref}`;
   if (n.kind === "booking" || n.kind === "registration" || n.kind === "program" || n.kind === "experience") {
     return `/bookings?ref=${n.ref}`;
   }
