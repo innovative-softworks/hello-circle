@@ -20,6 +20,12 @@ import {
   type AdminCategoryInput,
   type CategoryFamily,
   type TaxonomyListingType,
+  FORM_TYPE_OPTIONS,
+  acceptCategoryReview,
+  fetchCategoryReviewQueue,
+  type CategoryReviewItem,
+  MODERATION_POLICY_LABELS,
+  type CategoryModerationPolicy,
 } from "../../api";
 import { useRecordParam, useUrlParam } from "../../useUrlTab";
 import { CategoryPicker, type CategoryValue } from "../categories/CategoryPicker";
@@ -133,6 +139,7 @@ function CategoryDirectory({ dir, onOpen, onNew, onUncategorised }: { dir: Retur
 
   return (
     <div className="adm-stack">
+      <ReviewQueue canManage={canManage} />
       <Box
         icon={ListChecks}
         title="Uncategorised listings"
@@ -414,6 +421,12 @@ function CategoryRecord({
             ["Cover image", c.imageUrl ? <a href={c.imageUrl} target="_blank" rel="noreferrer">View image</a> : null],
             ["Selectable for new listings", c.active && !c.archived ? "Yes" : "No"],
             ["Shown in public discovery", c.discoverable && !c.archived ? "Yes, when it has live listings" : "No"],
+            ...(!c.parentId
+              ? ([
+                  ["Review rule", MODERATION_POLICY_LABELS[c.moderationPolicy ?? "standard"]],
+                  ["Suggested registration form", FORM_TYPE_OPTIONS.find((f) => f.key === c.suggestedForm)?.label ?? null],
+                ] as [string, string | null][])
+              : []),
           ]}
         />
       </DetailSection>
@@ -650,8 +663,10 @@ function CategoryEditor({
           featured: existing.data.category.featured,
           seoTitle: existing.data.category.seoTitle,
           seoDescription: existing.data.category.seoDescription,
+          moderationPolicy: existing.data.category.moderationPolicy,
+          suggestedForm: existing.data.category.suggestedForm,
         }
-      : { name: "", id: "", description: "", families: parent ? parent.families : [], active: true, discoverable: true, featured: false };
+      : { name: "", id: "", description: "", families: parent ? parent.families : [], active: true, discoverable: true, featured: false, moderationPolicy: "standard" as const, suggestedForm: null };
   const form = draft ?? base;
   const set = (patch: Partial<AdminCategoryInput>) => {
     setDraft({ ...form, ...patch });
@@ -773,6 +788,27 @@ function CategoryEditor({
             ))}
           </div>
         </DetailSection>
+        {!parent && (
+          <DetailSection title="Governance" note="Who may use this category and how it's reviewed. Listings that already use it are never changed by these settings.">
+            <div style={{ display: "grid", gap: 14 }}>
+              <FormField label="Review rule">
+                {(p) => (
+                  <select {...p} className="adm-select" value={form.moderationPolicy ?? "standard"} onChange={(e) => set({ moderationPolicy: e.target.value as CategoryModerationPolicy })}>
+                    {(Object.keys(MODERATION_POLICY_LABELS) as CategoryModerationPolicy[]).map((k) => <option key={k} value={k}>{MODERATION_POLICY_LABELS[k]}</option>)}
+                  </select>
+                )}
+              </FormField>
+              <FormField label="Suggested registration form (optional)" hint="Offered first when a partner sets up registration for a listing in this category.">
+                {(p) => (
+                  <select {...p} className="adm-select" value={form.suggestedForm ?? ""} onChange={(e) => set({ suggestedForm: e.target.value || null })}>
+                    <option value="">None</option>
+                    {FORM_TYPE_OPTIONS.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
+                  </select>
+                )}
+              </FormField>
+            </div>
+          </DetailSection>
+        )}
         <DetailSection title="SEO">
           <div style={{ display: "grid", gap: 14 }}>
             <FormField label="SEO title (optional)" hint="Up to 120 characters. Defaults to the name.">
@@ -791,6 +827,42 @@ function CategoryEditor({
         </div>
       </form>
     </RecordView>
+  );
+}
+
+// --- category moves to review (Configuration Phase E) ---------------------------------------
+
+function ReviewQueue({ canManage }: { canManage: boolean }) {
+  const queue = useAdminData(fetchCategoryReviewQueue);
+  const toast = useToast();
+  const [busy, setBusy] = useState<string | null>(null);
+  if (!queue.data || queue.data.length === 0) return null;
+  const accept = async (r: CategoryReviewItem) => {
+    setBusy(r.listingId);
+    try {
+      await acceptCategoryReview(r.listingType, r.listingId);
+      toast.success(`${r.title} stays in ${r.categoryName}`);
+      queue.reload();
+    } catch (e) {
+      toast.error(errorMessage(e, "Couldn't accept"));
+    } finally {
+      setBusy(null);
+    }
+  };
+  return (
+    <Box icon={ListChecks} title={`Category moves to review (${queue.data.length})`} subtitle="Live listings a partner moved into a category whose review rule asks for a check. They stay live; accept the move, or re-categorise them from Uncategorised listings or the listing.">
+      <ul className="adm-ov-list">
+        {queue.data.map((r) => (
+          <li key={`${r.listingType}:${r.listingId}`} className="adm-ov-row">
+            <div className="adm-ov-main">
+              <div className="adm-ov-title">{r.title}</div>
+              <div className="adm-ov-detail">{LISTING_TYPE_LABEL[r.listingType]} · moved to {r.categoryName}{r.subcategoryName ? ` › ${r.subcategoryName}` : ""}</div>
+            </div>
+            {canManage && <AdminButton size="sm" disabled={busy === r.listingId} onClick={() => accept(r)} aria-label={`Accept ${r.title} in ${r.categoryName}`}>Accept</AdminButton>}
+          </li>
+        ))}
+      </ul>
+    </Box>
   );
 }
 

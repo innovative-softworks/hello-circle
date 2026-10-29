@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { getSetting } from "../db/index.js";
 import { DISCOVERY_TAGS, isFamily, listPublicCategories, loadTaxonomy, normalizeAlias, pickerOptions } from "../taxonomy.js";
+import { accessForUser, filterPicker } from "../categoryPolicy.js";
 
 // Public category reads (docs/hellocircle-category-architecture.md §2).
 // Only active + discoverable categories with live inventory (or featured)
@@ -20,7 +21,11 @@ categoriesRouter.get("/options", async (req, res) => {
   const family = req.query.family;
   if (!isFamily(family)) return res.status(400).json({ error: "family is required" });
   const enabled = (await getSetting("categories_enabled", "1")) === "1";
-  res.json({ enabled, categories: enabled ? await pickerOptions(family) : [], tags: DISCOVERY_TAGS });
+  let categories = enabled ? await pickerOptions(family) : [];
+  // Configuration Phase E — a partner form (?scope=partner) sees only what its
+  // organisation may choose. Residents and hosts never send it.
+  if (req.query.scope === "partner" && req.user?.role === "vendor") categories = filterPicker(categories, await accessForUser(req.user.id), await loadTaxonomy());
+  res.json({ enabled, categories, tags: DISCOVERY_TAGS });
 });
 
 /** One live category by slug (or a merged slug, which answers with `redirectTo`). */

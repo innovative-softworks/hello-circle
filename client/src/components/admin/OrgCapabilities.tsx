@@ -166,7 +166,7 @@ export function OrgCapabilities({ orgId, orgName }: { orgId: string; orgName: st
         <div style={{ display: "flex", flexDirection: "column", gap: 12, borderTop: "1px solid var(--color-border)", paddingTop: 14 }}>
           {!review && (
             <div>
-              <AdminButton variant="primary" disabled={!dirty || busy} onClick={reviewChange}>Review changes</AdminButton>
+              <AdminButton variant="primary" disabled={!dirty || busy} onClick={reviewChange}>Review capability changes</AdminButton>
               {!dirty && <span className="adm-note" style={{ marginLeft: 10 }}>No changes.</span>}
             </div>
           )}

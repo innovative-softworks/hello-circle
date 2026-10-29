@@ -239,6 +239,9 @@ export interface CategoryRow {
   row_version: number;
   created_at: string | Date;
   updated_at: string | Date;
+  /** Configuration Phase E (categoryPolicy.ts) — added columns. */
+  moderation_policy?: string | null;
+  suggested_form?: string | null;
 }
 
 interface AliasRow {
@@ -802,6 +805,8 @@ export interface PickerCategory {
   description: string | null;
   icon: string | null;
   subcategories: { id: string; name: string }[];
+  /** Phase E — the organisation may only use some subcategories, so one must be chosen. */
+  subcategoryRequired?: boolean;
 }
 
 /** Selectable options for a create/edit form: active, not archived, valid for the family. */
@@ -870,7 +875,8 @@ export async function setListingTaxonomy(
   await db
     .prepare(
       `INSERT INTO listing_taxonomy (listing_type, listing_id, category_id, subcategory_id, assigned_by) VALUES (?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE category_id = VALUES(category_id), subcategory_id = VALUES(subcategory_id), assigned_by = VALUES(assigned_by), assigned_at = CURRENT_TIMESTAMP`
+       ON DUPLICATE KEY UPDATE category_id = VALUES(category_id), subcategory_id = VALUES(subcategory_id), assigned_by = VALUES(assigned_by), assigned_at = CURRENT_TIMESTAMP,
+         needs_review = IF(VALUES(assigned_by) = 'admin', 0, needs_review)`
     )
     .run(type, id, value.categoryId, value.subcategoryId, assignedBy);
 }

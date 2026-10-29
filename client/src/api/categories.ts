@@ -58,6 +58,8 @@ export interface PickerCategory {
   description: string | null;
   icon: string | null;
   subcategories: { id: string; name: string }[];
+  /** Phase E — the organisation may only use some subcategories, so one must be chosen. */
+  subcategoryRequired?: boolean;
 }
 
 export interface CategoryOptions {
@@ -75,8 +77,9 @@ export function fetchCategories(family?: CategoryFamily, experienceKind?: "adven
   return request(`/categories${s ? `?${s}` : ""}`);
 }
 
-export function fetchCategoryOptions(family: CategoryFamily): Promise<CategoryOptions> {
-  return request(`/categories/options?family=${family}`);
+/** `partner` = a partner listing form: only the categories the organisation may choose (Phase E). */
+export function fetchCategoryOptions(family: CategoryFamily, scope?: "partner"): Promise<CategoryOptions> {
+  return request(`/categories/options?family=${family}${scope ? `&scope=${scope}` : ""}`);
 }
 
 // --- Vendor ---------------------------------------------------------------------
@@ -121,14 +124,37 @@ export interface AdminCategory {
   archivedAt: string | null;
   seoTitle: string | null;
   seoDescription: string | null;
+  /** Configuration Phase E. */
+  moderationPolicy: CategoryModerationPolicy;
+  suggestedForm: string | null;
   rowVersion: number;
   createdAt: string;
   updatedAt: string;
   listingCount: number;
 }
 
+/** Mirrors server/src/categoryPolicy.ts FORM_TYPES (the server validates). */
+export const FORM_TYPE_OPTIONS = [
+  { key: "event_registration", label: "Event registration" },
+  { key: "activity_registration", label: "Activity registration" },
+  { key: "programme_enrolment", label: "Programme enrolment" },
+  { key: "club_registration", label: "Club registration" },
+  { key: "experience_booking", label: "Experience booking" },
+  { key: "venue_booking", label: "Venue or room booking" },
+  { key: "volunteer_registration", label: "Volunteer registration" },
+] as const;
+
+export type CategoryModerationPolicy = "standard" | "review_required" | "eligible_only";
+export const MODERATION_POLICY_LABELS: Record<CategoryModerationPolicy, string> = {
+  standard: "Standard — new listings are reviewed when published",
+  review_required: "Review moves — flag live listings moved into it",
+  eligible_only: "Approved organisations only",
+};
+
 export interface AdminCategoryDirectory {
   families: CategoryFamily[];
+  moderationPolicies?: CategoryModerationPolicy[];
+  formTypes?: { key: string; label: string }[];
   categories: (AdminCategory & { subcategories: AdminCategory[] })[];
   uncategorised: Record<TaxonomyListingType, number>;
 }
@@ -174,6 +200,8 @@ export interface AdminCategoryInput {
   featured?: boolean;
   seoTitle?: string | null;
   seoDescription?: string | null;
+  moderationPolicy?: CategoryModerationPolicy;
+  suggestedForm?: string | null;
   rowVersion?: number;
 }
 
@@ -230,3 +258,38 @@ export function fetchCategoriesEnabled(): Promise<{ enabled: boolean; liveCatego
 export function setCategoriesEnabled(enabled: boolean): Promise<{ enabled: boolean }> {
   return request(`/admin/config/categories-enabled`, { method: "PUT", body: JSON.stringify({ enabled }) });
 }
+
+// --- Configuration Phase E: review queue and organisation eligibility --------------
+
+export interface CategoryReviewItem {
+  listingType: TaxonomyListingType;
+  listingId: string;
+  title: string;
+  status: string | null;
+  categoryId: string;
+  categoryName: string;
+  subcategoryName: string | null;
+  assignedAt: string;
+}
+export function fetchCategoryReviewQueue(): Promise<CategoryReviewItem[]> {
+  return request(`/admin/categories/review`);
+}
+export function acceptCategoryReview(type: TaxonomyListingType, id: string): Promise<{ ok: true }> {
+  return request(`/admin/categories/review/${type}/${encodeURIComponent(id)}/accept`, { method: "POST" });
+}
+
+export interface OrgCategoryAccessView {
+  configVersion: number;
+  mode: "all" | "restricted";
+  grants: { categoryId: string; subcategoryIds: "*" | string[] }[];
+  usage: Record<string, number>;
+  templateCategories: string[];
+  categories: { id: string; name: string; families: CategoryFamily[]; active: boolean; moderationPolicy: CategoryModerationPolicy; subcategories: { id: string; name: string }[] }[];
+}
+export function fetchOrgCategoryAccess(orgId: string): Promise<OrgCategoryAccessView> {
+  return request(`/admin/organisations/${orgId}/categories`);
+}
+export function saveOrgCategoryAccess(orgId: string, input: { mode: "all" | "restricted"; grants: OrgCategoryAccessView["grants"]; configVersion: number; reason?: string }): Promise<OrgCategoryAccessView> {
+  return request(`/admin/organisations/${orgId}/categories`, { method: "PUT", body: JSON.stringify(input) });
+}
+

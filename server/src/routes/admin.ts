@@ -1,4 +1,6 @@
 import { adminCategoriesRouter, categoriesConfigRouter } from "./adminCategories.js";
+import { familiesOf, loadTaxonomy } from "../taxonomy.js";
+import { CategoryAccessError, cleanAccess, orgCategoryAccess, orgCategoryUsage, policyOf } from "../categoryPolicy.js";
 import { CAPABILITIES, CapabilityChangeError, TEMPLATES, capability, capabilityUsage, isTemplateKey, orgSettings, planChange, platformStates, resolveStates, templateChange, type CapabilityState } from "../capabilities.js";
 import { verifiedSql } from "../reviewEligibility.js";
 import { adminVerificationRouter } from "./verificationChecks.js";
@@ -1257,6 +1259,71 @@ adminRouter.put("/organisations/:id/capabilities", requireAdminPermission("orgs.
     res.json(await capabilityView(req.params.id));
   } catch (e) {
     if (e instanceof CapabilityChangeError) return res.status(e.status).json({ error: e.message, details: e.details });
+    throw e;
+  }
+});
+
+// Configuration framework Phase E — which categories an organisation's
+// partners may choose (organisations.category_mode + org_category_access).
+// Existing listings keep their category whatever is changed here.
+async function categoryAccessView(orgId: string) {
+  const org = (await db.prepare(`SELECT id, template, config_version AS configVersion FROM organisations WHERE id = ?`).get(orgId)) as { id: string; template: string | null; configVersion: number } | undefined;
+  if (!org) return null;
+  const index = await loadTaxonomy();
+  const access = await orgCategoryAccess(orgId);
+  const rows = [...index.byId.values()];
+  return {
+    configVersion: Number(org.configVersion),
+    mode: access.mode,
+    grants: [...access.grants.entries()].map(([categoryId, subs]) => ({ categoryId, subcategoryIds: subs.has("*") ? "*" : [...subs] })),
+    usage: await orgCategoryUsage(orgId),
+    templateCategories: TEMPLATES.find((t) => t.key === org.template)?.categories ?? [],
+    categories: rows
+      .filter((r) => !r.parent_id && !r.archived_at)
+      .map((c) => ({
+        id: c.id,
+        name: c.name,
+        families: familiesOf(c),
+        active: Number(c.active) === 1,
+        moderationPolicy: policyOf(c),
+        subcategories: rows.filter((x) => x.parent_id === c.id && !x.archived_at).map((x) => ({ id: x.id, name: x.name })),
+      })),
+  };
+}
+
+adminRouter.get("/organisations/:id/categories", requireAdminPermission("orgs.view"), async (req, res) => {
+  const view = await categoryAccessView(req.params.id);
+  if (!view) return res.status(404).json({ error: "Organisation not found" });
+  res.json(view);
+});
+
+adminRouter.put("/organisations/:id/categories", requireAdminPermission("orgs.manage"), async (req, res) => {
+  const { configVersion, reason } = (req.body ?? {}) as { configVersion?: unknown; reason?: unknown };
+  if (typeof configVersion !== "number") return res.status(400).json({ error: "Send the configuration version you edited" });
+  try {
+    const plan = cleanAccess(req.body, await loadTaxonomy());
+    const before = await categoryAccessView(req.params.id);
+    if (!before) return res.status(404).json({ error: "Organisation not found" });
+    await db.transaction(async (tx) => {
+      const org = (await tx.prepare(`SELECT config_version AS v FROM organisations WHERE id = ? FOR UPDATE`).get(req.params.id)) as { v: number };
+      if (Number(org.v) !== configVersion) throw new CategoryAccessError("Someone changed this organisation's configuration since you opened it — reload to see the latest", 409);
+      await tx.prepare(`DELETE FROM org_category_access WHERE org_id = ?`).run(req.params.id);
+      for (const r of plan.rows) await tx.prepare(`INSERT INTO org_category_access (org_id, category_id, subcategory_id) VALUES (?, ?, ?)`).run(req.params.id, r.categoryId, r.subcategoryId);
+      await tx.prepare(`UPDATE organisations SET category_mode = ?, config_version = config_version + 1 WHERE id = ?`).run(plan.mode, req.params.id);
+    });
+    const after = await categoryAccessView(req.params.id);
+    await writeAudit({
+      actorUserId: req.user!.id,
+      action: "org.categories_changed",
+      objectType: "organisation",
+      objectId: req.params.id,
+      previousValue: { mode: before.mode, grants: before.grants },
+      newValue: { mode: after!.mode, grants: after!.grants },
+      reason: typeof reason === "string" && reason.trim() ? reason.trim().slice(0, 500) : undefined,
+    });
+    res.json(after);
+  } catch (e) {
+    if (e instanceof CategoryAccessError) return res.status(e.status).json({ error: e.message });
     throw e;
   }
 });

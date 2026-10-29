@@ -1,9 +1,11 @@
 import { Router, type Request, type Response } from "express";
+import { accessForUser, assertOrgMayAssign, filterPicker, flagIfReviewRequired } from "../categoryPolicy.js";
+import { writeAudit } from "../audit.js";
 import { parseNewcomerWelcome } from "../newcomerWelcome.js";
 import { assertPlatformRole } from "../auth.js";
 import { db } from "../db/index.js";
 import { getListingAttributes, setListingAttributes } from "../listingAttributes.js";
-import { familyOf, getListingTags, getListingTaxonomy, pickerOptions, setListingTags, setListingTaxonomy, TaxonomyValidationError, validateAssignment } from "../taxonomy.js";
+import { familyOf, getListingTags, getListingTaxonomy, loadTaxonomy, pickerOptions, setListingTags, setListingTaxonomy, TaxonomyValidationError, validateAssignment } from "../taxonomy.js";
 
 export const vendorParticipationRouter = Router();
 
@@ -137,6 +139,8 @@ async function authorizeClassification(req: Request, res: Response, type: Classi
   return assertPlatformRole(req, res, "centre_manager") ? { kind: null } : null;
 }
 
+const TABLE_FOR: Record<ClassifiableType, string> = { program: "programs", experience: "experiences", club: "clubs", centre: "centres" };
+
 function parseClassifiable(raw: string): ClassifiableType | null {
   return raw === "centre" ? "centre" : parseType(raw);
 }
@@ -147,7 +151,9 @@ vendorParticipationRouter.get("/classification/:type/:id", async (req, res) => {
   const auth = await authorizeClassification(req, res, type, req.params.id);
   if (!auth) return;
   const family = familyOf(type, auth.kind);
-  res.json({ family, taxonomy: await getListingTaxonomy(type, req.params.id), tags: await getListingTags(type, req.params.id), options: await pickerOptions(family) });
+  // Configuration Phase E — only the categories this organisation may choose.
+  const options = filterPicker(await pickerOptions(family), await accessForUser(req.user!.id), await loadTaxonomy());
+  res.json({ family, taxonomy: await getListingTaxonomy(type, req.params.id), tags: await getListingTags(type, req.params.id), options });
 });
 
 vendorParticipationRouter.put("/classification/:type/:id", async (req, res) => {
@@ -160,11 +166,19 @@ vendorParticipationRouter.put("/classification/:type/:id", async (req, res) => {
   let value;
   try {
     value = await validateAssignment(familyOf(type, auth.kind), b.categoryId, b.subcategoryId, current);
+    // Configuration Phase E — organisation eligibility, checked only when the category changes.
+    await assertOrgMayAssign(req.user!.id, value, current);
   } catch (e) {
     if (e instanceof TaxonomyValidationError) return res.status(400).json({ error: e.message, field: "categoryId" });
     throw e;
   }
-  if (value !== undefined) await setListingTaxonomy(type, req.params.id, value, "vendor");
+  if (value !== undefined) {
+    await setListingTaxonomy(type, req.params.id, value, "vendor");
+    const status = (await db.prepare(`SELECT status FROM ${TABLE_FOR[type]} WHERE id = ?`).get(req.params.id)) as { status: string } | undefined;
+    if (await flagIfReviewRequired(type, req.params.id, status?.status ?? null, value, current)) {
+      await writeAudit({ actorUserId: req.user!.id, action: "taxonomy.assignment_flagged", objectType: type, objectId: req.params.id, newValue: { categoryId: value?.categoryId } });
+    }
+  }
   await setListingTags(type, req.params.id, b.tags);
   res.json({ taxonomy: await getListingTaxonomy(type, req.params.id), tags: await getListingTags(type, req.params.id) });
 });

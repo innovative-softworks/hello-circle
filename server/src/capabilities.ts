@@ -85,16 +85,18 @@ export interface OrgTemplate {
   label: string;
   description: string;
   capabilities: string[];
+  /** Phase E — suggested categories (existing taxonomy ids). A preset only (D-A5): never an authorisation rule. */
+  categories: string[];
 }
 
 export const TEMPLATES: OrgTemplate[] = [
-  { key: "community_centre", label: "Community centre", description: "Halls and rooms, courses and community events.", capabilities: ["venues", "programs", "experiences", "events", "attendees", "registration_questions", "checkin", "open_booking"] },
-  { key: "sports_club", label: "Sports club", description: "Club membership, sessions and courses.", capabilities: ["clubs", "programs", "experiences", "events", "attendees", "registration_questions", "checkin"] },
-  { key: "event_organiser", label: "Event organiser", description: "Community, cultural and faith events with options, attendees and door check-in.", capabilities: ["experiences", "events", "registration_options", "attendees", "registration_questions", "checkin"] },
-  { key: "training_provider", label: "Training provider", description: "Courses and workshops.", capabilities: ["programs", "experiences", "attendees", "registration_questions", "checkin"] },
-  { key: "experience_provider", label: "Experience provider", description: "Experiences and adventures with dates and options.", capabilities: ["experiences", "registration_options", "attendees", "registration_questions", "checkin"] },
-  { key: "community_association", label: "Community association", description: "Events, volunteering and local programmes.", capabilities: ["experiences", "events", "volunteering", "programs", "attendees", "registration_questions", "checkin"] },
-  { key: "custom", label: "Custom", description: "Choose each capability yourself.", capabilities: CAPABILITIES.filter((c) => c.status === "available").map((c) => c.key) },
+  { key: "community_centre", label: "Community centre", description: "Halls and rooms, courses and community events.", capabilities: ["venues", "programs", "experiences", "events", "attendees", "registration_questions", "checkin", "open_booking"], categories: ["spaces-community", "spaces-sport", "spaces-creative", "learning", "fitness-wellness", "arts-crafts", "kids-family", "culture-faith-celebrations"] },
+  { key: "sports_club", label: "Sports club", description: "Club membership, sessions and courses.", capabilities: ["clubs", "programs", "experiences", "events", "attendees", "registration_questions", "checkin"], categories: ["soccer", "gaelic-games", "racket-sports", "team-sports", "fitness-wellness", "water", "martial-arts", "dance"] },
+  { key: "event_organiser", label: "Event organiser", description: "Community, cultural and faith events with options, attendees and door check-in.", capabilities: ["experiences", "events", "registration_options", "attendees", "registration_questions", "checkin"], categories: ["culture-faith-celebrations", "music", "food-drink", "arts-crafts", "culture-heritage", "kids-family"] },
+  { key: "training_provider", label: "Training provider", description: "Courses and workshops.", capabilities: ["programs", "experiences", "attendees", "registration_questions", "checkin"], categories: ["learning", "technology", "arts-crafts", "fitness-wellness", "music"] },
+  { key: "experience_provider", label: "Experience provider", description: "Experiences and adventures with dates and options.", capabilities: ["experiences", "registration_options", "attendees", "registration_questions", "checkin"], categories: ["outdoors", "water", "nature-wildlife", "day-trips", "food-drink", "culture-heritage"] },
+  { key: "community_association", label: "Community association", description: "Events, volunteering and local programmes.", capabilities: ["experiences", "events", "volunteering", "programs", "attendees", "registration_questions", "checkin"], categories: ["culture-faith-celebrations", "volunteering", "kids-family", "meetups", "learning", "arts-crafts"] },
+  { key: "custom", label: "Custom", description: "Choose each capability yourself.", capabilities: CAPABILITIES.filter((c) => c.status === "available").map((c) => c.key), categories: [] },
 ];
 export const isTemplateKey = (k: unknown): k is TemplateKey => typeof k === "string" && TEMPLATES.some((t) => t.key === k);
 

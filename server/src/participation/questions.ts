@@ -65,7 +65,7 @@ export class QuestionError extends Error {
 // Wording that points at special-category data (GDPR Art. 9) or health data.
 // Deliberately broad: a refusal names the switch, it never silently drops.
 const SPECIAL_WORDING: { re: RegExp; category: (typeof SPECIAL_CATEGORIES)[number] }[] = [
-  { re: /\b(allerg\w*|medical|medic\w*|medication|health|disab\w*|diagnos\w*|illness|pregnan\w*|blood|asthma|epilep\w*|diabet\w*|wheelchair|mental)\b/i, category: "health" },
+  { re: /\b(allerg\w*|medical|medic\w*|medication|health|disab\w*|diagnos\w*|illness|pregnan\w*|blood|asthma|epilep\w*|diabet\w*|wheelchair|mental|insulin|epi-?pen|inhaler|seizure\w*|anaphyla\w*|symptom\w*|prescri\w*|therap\w*)\b/i, category: "health" },
   { re: /\b(religio\w*|faith|caste|gotra|denomination)\b/i, category: "religion" },
   { re: /\b(ethnic\w*|race|racial)\b/i, category: "ethnicity" },
   { re: /\b(sexual\w*|orientation|trade union|political|biometric|genetic)\b/i, category: "other_special" },
@@ -121,7 +121,9 @@ export function cleanQuestionSet(raw: unknown, specialAllowed: boolean): CleanQu
     const category = ([...GENERAL_CATEGORIES, ...SPECIAL_CATEGORIES] as readonly string[]).includes(q.category as string) ? (q.category as QuestionCategory) : "general";
     if (!specialAllowed) {
       if ((SPECIAL_CATEGORIES as readonly string[]).includes(category)) throw new QuestionError(`${n}: ${SPECIAL_REFUSAL}`, 400, "special_category");
-      if (specialCategoryOf(`${label} ${help}`)) throw new QuestionError(`${n}: "${label}" looks like a question about sensitive information. ${SPECIAL_REFUSAL}`, 400, "special_category");
+      // D-A4 — every text a person reads (wording, hint, why we ask, choices) is checked.
+      const choiceText = Array.isArray(q.choices) ? q.choices.filter((c): c is string => typeof c === "string").join(" ") : "";
+      if (specialCategoryOf(`${label} ${help} ${purpose} ${choiceText}`)) throw new QuestionError(`${n}: "${label}" looks like a question about sensitive information. ${SPECIAL_REFUSAL}`, 400, "special_category");
     }
     let choices: string[] = [];
     if (inputType === "select") {

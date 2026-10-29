@@ -52,6 +52,7 @@ interface CreateRegistrationBody {
   ecName?: string;
   ecPhone?: string;
   ecRel?: string;
+  /** D-A4 — accepted for older clients but never stored. */
   medical?: string;
   consent: boolean;
   trial: boolean;
@@ -114,7 +115,11 @@ async function insertRegistration(
     ecName: body.ecName ?? "",
     ecPhone: body.ecPhone ?? "",
     ecRel: body.ecRel ?? "",
-    medical: body.medical ?? "",
+    // Privacy decision D-A4 (2026-10-29, docs/participation-expansion/15): free-text
+    // health information is no longer collected. Anything sent by an older client
+    // is dropped here, never stored. Existing values stay untouched (column kept,
+    // read by no route) pending the privacy and retention review.
+    medical: "",
     consent: body.consent ? 1 : 0,
     trial: body.trial ? 1 : 0,
     subtotalCents: pricing.taxableCents,

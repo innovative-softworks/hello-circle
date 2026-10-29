@@ -26,6 +26,7 @@ import {
   type ContactValue,
 } from "../components/booking";
 import { PageSpinner } from "../components/ui";
+import { colors } from "../theme";
 import { Pass as PassCard } from "../components/pass/Pass";
 import { AGE_GROUPS } from "../constants";
 import { useGuest } from "../GuestContext";
@@ -114,8 +115,6 @@ export function RegistrationFlow() {
   const [club, setClub] = useState<Club | null>(null);
   const [loadError, setLoadError] = useState(false);
   const { value: draft, setValue: setDraft, clear: clearDraft } = useBookingDraft<RegDraft>(`club:${clubId ?? ""}`, blankDraft());
-  // Special-category data stays out of the stored draft (draft.ts).
-  const [coachNote, setCoachNote] = useState("");
   const [consent, setConsent] = useState(false);
   const [stepIndex, setStepIndex] = useState(0);
   const [attempted, setAttempted] = useState(false);
@@ -213,7 +212,6 @@ export function RegistrationFlow() {
         ecName: draft.ecName.trim() || undefined,
         ecPhone: draft.ecPhone.trim() || undefined,
         ecRel: draft.ecRel.trim() || undefined,
-        medical: coachNote.trim(),
         consent,
         trial: draft.option === "trial",
         couponCode: draft.option === "pay" ? draft.couponCode ?? undefined : undefined,
@@ -440,13 +438,10 @@ export function RegistrationFlow() {
                 <BkTextField label="Relationship" value={draft.ecRel} onChange={(v) => set("ecRel", v)} placeholder="e.g. Grandparent" />
               </div>
             </fieldset>
-            <BkTextField
-              label="Anything the coach should know?"
-              value={coachNote}
-              onChange={setCoachNote}
-              maxLength={500}
-              helper="Allergies, conditions or medication that matter during sessions. Only the club sees this."
-            />
+            {/* Privacy decision D-A4 — health information isn't collected here (no approved lawful basis yet). */}
+            <p style={{ margin: 0, fontSize: 13.5, color: colors.muted, lineHeight: 1.5 }}>
+              If {isAdult ? "you have" : "your child has"} a health need the club should know about to keep {isAdult ? "you" : "them"} safe, please tell the club directly. HelloCircle doesn't collect health information.
+            </p>
           </>
         )}
 

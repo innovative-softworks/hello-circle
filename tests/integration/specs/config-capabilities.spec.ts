@@ -32,7 +32,7 @@ test("CFG-CAPABILITIES: admin applies a template with review; the partner worksp
       await page.getByLabel("Starting template").selectOption("event_organiser");
       await expect(page.getByLabel("Community centres and rooms")).not.toBeChecked();
       await expect(page.getByLabel("Community events")).toBeChecked();
-      await page.getByRole("button", { name: "Review changes" }).click();
+      await page.getByRole("button", { name: "Review capability changes" }).click();
       const review = page.getByRole("region", { name: "Review the change" });
       await expect(review).toContainText("Switching off");
       await expect(review).toContainText("Community centres and rooms");
@@ -40,7 +40,7 @@ test("CFG-CAPABILITIES: admin applies a template with review; the partner worksp
       await page.getByLabel(/^Reason/).fill("Onboarding a cultural association");
       await shot(page, "01-admin-review");
       await page.getByRole("button", { name: "Save capabilities" }).click();
-      await expect(page.getByRole("button", { name: "Review changes" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Review capability changes" })).toBeVisible();
       await shot(page, "02-admin-saved");
       expect(admin.consoleErrors).toEqual([]);
     } finally { await admin.close(); }

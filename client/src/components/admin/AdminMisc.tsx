@@ -1,5 +1,6 @@
 import { useAdminCan } from "./adminPermissions";
 import { OrgCapabilities } from "./OrgCapabilities";
+import { OrgCategories } from "./OrgCategories";
 import { OrganisationRecord } from "./AdminOrganisationRecord";
 import { useRecordParam, useUrlParam } from "../../useUrlTab";
 import { useId, useState } from "react";
@@ -72,6 +73,7 @@ export function AdminOrganisationsPage({ onOpenVendor }: { onOpenVendor: (vendor
         onOpenVendor={onOpenVendor}
         onChanged={orgs.reload}
         flags={<OrgCapabilities orgId={openOrg} orgName={name} />}
+        categories={<OrgCategories orgId={openOrg} orgName={name} />}
       />
     );
   }
