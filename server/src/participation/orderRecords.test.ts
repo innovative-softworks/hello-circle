@@ -30,8 +30,8 @@ const future = (d: number) => new Date(Date.now() + d * 86_400_000).toISOString(
 let server: Server;
 let base: string;
 
-const call = async (method: string, path: string, client: string, body?: unknown) => {
-  const r = await fetch(`${base}${path}`, { method, headers: { "Content-Type": "application/json", "X-Client-Id": client }, body: body === undefined ? undefined : JSON.stringify(body) });
+const call = async (method: string, path: string, client: string, body?: unknown, verifiedEmail?: string) => {
+  const r = await fetch(`${base}${path}`, { method, headers: { "Content-Type": "application/json", "X-Client-Id": client, ...(verifiedEmail ? { "X-Test-Email": verifiedEmail } : {}) }, body: body === undefined ? undefined : JSON.stringify(body) });
   return { status: r.status, body: (await r.json()) as any };
 };
 const ask = (o: Record<string, unknown>) => ({ scope: "booking", inputType: "text", label: "Anything else?", purpose: "To plan", required: false, ...o });
@@ -63,6 +63,11 @@ beforeAll(async () => {
   }
   const app = express();
   app.use(express.json());
+  app.use((req, _res, next) => {
+    const e = req.header("X-Test-Email");
+    if (e) (req as any).guestEmail = e;
+    next();
+  });
   app.use("/api/orders", orderFormsRouter);
   server = http.createServer(app);
   await new Promise<void>((r) => server.listen(0, r));
@@ -99,6 +104,12 @@ describe("Phase I — a resident's registration", () => {
       expect((await call("PUT", `/api/orders/${s}/${r}/answers`, other, { answers: {}, questionsVersion: 0 })).status).toBe(404);
       expect((await call("GET", `/api/orders/${s}/${r}/registration`, mine)).status).toBe(200);
     }
+    // Same rule as the "my …" lists: a signed-in resident's verified email finds their club and hall bookings
+    // from another device; programmes match by device or resident only.
+    expect((await call("GET", `/api/orders/registration/${regRef}/registration`, other, undefined, "OR@example.test")).status).toBe(200);
+    expect((await call("GET", `/api/orders/booking/${hallRef}/registration`, other, undefined, "or@example.test")).status).toBe(200);
+    expect((await call("GET", `/api/orders/program/${progRef}/registration`, other, undefined, "or@example.test")).status).toBe(404);
+    expect((await call("GET", `/api/orders/registration/${regRef}/registration`, other, undefined, "someone@example.test")).status).toBe(404);
     // A reference of one type can't be read as another.
     expect((await call("GET", `/api/orders/booking/${regRef}/registration`, mine)).status).toBe(404);
     expect((await call("GET", `/api/orders/game/${regRef}/registration`, mine)).status).toBe(404);

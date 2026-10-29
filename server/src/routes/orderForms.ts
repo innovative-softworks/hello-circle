@@ -26,7 +26,7 @@ async function owned(req: Request, res: Response): Promise<OrderCore | null> {
   } catch (e) {
     if (!(e instanceof BadRequestError)) throw e;
   }
-  const order = await ownedOrder(source, req.params.ref, clientId, req.resident?.id ?? null);
+  const order = await ownedOrder(source, req.params.ref, clientId, req.resident?.id ?? null, req.guestEmail ?? null);
   if (!order) {
     res.status(404).json({ error: "Booking not found" });
     return null;

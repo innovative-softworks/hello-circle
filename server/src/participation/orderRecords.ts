@@ -99,16 +99,21 @@ async function loadOrder(source: OrderSource, ref: string): Promise<OrderCore | 
 
 const OWNER_SQL: Record<OrderSource, string> = {
   experience: `SELECT client_id AS c, resident_id AS r FROM experience_bookings WHERE ref = ?`,
-  registration: `SELECT client_id AS c, resident_id AS r FROM registrations WHERE ref = ?`,
+  registration: `SELECT client_id AS c, resident_id AS r, email AS e FROM registrations WHERE ref = ?`,
   program: `SELECT client_id AS c, resident_id AS r FROM program_enrollments WHERE ref = ?`,
-  booking: `SELECT client_id AS c, resident_id AS r FROM bookings WHERE ref = ?`,
+  booking: `SELECT client_id AS c, resident_id AS r, email AS e FROM bookings WHERE ref = ?`,
 };
 
-/** The order when this browser (client id) or signed-in resident made it; otherwise null (reads as "not found"). */
-export async function ownedOrder(source: OrderSource, ref: string, clientId: string | null, residentId: string | null): Promise<OrderCore | null> {
-  const o = (await db.prepare(OWNER_SQL[source]).get(ref)) as { c: string | null; r: string | null } | undefined;
+/**
+ * The order when this browser (client id) or signed-in resident made it, by
+ * the same rule as the "my …" lists: club registrations and hall bookings also
+ * match the resident's verified email. Otherwise null (reads as "not found").
+ */
+export async function ownedOrder(source: OrderSource, ref: string, clientId: string | null, residentId: string | null, verifiedEmail: string | null = null): Promise<OrderCore | null> {
+  const o = (await db.prepare(OWNER_SQL[source]).get(ref)) as { c: string | null; r: string | null; e?: string | null } | undefined;
   if (!o) return null;
-  const mine = (!!clientId && o.c === clientId) || (!!residentId && o.r === residentId);
+  const byEmail = !!verifiedEmail && !!o.e && o.e.toLowerCase() === verifiedEmail.toLowerCase();
+  const mine = (!!clientId && o.c === clientId) || (!!residentId && o.r === residentId) || byEmail;
   return mine ? loadOrder(source, ref) : null;
 }
 

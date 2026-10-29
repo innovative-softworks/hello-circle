@@ -25,7 +25,7 @@ export function VendorOrderPage() {
   const back = () => (window.history.length > 1 ? navigate(-1) : navigate("/vendor?tab=bookings"));
   return (
     <PartnerWorkspace user={user} active="bookings" title="Booking record">
-      {valid ? <OrderRecordView source={source as OrderSource} orderRef={ref} backLabel="Back" onBack={back} /> : <p className="adm-note">Unknown kind of booking.</p>}
+      {valid ? <OrderRecordView source={source as OrderSource} orderRef={ref} backLabel="Bookings" onBack={back} /> : <p className="adm-note">Unknown kind of booking.</p>}
     </PartnerWorkspace>
   );
 }
