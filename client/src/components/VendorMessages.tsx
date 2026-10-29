@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { Award, Bell, CalendarDays, CheckCheck, Compass, GraduationCap, MessageSquare, Send, type LucideIcon } from "lucide-react";
 import {
   fetchMessageTemplates,
-  fetchVendorExperience,
+  fetchVendorExperienceSessions,
   fetchVendorExperiences,
   fetchVendorMessages,
   fetchVendorNotifications,
@@ -123,7 +123,7 @@ function ComposerFields({ options, locked, onSent }: { options: ListingOption[];
     if (!targetOption) return;
     const label = (d: { date: string; time: string }) => `${formatDate(d.date)} · ${d.time}`;
     if (targetOption.listingType === "experience")
-      fetchVendorExperience(targetOption.listingId).then((e) => setSessions((e.sessions ?? []).map((x) => ({ id: x.id, label: label(x) })))).catch(() => undefined);
+      fetchVendorExperienceSessions(targetOption.listingId).then((rows) => setSessions(rows.map((x) => ({ id: x.id, label: label(x) })))).catch(() => undefined);
     if (targetOption.listingType === "program")
       fetchVendorProgram(targetOption.listingId).then((p) => setSessions((p.sessions ?? []).map((x) => ({ id: x.id, label: label(x) })))).catch(() => undefined);
   }, [target]); // eslint-disable-line react-hooks/exhaustive-deps
