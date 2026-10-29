@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { VenueGetReady } from "../components/trust/VenueGetReady";
 import { AfterYourVisit, type VisitInfo } from "../components/trust/AfterYourVisit";
 import { ExperienceGetReady, GameGetReady, ProgrammeJourneyView } from "../components/experience/BookingPrep";
+import { BookingPeople } from "../components/experience/BookingPeople";
 import type { Game } from "../types";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import {
@@ -337,6 +338,8 @@ export function BookingDetailPage() {
             {/* Experience 3.0 — preparation for a confirmed, upcoming booking; the
                 programme journey whenever there's a programme. */}
             {rec.prep?.kind === "experience" && going && !rec.isPast && <ExperienceGetReady experienceId={rec.prep.experienceId} />}
+            {/* Participation Phase 2 — attendees, answers and door check-in (any state, so a cancelled booking still shows who was on it). */}
+            {kind === "experience" && ref && <BookingPeople bookingRef={ref} />}
             {rec.prep?.kind === "game" && going && !rec.isPast && <GameGetReady game={rec.prep.game} />}
             {rec.prep?.kind === "venue" && going && !rec.isPast && <VenueGetReady centreId={rec.prep.centreId} />}
             {rec.prep?.kind === "program" && ref && <ProgrammeJourneyView bookingRef={ref} />}

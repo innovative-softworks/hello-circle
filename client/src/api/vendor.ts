@@ -992,3 +992,54 @@ export function fetchVendorStatement(month: string): Promise<VendorStatement> {
 export function downloadVendorStatement(month: string): Promise<void> {
   return downloadJson(`/vendor/statements/${month}?format=csv`, `hellocircle-statement-${month}.csv`);
 }
+
+// --- Participation Phase 2: attendees, questions, check-in staff, door -----------
+
+export function fetchExperienceQuestions(id: string): Promise<{ questions: import("../types").VendorRegistrationQuestion[]; version: number; enabled: boolean; specialCategoryEnabled: boolean }> {
+  return request(`/vendor/experiences/${id}/questions`);
+}
+/** Replaces the whole question set; 409 when stale, 400 `special_category` for sensitive questions. */
+export function saveExperienceQuestions(id: string, questions: import("../types").VendorRegistrationQuestion[], version: number): Promise<{ questions: import("../types").VendorRegistrationQuestion[]; version: number }> {
+  return request(`/vendor/experiences/${id}/questions`, { method: "PUT", body: JSON.stringify({ questions, version }) });
+}
+export function fetchExperienceAttendees(id: string, sessionId?: string): Promise<{ questions: import("../types").VendorRegistrationQuestion[]; bookings: import("../types").VendorAttendeeBooking[] }> {
+  return request(`/vendor/experiences/${id}/attendees${sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : ""}`);
+}
+export function fetchAttendanceSummary(id: string): Promise<{ sessions: import("../types").AttendanceSummaryRow[] }> {
+  return request(`/vendor/experiences/${id}/attendance-summary`);
+}
+export function fetchCheckinStaff(id: string): Promise<{ assignments: import("../types").CheckinStaffAssignment[]; members: { id: string; name: string; email: string }[]; enabled: boolean }> {
+  return request(`/vendor/experiences/${id}/checkin-staff`);
+}
+export function assignCheckinStaff(id: string, userId: string, sessionId: string | null): Promise<{ ok: true }> {
+  return request(`/vendor/experiences/${id}/checkin-staff`, { method: "POST", body: JSON.stringify({ userId, sessionId }) });
+}
+export function revokeCheckinStaff(id: string, assignmentId: number): Promise<{ ok: true }> {
+  return request(`/vendor/experiences/${id}/checkin-staff/${assignmentId}`, { method: "DELETE" });
+}
+
+export interface DoorSessionListItem {
+  sessionId: string;
+  experienceId: string;
+  title: string;
+  kind: string;
+  date: string;
+  time: string;
+  status: string;
+  isToday: boolean;
+}
+export function fetchDoorSessions(): Promise<{ today: string; sessions: DoorSessionListItem[] }> {
+  return request(`/vendor/door`);
+}
+export function fetchDoorSession(sessionId: string): Promise<{ session: import("../types").DoorSessionInfo; counts: { bookings: number; people: number; checkedIn: number; notArrived: number }; bookings: import("../types").DoorBooking[] }> {
+  return request(`/vendor/door/sessions/${sessionId}`);
+}
+export function doorLookup(sessionId: string, code: string): Promise<{ booking: import("../types").DoorBooking; verdict: import("../types").DoorBooking["admit"] }> {
+  return request(`/vendor/door/sessions/${sessionId}/lookup`, { method: "POST", body: JSON.stringify({ code }) });
+}
+export function doorCheckIn(sessionId: string, ref: string, attendeeNos: number[], method: "qr" | "manual"): Promise<{ results: { attendeeNo: number; result: "checked_in" | "already"; checkedInAt: string }[]; booking: import("../types").DoorBooking | null }> {
+  return request(`/vendor/door/sessions/${sessionId}/checkins`, { method: "POST", body: JSON.stringify({ ref, attendeeNos, method }) });
+}
+export function doorUndo(sessionId: string, ref: string, attendeeNo: number): Promise<{ ok: true; booking: import("../types").DoorBooking }> {
+  return request(`/vendor/door/sessions/${sessionId}/checkins/${encodeURIComponent(ref)}/${attendeeNo}`, { method: "DELETE" });
+}

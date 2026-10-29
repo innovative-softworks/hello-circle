@@ -603,6 +603,10 @@ export function bookExperienceSession(
     acceptedTerms?: boolean;
     /** Participation Phase 1 — [{ optionId, quantity }] for a listing with options. */
     lines?: { optionId: string; quantity: number }[];
+    /** Participation Phase 2 — who is coming and the registration answers. */
+    attendees?: import("../types").AttendeeInput[];
+    answers?: import("../types").RegistrationAnswersInput;
+    questionsVersion?: number;
   }
 ): Promise<{ ref: string; url?: string; totalEuro: number }> {
   return request(`/experiences/${experienceId}/sessions/${sessionId}/checkout`, { method: "POST", body: JSON.stringify(input) });
@@ -888,4 +892,16 @@ export function fetchBookingChange(token: string): Promise<BookingChangeView> {
 }
 export function respondToBookingChange(token: string, accept: boolean, note?: string): Promise<{ status: string; date: string; time: string }> {
   return request(`/booking-changes/respond`, { method: "POST", body: JSON.stringify({ token, accept, note }) });
+}
+
+// --- Participation Phase 2: the booker's own attendees and answers -------------
+
+/** Who is coming, their answers and check-in (the booker's device or resident account only). */
+export function fetchBookingPeople(ref: string): Promise<import("../types").BookingPeopleDetails> {
+  return request(`/experiences/bookings/${encodeURIComponent(ref)}/details`);
+}
+
+/** Edit answers before the start; 409 `questions_changed` when the organiser changed them. */
+export function saveBookingAnswers(ref: string, answers: import("../types").RegistrationAnswersInput, questionsVersion: number): Promise<import("../types").BookingPeopleDetails> {
+  return request(`/experiences/bookings/${encodeURIComponent(ref)}/answers`, { method: "PUT", body: JSON.stringify({ answers, questionsVersion }) });
 }

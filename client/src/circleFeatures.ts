@@ -83,12 +83,15 @@ export function useExperienceFeatures(): ExperienceFeatures {
 
 // Participation Expansion Phase 1 — community events, registration options and
 // (locked) partial cancellation. Display only, like the others.
-export type ParticipationFeatureKey = "participation.events" | "participation.options" | "participation.partial_cancel";
+export type ParticipationFeatureKey = "participation.events" | "participation.options" | "participation.partial_cancel" | "participation.attendees" | "participation.checkin" | "participation.special_category_questions";
 export type ParticipationFeatures = Record<ParticipationFeatureKey, boolean>;
 const PARTICIPATION_OFF: ParticipationFeatures = {
   "participation.events": false,
   "participation.options": false,
   "participation.partial_cancel": false,
+  "participation.attendees": false,
+  "participation.checkin": false,
+  "participation.special_category_questions": false,
 };
 export function participationFeatures(): Promise<ParticipationFeatures> {
   return appConfig().then((d) => ({ ...PARTICIPATION_OFF, ...(d?.participationFeatures ?? {}) }) as ParticipationFeatures);

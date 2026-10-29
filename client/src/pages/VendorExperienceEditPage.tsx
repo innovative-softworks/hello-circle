@@ -17,6 +17,8 @@ import { LoadErrorState, PageSpinner, Tabs } from "../components/ui";
 import { fonts } from "../theme";
 import type { Experience } from "../types";
 import { OptionsEditor } from "../components/experience/OptionsEditor";
+import { QuestionsEditor } from "../components/experience/QuestionsEditor";
+import { AttendeesPanel } from "../components/experience/AttendeesPanel";
 import { useParticipationFeatures } from "../circleFeatures";
 
 // Dedicated page for the Adventure/Experience create/edit form — same
@@ -30,7 +32,7 @@ import { useParticipationFeatures } from "../circleFeatures";
 // wizardMode pattern and its comment on why this is sticky state, not a
 // derived expression.
 
-type ExperienceTab = "details" | "departures" | "registration" | "bookings";
+type ExperienceTab = "details" | "departures" | "registration" | "questions" | "attendees" | "bookings";
 
 export function VendorExperienceEditPage() {
   const { id } = useParams<{ id: string }>();
@@ -139,6 +141,9 @@ export function VendorExperienceEditPage() {
                   { key: "details", label: "Details" },
                   { key: "departures", label: experience?.kind === "event" ? "Dates" : "Departures" },
                   ...(participation["participation.options"] || experience?.registration?.mode === "options" ? [{ key: "registration" as const, label: "Registration" }] : []),
+                  // Participation Phase 2 — questions while attendee details are on; attendees whenever either Phase 2 switch is.
+                  ...(participation["participation.attendees"] ? [{ key: "questions" as const, label: "Questions" }] : []),
+                  ...(participation["participation.attendees"] || participation["participation.checkin"] ? [{ key: "attendees" as const, label: "Attendees" }] : []),
                   { key: "bookings", label: "Bookings" },
                 ]}
               />
@@ -147,6 +152,8 @@ export function VendorExperienceEditPage() {
             {tab === "details" && <ExperienceEditor id={experienceId} onSaved={onSaved} onDirtyChange={setDirty} />}
             {tab === "departures" && <SessionsManager experienceId={experienceId} />}
             {tab === "registration" && experience && <OptionsEditor experienceId={experienceId} kind={experience.kind} />}
+            {tab === "questions" && <QuestionsEditor experienceId={experienceId} />}
+            {tab === "attendees" && <AttendeesPanel experienceId={experienceId} checkinOn={participation["participation.checkin"]} />}
             {tab === "bookings" && <BookingsPanel experienceId={experienceId} />}
           </>
         )}

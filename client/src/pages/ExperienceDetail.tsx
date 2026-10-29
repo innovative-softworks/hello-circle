@@ -12,13 +12,15 @@ import { CategoryBreadcrumb } from "../components/categories/CategoryChips";
 import { UnavailableListing, isUnavailable, type Unavailable } from "../components/UnavailableListing";
 import { usePageTitle } from "../pageTitle";
 import { PAID_CLOSED_MESSAGE, usePaidCheckoutOpen } from "../paidCheckout";
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { TraderInfo } from "../components/TraderInfo";
 import { OfficialCircleLink } from "../components/OfficialCircleLink";
 import { ParticipationBlock } from "../components/ParticipationBlock";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { CheckoutBreakdown } from "../components/CheckoutBreakdown";
 import { AnalyticsEvent, trackTypedEvent } from "../analyticsEvents";
+import { AttendeeFields, type AnswersDraft } from "../components/experience/AttendeeFields";
+import { fitPeople, missingAnswers, personSlots, toAttendeeInput, type PersonDraft } from "../components/experience/attendeeSlots";
 import { ApiError, isNotFound, bookExperienceSession, fetchMyCredits, downloadExperienceBookingIcs, fetchExperience, fetchExperiences, quoteExperienceSession, type BookingQuote } from "../api";
 import { openCheckout } from "../native";
 import { ListingChatButton } from "../components/ListingChats";
@@ -148,6 +150,23 @@ export function ExperienceDetail() {
   // With options the head count comes from the options chosen (the server re-derives it).
   const partySize = optionsMode ? Math.max(optionHeads, 1) : form.partySize;
   const linesInput = optionsMode ? { lines: chosenLines } : {};
+  // Participation Phase 2 — who is coming and the organiser's questions (while switched on).
+  const attendeeDetails = experience?.registration?.attendeeDetails ?? null;
+  const slots = useMemo(() => (attendeeDetails ? personSlots(optionsMode ? regOptions : null, qty, partySize) : []), [attendeeDetails, optionsMode, regOptions, qty, partySize]);
+  const slotsKey = JSON.stringify(slots);
+  const [people, setPeople] = useState<PersonDraft[]>([]);
+  const [answers, setAnswers] = useState<AnswersDraft>({ booking: {}, attendees: [] });
+  useEffect(() => {
+    setPeople((prev) => fitPeople(prev, slots, form.participantName.trim()));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slotsKey]);
+  // Person 1 follows the booking name until it's changed on its own.
+  const lastContact = useRef("");
+  useEffect(() => {
+    const name = form.participantName.trim();
+    setPeople((prev) => (prev[0] && prev[0].personType === "adult" && (prev[0].name === "" || prev[0].name === lastContact.current) ? [{ ...prev[0], name }, ...prev.slice(1)] : prev));
+    lastContact.current = name;
+  }, [form.participantName]);
 
   const load = () => {
     if (!idOrSlug) return;
@@ -250,9 +269,17 @@ export function ExperienceDetail() {
     const problems: FormError[] = [];
     if (optionsMode && optionHeads === 0) problems.push({ field: "options", message: "Choose at least one option" });
     if (!form.participantName.trim()) problems.push({ field: "name", fieldId: "exp-name", message: isVolunteer ? "Enter your name" : "Enter a name for the booking" });
-    extraNames.forEach((n, i) => {
-      if (!n) problems.push({ field: `person-${i + 2}`, fieldId: `exp-person-${i + 2}`, message: `Enter a name for person ${i + 2}` });
-    });
+    if (attendeeDetails) {
+      people.forEach((p, i) => {
+        if (!p.name.trim()) problems.push({ field: `person-${i + 1}`, fieldId: `exp-person-${i + 1}`, message: `Enter a name for person ${i + 1}` });
+        if (p.personType === "child" && p.guardian === "") problems.push({ field: `guardian-${i + 1}`, fieldId: `exp-guardian-${i + 1}`, message: `Say who looks after ${p.name.trim() || `person ${i + 1}`}` });
+      });
+      for (const m of missingAnswers(attendeeDetails.questions, people, answers)) problems.push({ field: m.fieldId, fieldId: m.fieldId, message: m.message });
+    } else {
+      extraNames.forEach((n, i) => {
+        if (!n) problems.push({ field: `person-${i + 2}`, fieldId: `exp-person-${i + 2}`, message: `Enter a name for person ${i + 2}` });
+      });
+    }
     if (!isValidEmail(form.email)) problems.push({ field: "email", fieldId: "exp-email", message: "Enter an email address like name@example.ie" });
     if (experience.minAge && !acks.minAge) problems.push({ field: "minAge", fieldId: "exp-ack-minage", message: `Confirm everyone taking part is at least ${experience.minAge}` });
     if (experience.safetyInfo.trim() && !acks.safety) problems.push({ field: "safety", fieldId: "exp-ack-safety", message: "Confirm you've read the safety information" });
@@ -276,7 +303,14 @@ export function ExperienceDetail() {
         quoteId,
         useCredits,
         couponCode: appliedCoupon ?? undefined,
-        participants: [form.participantName.trim(), ...extraNames],
+        participants: attendeeDetails ? people.map((p) => p.name.trim()) : [form.participantName.trim(), ...extraNames],
+        ...(attendeeDetails
+          ? {
+              attendees: toAttendeeInput(people),
+              answers: { booking: answers.booking, attendees: people.map((_, i) => answers.attendees[i] ?? {}) },
+              questionsVersion: attendeeDetails.questionsVersion,
+            }
+          : {}),
         meetsMinAge: experience.minAge ? acks.minAge : undefined,
         acceptedSafety: acks.safety,
         acceptedTerms: acks.terms,
@@ -293,6 +327,8 @@ export function ExperienceDetail() {
       // The price moved or the quote went stale: show the current total so
       // the customer can review it and try again.
       const code = e instanceof ApiError ? e.body.code : undefined;
+      // The organiser changed the questions while the form was open: load them again.
+      if (code === "questions_changed") load();
       if (typeof code === "string" && (code.startsWith("quote_") || code === "price_changed")) {
         quoteExperienceSession(experience.id, selectedSession.id, { partySize, useCredits, couponCode: appliedCoupon ?? undefined, ...linesInput }).then(setQuote).catch(() => setQuote(null));
       }
@@ -508,7 +544,10 @@ export function ExperienceDetail() {
             max={selectedSession.spotsLeft}
           />
         )}
-        {partySize > 1 &&
+        {attendeeDetails && registrationOpen && people.length > 0 && (
+          <AttendeeFields slots={slots} people={people} onPeople={setPeople} questions={attendeeDetails.questions} answers={answers} onAnswers={setAnswers} contactName={form.participantName.trim()} fe={fe} />
+        )}
+        {!attendeeDetails && partySize > 1 &&
           Array.from({ length: partySize - 1 }, (_, i) => (
             <div key={i}>
               <label htmlFor={`exp-person-${i + 2}`} style={labelStyle}>

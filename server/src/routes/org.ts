@@ -11,7 +11,7 @@ import { isValidEmail } from "../util.js";
 export const orgRouter = Router();
 orgRouter.use(requireVendor);
 
-const PLATFORM_ROLES = ["centre_manager", "facility_manager", "finance", "communications", "read_only_analyst"];
+const PLATFORM_ROLES = ["centre_manager", "facility_manager", "finance", "communications", "read_only_analyst", "checkin_staff"];
 
 // Organisation-as-entity + Staff (Phase C — Gate 2 from the plan doc). Every
 // vendor already has an org_id (backfilled 1:1 at boot for pre-existing

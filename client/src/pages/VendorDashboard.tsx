@@ -25,6 +25,7 @@ import { MessagesTab } from "../components/VendorMessages";
 import { VendorOffersTab } from "../components/VendorOffers";
 import { VendorOrgTab, PaymentsPanel } from "../components/VendorOrg";
 import { vendorTabVisible } from "../vendorTabAccess";
+import { useParticipationFeatures } from "../circleFeatures";
 import { useToast } from "../components/Toast";
 import { VendorOverviewTab } from "../components/VendorOverview";
 import { VendorProgramsTab, VendorScheduleTab } from "../components/VendorPrograms";
@@ -43,6 +44,7 @@ export function VendorDashboard() {
   const { user, loading } = useAuth();
   const navigate = useNavigate();
   const toast = useToast();
+  const participation = useParticipationFeatures();
   // The tab lives in the URL (?tab=), so Back/Forward, refresh and shared links keep it.
   const [tab, setTab] = useUrlTab<VendorTab>(VENDOR_TAB_KEYS, "overview");
   const [loadError, setLoadError] = useState(false);
@@ -81,6 +83,11 @@ export function VendorDashboard() {
 
   useEffect(() => {
     // D-01 / D-08: a suspended organisation or a removed member gets its own read-only page instead.
+    // Participation Phase 2: check-in-only staff have the door page only.
+    if (user?.role === "vendor" && user.invitedStaff && user.platformRole === "checkin_staff" && user.orgId && user.orgStatus !== "suspended") {
+      navigate("/vendor/door", { replace: true });
+      return;
+    }
     if (user?.role === "vendor" && user.status === "approved" && user.orgStatus !== "suspended" && !(user.invitedStaff && !user.orgId)) {
       reload();
       fetchOrgProfile()
@@ -102,6 +109,8 @@ export function VendorDashboard() {
 
   if (loading) return <PageSpinner />;
   if (!user || user.role !== "vendor") return null;
+  // Participation Phase 2 — check-in-only staff have no dashboard tabs; the effect above sends them to /vendor/door.
+  if (user.invitedStaff && user.platformRole === "checkin_staff") return <PageSpinner />;
 
   if (user.status !== "approved") {
     return (
@@ -156,10 +165,12 @@ export function VendorDashboard() {
   // Sitemap audit P2-03 — invited staff only see the tabs their platform_role
   // can act in (vendorTabAccess.ts); the server still enforces every action.
   // A ?tab= link or in-page shortcut to a hidden tab falls back to Overview.
-  const canSee = (t: VendorTab) => vendorTabVisible(t, user);
-  const activeTab: VendorTab = canSee(tab) ? tab : "overview";
+  const canSee = (t: VendorTab) => vendorTabVisible(t, user) && (t !== "checkin" || participation["participation.checkin"]);
+  const activeTab: VendorTab = canSee(tab) && tab !== "checkin" ? tab : "overview";
   const goTab = (t: VendorTab) => {
-    if (canSee(t)) setTab(t);
+    // Participation Phase 2 — Check-in is its own page (/vendor/door).
+    if (t === "checkin" && canSee(t)) navigate("/vendor/door");
+    else if (canSee(t)) setTab(t);
     else toast.info("Your staff role doesn't include this. Ask your organisation owner if you need access.");
   };
   const displayTabs = VENDOR_TABS.filter((t) => canSee(t.key)).map((t) => ({

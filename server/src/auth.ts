@@ -292,12 +292,26 @@ export const orgSuspended = (user: AuthedUser | undefined) => user?.orgStatus ==
 export const removedStaff = (user: AuthedUser | undefined) => !!user && user.role === "vendor" && user.invitedStaff && !user.orgId;
 export const REMOVED_STAFF_ERROR = "You're no longer a member of an organisation on HelloCircle.";
 
+/** Participation Phase 2 (docs/participation-expansion/11 X1) — the
+ * organisation role that can only check people in. Many partner read routes
+ * aren't gated by role, so this role gets an allow-list instead: the door
+ * API and nothing else. Which events and dates it covers is decided per
+ * request from listing_staff_assignments (participation/checkin.ts). */
+export const CHECKIN_ONLY_ROLE = "checkin_staff";
+export const checkinOnly = (user: AuthedUser | undefined) => !!user && user.role === "vendor" && user.invitedStaff && user.platformRole === CHECKIN_ONLY_ROLE;
+const CHECKIN_ONLY_ALLOWED_PREFIX = "/api/vendor/door";
+export const CHECKIN_ONLY_ERROR = "Your role can only check people in at the door.";
+
 export function requireVendor(req: Request, res: Response, next: NextFunction) {
   if (!req.user || req.user.role !== "vendor") return res.status(401).json({ error: "Vendor login required" });
   if (req.user.status !== "approved") return res.status(403).json({ error: "Vendor account not yet approved" });
   if (removedStaff(req.user)) return res.status(403).json({ error: REMOVED_STAFF_ERROR, removedFromOrg: true });
   if (orgSuspended(req.user) && !SUSPENDED_ORG_ALLOWED.has(`${req.method} ${req.originalUrl.split("?")[0]}`)) {
     return res.status(403).json({ error: ORG_SUSPENDED_ERROR, orgSuspended: true });
+  }
+  if (checkinOnly(req.user)) {
+    const path = req.originalUrl.split("?")[0];
+    if (path !== CHECKIN_ONLY_ALLOWED_PREFIX && !path.startsWith(`${CHECKIN_ONLY_ALLOWED_PREFIX}/`)) return res.status(403).json({ error: CHECKIN_ONLY_ERROR, checkinOnly: true });
   }
   next();
 }
@@ -331,7 +345,7 @@ export function mfaStale(user: AuthedUser | undefined | null): boolean {
 export function requireVendorOrAdmin(req: Request, res: Response, next: NextFunction) {
   if (!req.user) return res.status(401).json({ error: "Login required" });
   if (req.user.role === "admin") return next();
-  if (req.user.role === "vendor" && req.user.status === "approved") return next();
+  if (req.user.role === "vendor" && req.user.status === "approved" && !checkinOnly(req.user)) return next();
   return res.status(403).json({ error: "Not authorized" });
 }
 

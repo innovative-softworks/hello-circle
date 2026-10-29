@@ -24,8 +24,12 @@ import { QuoteError, consumeQuote, createOrder, createQuote, engineEnabledFor, e
 import { BadRequestError, ConflictError, clientIdFrom, generateRef, isValidEmail } from "../util.js";
 import { VENDOR_SUSPENDED_ERROR, consumeCoupon, customerKeyOf, endPendingHold, isPositiveInt, occupiesCapacitySql, startIsInFuture } from "../bookingIntegrity.js";
 import { assertSellable, offeringSellable, orgActiveSql, unavailableListing } from "../orgStatus.js";
-import { activeOptions, listingUsesOptions, onSale, partialCancelOn, participationEventsOn, participationOptionsOn } from "../participation/options.js";
+import { activeOptions, attendeesOn, listingUsesOptions, onSale, partialCancelOn, participationEventsOn, participationOptionsOn } from "../participation/options.js";
 import { PartialCancelError, removeFromBooking } from "../participation/partialCancel.js";
+import { AttendeeError, cleanAttendees, readAttendees, slotsForResolved, writeAttendees, type CleanAttendee } from "../participation/attendees.js";
+import { QuestionError, activeQuestions, cleanAnswers, questionsVersion, readAnswersFor, toPublicQuestion, writeAnswers, type CleanAnswer } from "../participation/questions.js";
+import { checkinsFor } from "../participation/checkin.js";
+import { writeAudit } from "../audit.js";
 import { LineError, assertOptionCapacity, legacySnapshot, linesSummary, optionsLeft, parseRequestedLines, readOrderLines, readOrderLinesFor, resolveLines, writeOrderLines, type ResolvedLines } from "../participation/lines.js";
 
 // Adventures & Experiences — a standalone third listing type alongside
@@ -128,6 +132,10 @@ async function toExperienceJson(row: ExperienceRow) {
             saleEndsAt: o.saleEndsAt,
           })),
         };
+  // Participation Phase 2 — attendee details and registration questions (while the switch is on).
+  const details = (await attendeesOn())
+    ? { questions: (await activeQuestions("experience", row.id)).map(toPublicQuestion), questionsVersion: await questionsVersion(row.id) }
+    : null;
   const sessionsOut = registration.mode === "options" ? await Promise.all(withAvailability.map(async (s) => ({ ...s, optionsLeft: await optionsLeft(options, s.id) }))) : withAvailability;
   return {
     id: row.id,
@@ -167,7 +175,7 @@ async function toExperienceJson(row: ExperienceRow) {
     imageUrl: row.image_url,
     images: images.map((i) => i.url),
     sessions: sessionsOut,
-    registration,
+    registration: { ...registration, attendeeDetails: details },
     featured: !!row.featured,
     slug: row.slug,
     createdAt: row.created_at,
@@ -268,6 +276,10 @@ interface BookBody {
   acceptedSafety?: boolean;
   /** Participation Phase 1 — [{ optionId, quantity }] for a listing with options. */
   lines?: unknown;
+  /** Participation Phase 2 — [{ name, personType?, guardian? }] one per person, and answers. */
+  attendees?: unknown;
+  answers?: unknown;
+  questionsVersion?: unknown;
 }
 
 // Books ONE session (a specific departure) — party_size spots on it, not a
@@ -457,8 +469,34 @@ experiencesRouter.post("/:id/sessions/:sessionId/checkout", async (req, res) => 
   // Booking UX Phase 4 — minimum age (a declaration) and named seats.
   const ageError = minAgeError(experience.min_age, body.meetsMinAge);
   if (ageError) return res.status(400).json({ error: ageError, minAge: experience.min_age });
-  const seatNames = cleanParticipantNames(body.participants, partySize);
+  let seatNames = cleanParticipantNames(body.participants, partySize);
   if (seatNames && "error" in seatNames) return res.status(400).json({ error: seatNames.error });
+  // Participation Phase 2 — who is coming and the organiser's questions. Only
+  // while participation.attendees is on; an older client that sends no
+  // attendees still books (its people are read from the seat names), but
+  // required questions must be answered by everyone.
+  let people: CleanAttendee[] | null = null;
+  let answers: CleanAnswer[] = [];
+  let answeredVersion = 0;
+  if (await attendeesOn()) {
+    const questions = await activeQuestions("experience", experience.id);
+    answeredVersion = await questionsVersion(experience.id);
+    try {
+      if (body.attendees !== undefined) {
+        people = cleanAttendees(body.attendees, slotsForResolved(lines, partySize));
+        seatNames = people.map((p) => p.name);
+      }
+      if (questions.length) {
+        if (body.questionsVersion !== answeredVersion) return res.status(409).json({ error: "The organiser changed the registration questions — please check your answers", code: "questions_changed" });
+        const who = people ?? (seatNames ?? Array.from({ length: partySize }, (_, i) => (i === 0 ? body.participantName : `Person ${i + 1}`))).map((name, i) => ({ attendeeNo: i + 1, personType: "adult" as const, name }));
+        answers = cleanAnswers(questions, body.answers, who);
+      }
+    } catch (e) {
+      if (e instanceof AttendeeError) return res.status(400).json({ error: e.message, code: "attendees_invalid" });
+      if (e instanceof QuestionError) return res.status(e.status).json({ error: e.message, code: e.code });
+      throw e;
+    }
+  }
   // HC-QA-045 — a session that has already started can't take new bookings.
   if (!startIsInFuture(session.date, session.time)) return res.status(409).json({ error: "This session has already started" });
   // OG-19 — the partner can close bookings for a departure ahead of its start.
@@ -568,6 +606,8 @@ experiencesRouter.post("/:id/sessions/:sessionId/checkout", async (req, res) => 
         safetyText: body.acceptedSafety === true ? experience.safety_info : null,
       });
       await recordParticipantNames(tx, ref, seatNames ?? []);
+      if (people) await writeAttendees(tx, "experience", ref, people);
+      if (answers.length) await writeAnswers(tx, "experience", ref, answeredVersion, answers, "booker", true);
       // Frozen at purchase: label, basis, unit price and the tax/fee rule in force.
       if (lines) {
         await writeOrderLines(tx, "experience", ref, lines, engine
@@ -790,6 +830,119 @@ experiencesRouter.post("/bookings/:ref/cancel", async (req, res) => {
   // Experience 3.0 — a freed place may be someone's spot alert (no-op while off).
   void sweepSpotAlerts(row.sessionId).catch((e) => console.error("[spot-alerts] sweep failed:", e));
   res.json({ ok: true, status: "cancelled", refundState: refundStateOf({ ...row, status: "cancelled" }) });
+});
+
+// Participation Phase 2 — who is coming, their answers and check-in, for the
+// person who made the booking (same client_id-or-resident ownership as
+// /bookings/mine). Never switch-gated for reading. No amounts here; the
+// status route and receipts carry those.
+async function ownedBookingForDetails(req: import("express").Request, res: import("express").Response) {
+  let clientId: string;
+  try {
+    clientId = clientIdFrom(req);
+  } catch (e) {
+    if (e instanceof BadRequestError) {
+      res.status(400).json({ error: e.message });
+      return null;
+    }
+    throw e;
+  }
+  const row = (await db
+    .prepare(
+      `SELECT eb.ref, eb.experience_id AS experienceId, eb.participant_name AS participantName, eb.party_size AS partySize, eb.status,
+              eb.payment_status AS paymentStatus, es.date, es.time, e.title, e.kind
+       FROM experience_bookings eb JOIN experience_sessions es ON es.id = eb.session_id JOIN experiences e ON e.id = eb.experience_id
+       WHERE eb.ref = ? AND (eb.client_id = ? OR (eb.resident_id IS NOT NULL AND eb.resident_id = ?))`
+    )
+    .get(req.params.ref, clientId, req.resident?.id ?? "")) as
+    | { ref: string; experienceId: string; participantName: string; partySize: number; status: string; paymentStatus: string; date: string; time: string; title: string; kind: string }
+    | undefined;
+  if (!row) {
+    res.status(404).json({ error: "Booking not found" });
+    return null;
+  }
+  return { ...row, partySize: Number(row.partySize) };
+}
+
+async function bookingDetailsJson(row: NonNullable<Awaited<ReturnType<typeof ownedBookingForDetails>>>) {
+  const people = await readAttendees("experience", { ref: row.ref, partySize: row.partySize, participantName: row.participantName });
+  const checks = (await checkinsFor([row.ref])).get(row.ref) ?? [];
+  const answers = (await readAnswersFor("experience", [row.ref])).get(row.ref) ?? [];
+  const on = await attendeesOn();
+  const questions = on ? await activeQuestions("experience", row.experienceId) : [];
+  const editable = on && questions.length > 0 && row.paymentStatus === "paid" && row.status !== "cancelled" && startIsInFuture(row.date, row.time);
+  const active = people.filter((p) => p.status === "active");
+  const missing = questions
+    .filter((q) => q.required)
+    .flatMap((q) =>
+      q.scope === "booking"
+        ? answers.some((a) => a.attendeeNo === 0 && a.key === q.key) ? [] : [q.label]
+        : active.filter((p) => (q.appliesTo === "all" || q.appliesTo === p.personType) && !answers.some((a) => a.attendeeNo === p.attendeeNo && a.key === q.key)).map((p) => `${p.name}: ${q.label}`)
+    );
+  return {
+    ref: row.ref,
+    title: row.title,
+    kind: row.kind,
+    date: row.date,
+    time: row.time,
+    status: row.status,
+    paymentStatus: row.paymentStatus,
+    contactName: row.participantName,
+    partySize: row.partySize,
+    attendees: people.map((p) => {
+      const hit = checks.find((c) => Number(c.attendee_no) === p.attendeeNo);
+      return { ...p, checkedInAt: hit ? new Date(hit.checked_in_at).toISOString() : null };
+    }),
+    answers,
+    questions: questions.map(toPublicQuestion),
+    questionsVersion: on ? await questionsVersion(row.experienceId) : 0,
+    canEditAnswers: editable,
+    missingAnswers: editable ? missing : [],
+  };
+}
+
+experiencesRouter.get("/bookings/:ref/details", async (req, res) => {
+  const row = await ownedBookingForDetails(req, res);
+  if (!row) return;
+  res.json(await bookingDetailsJson(row));
+});
+
+/** Edit answers before the start. Answers to questions the organiser has
+ * since removed are kept as they were (with their own snapshot). */
+experiencesRouter.put("/bookings/:ref/answers", async (req, res) => {
+  const row = await ownedBookingForDetails(req, res);
+  if (!row) return;
+  if (!(await attendeesOn())) return res.status(404).json({ error: "This isn't available yet" });
+  if (row.status === "cancelled" || row.paymentStatus !== "paid") return res.status(409).json({ error: "Only a confirmed booking can be changed" });
+  if (!startIsInFuture(row.date, row.time)) return res.status(409).json({ error: "Answers can't be changed once it has started" });
+  const questions = await activeQuestions("experience", row.experienceId);
+  const version = await questionsVersion(row.experienceId);
+  if ((req.body ?? {}).questionsVersion !== version) return res.status(409).json({ error: "The organiser changed the questions — reload to see them", code: "questions_changed" });
+  const people = (await readAttendees("experience", { ref: row.ref, partySize: row.partySize, participantName: row.participantName })).filter((p) => p.status === "active");
+  let cleaned: CleanAnswer[];
+  try {
+    cleaned = cleanAnswers(questions, req.body?.answers, people);
+  } catch (e) {
+    if (e instanceof QuestionError) return res.status(e.status).json({ error: e.message, code: e.code });
+    throw e;
+  }
+  await db.transaction(async (tx) => {
+    if (questions.length) {
+      await tx
+        .prepare(`DELETE FROM registration_answers WHERE source_type = 'experience' AND source_ref = ? AND qkey IN (${questions.map(() => "?").join(", ")})`)
+        .run(row.ref, ...questions.map((q) => q.key));
+    }
+    await writeAnswers(tx, "experience", row.ref, version, cleaned, req.resident ? "resident" : "booker", false);
+  });
+  await writeAudit({
+    actorUserId: null,
+    actorKind: req.resident ? "resident" : "system",
+    action: "experience_booking.answers_edited",
+    objectType: "experience_booking",
+    objectId: row.ref,
+    newValue: { questionsVersion: version, keys: [...new Set(cleaned.map((a) => a.question.key))] },
+  });
+  res.json(await bookingDetailsJson(row));
 });
 
 experiencesRouter.get("/bookings/status/:ref", async (req, res) => {

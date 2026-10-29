@@ -100,7 +100,13 @@ async function applyRemoval(tx: Tx, input: RemoveInput, paidMinor: number, remai
        WHERE source_type = 'experience' AND source_ref = ? AND line_no = ? AND refunded_quantity = ?`
     )
     .run(input.quantity, heads, input.quantity, amount, input.ref, input.lineNo, input.expectedRefunded);
-  if (heads > 0) await tx.prepare(`UPDATE experience_bookings SET party_size = party_size - ? WHERE ref = ?`).run(heads, input.ref);
+  if (heads > 0) {
+    await tx.prepare(`UPDATE experience_bookings SET party_size = party_size - ? WHERE ref = ?`).run(heads, input.ref);
+    // Phase 2 — recorded attendees on that line follow the head count (last first).
+    await tx
+      .prepare(`UPDATE booking_attendees SET status = 'removed' WHERE source_type = 'experience' AND source_ref = ? AND line_no = ? AND status = 'active' ORDER BY attendee_no DESC LIMIT ${Math.floor(heads)}`)
+      .run(input.ref, input.lineNo);
+  }
   return { amount, heads };
 }
 

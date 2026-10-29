@@ -242,6 +242,7 @@ async function main() {
       ["booking-ui", "booking-ui\\.spec\\.ts$"],
       // Participation Phase 1 — community events with registration options (cash, no provider).
       ["booking-event-options", "booking-event-options\\.spec\\.ts$"],
+      ["booking-event-attendees", "booking-event-attendees\\.spec\\.ts$"],
       // Provider-independent paid state machine (QA provider seam enabled for this batch only).
       ["booking-provider", "booking-provider\\.spec\\.ts$"],
       // Phase 8 remediation scenarios (extended beyond the preserved regressions).

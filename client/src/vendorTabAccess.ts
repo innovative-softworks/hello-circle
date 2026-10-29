@@ -33,7 +33,8 @@ export type VendorTabKey =
   | "reviews"
   | "offers"
   | "demand"
-  | "org";
+  | "org"
+  | "checkin";
 
 const MANAGERS: readonly PlatformRole[] = ["centre_manager", "facility_manager"];
 
@@ -52,10 +53,15 @@ export const VENDOR_TAB_ROLES: Record<VendorTabKey, "all" | readonly PlatformRol
   offers: ["finance"],
   earnings: ["finance"],
   demand: ["finance", "read_only_analyst"],
+  // Participation Phase 2 — door check-in: the two managers, and check-in-only
+  // staff (for the events or dates they're assigned to).
+  checkin: [...MANAGERS, "checkin_staff"],
 };
 
 export function vendorTabVisible(tab: VendorTabKey, user: { invitedStaff: boolean; platformRole: string | null }): boolean {
   if (!user.invitedStaff) return true;
+  // The check-in-only role has no other workspace pages (the server allows it the door API only).
+  if (user.platformRole === "checkin_staff") return tab === "checkin";
   const roles = VENDOR_TAB_ROLES[tab];
   if (roles === "all") return true;
   return !!user.platformRole && (roles as readonly string[]).includes(user.platformRole);

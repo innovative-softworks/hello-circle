@@ -1180,7 +1180,7 @@ adminRouter.put("/clubs/:id/organisation", requireAdminPermission("orgs.manage")
 
 // --- RBAC + marketplace-tier scaffolding (FUTURE, best-effort) -------------
 
-const PLATFORM_ROLES = ["centre_manager", "facility_manager", "finance", "communications", "read_only_analyst"];
+const PLATFORM_ROLES = ["centre_manager", "facility_manager", "finance", "communications", "read_only_analyst", "checkin_staff"];
 
 adminRouter.put("/vendors/:id/platform-role", requireAdminPermission("partners.platform_role"), async (req, res) => {
   const { platformRole } = req.body as { platformRole: string | null };

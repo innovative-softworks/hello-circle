@@ -45,7 +45,7 @@ import {
 // Decisions, role/tier save and the suspend confirmation are the same calls
 // and rules as before; they now report success/failure.
 
-const PLATFORM_ROLES = ["centre_manager", "facility_manager", "finance", "communications", "read_only_analyst"] as const;
+const PLATFORM_ROLES = ["centre_manager", "facility_manager", "finance", "communications", "read_only_analyst", "checkin_staff"] as const;
 const TYPE_LABEL = { community: "Community", sports: "Sports club" } as const;
 const PAGE_SIZE = 20;
 const TIER_LABEL = { standard: "Standard", verified: "Verified", featured: "Featured" } as const;

@@ -2207,6 +2207,171 @@ export interface ExperienceRegistration {
   mode: "single" | "options";
   open: boolean;
   options: RegistrationOption[];
+  /** Participation Phase 2 — null while attendee details are switched off. */
+  attendeeDetails?: { questions: RegistrationQuestion[]; questionsVersion: number } | null;
+}
+
+// --- Participation Phase 2: attendees, questions, check-in -------------------
+
+export type QuestionInputType = "text" | "number" | "date" | "select" | "checkbox";
+export type QuestionCategory = "general" | "logistics" | "dietary_preference" | "health" | "religion" | "ethnicity" | "other_special";
+
+/** A registration question as the person booking sees it. */
+export interface RegistrationQuestion {
+  key: string;
+  scope: "booking" | "attendee";
+  inputType: QuestionInputType;
+  label: string;
+  help: string;
+  /** "Why we ask" — shown before answering. */
+  purpose: string;
+  required: boolean;
+  choices: string[];
+  min: number | null;
+  max: number | null;
+  appliesTo: "all" | "adult" | "child";
+  /** Door staff see this answer at check-in. */
+  doorVisible: boolean;
+}
+
+/** A question as the partner edits it. */
+export interface VendorRegistrationQuestion extends RegistrationQuestion {
+  id?: string;
+  category: QuestionCategory;
+}
+
+export type AnswerValue = string | number | boolean;
+export interface RegistrationAnswersInput {
+  booking: Record<string, AnswerValue>;
+  attendees: Record<string, AnswerValue>[];
+}
+
+export interface AttendeeInput {
+  name: string;
+  personType?: "adult" | "child";
+  /** For a child: "contact" (the booker) or the attendee number of an adult in the booking. */
+  guardian?: "contact" | number;
+}
+
+export interface BookingAttendee {
+  attendeeNo: number;
+  lineNo: number | null;
+  lineLabel: string | null;
+  personType: "adult" | "child";
+  name: string;
+  guardianKind: "contact" | "attendee" | null;
+  guardianAttendeeNo: number | null;
+  guardianName: string | null;
+  status: "active" | "removed";
+  /** false = from the party size and seat names (bookings before attendee details). */
+  recorded: boolean;
+  checkedInAt: string | null;
+}
+
+export interface StoredAnswer {
+  attendeeNo: number;
+  key: string;
+  label: string;
+  inputType: QuestionInputType;
+  value: string;
+  version: number;
+  doorVisible: boolean;
+  updatedAt: string;
+}
+
+/** GET /experiences/bookings/:ref/details — the booker's own view. */
+export interface BookingPeopleDetails {
+  ref: string;
+  title: string;
+  kind: string;
+  date: string;
+  time: string;
+  status: string;
+  paymentStatus: string;
+  contactName: string;
+  partySize: number;
+  attendees: BookingAttendee[];
+  answers: StoredAnswer[];
+  questions: RegistrationQuestion[];
+  questionsVersion: number;
+  canEditAnswers: boolean;
+  missingAnswers: string[];
+}
+
+/** One booking on the partner attendee list. */
+export interface VendorAttendeeBooking {
+  ref: string;
+  sessionId: string;
+  participantName: string;
+  email: string;
+  phone: string;
+  partySize: number;
+  status: string;
+  paymentStatus: string;
+  createdAt: string;
+  date: string;
+  time: string;
+  lines: { lineNo: number; kind: "option" | "addon"; label: string; quantity: number; heads: number }[];
+  attendees: (BookingAttendee & { checkinMethod: string | null })[];
+  answers: StoredAnswer[];
+  issues: string[];
+}
+
+export interface AttendanceSummaryRow {
+  sessionId: string;
+  date: string;
+  time: string;
+  status: string;
+  bookings: number;
+  people: number;
+  adults: number;
+  children: number;
+  checkedIn: number;
+}
+
+export interface CheckinStaffAssignment {
+  id: number;
+  userId: string;
+  name: string;
+  email: string;
+  sessionId: string | null;
+  date: string | null;
+  time: string | null;
+  createdAt: string;
+}
+
+export type AdmitReason = "ok" | "cancelled" | "not_paid" | "refunded" | "session_cancelled" | "wrong_date" | "other_session";
+
+export interface DoorPerson {
+  attendeeNo: number;
+  name: string;
+  personType: "adult" | "child";
+  lineLabel: string | null;
+  guardianName: string | null;
+  checkedInAt: string | null;
+  answers: { label: string; value: string }[];
+}
+
+/** A booking as the door sees it — no amounts, email or phone. */
+export interface DoorBooking {
+  ref: string;
+  contactName: string;
+  partySize: number;
+  admit: { ok: boolean; reason: AdmitReason; message: string };
+  people: DoorPerson[];
+  bookingAnswers: { label: string; value: string }[];
+  checkedIn: number;
+}
+
+export interface DoorSessionInfo {
+  sessionId: string;
+  experienceId: string;
+  title: string;
+  kind: string;
+  date: string;
+  time: string;
+  status: string;
+  isToday: boolean;
 }
 
 /** An option as the partner edits it (GET/PUT /vendor/experiences/:id/options). */
@@ -2461,7 +2626,7 @@ export const FEATURE_FLAG_LABELS: Record<FeatureFlagKey, string> = {
   experiences: "Adventures & Experiences",
 };
 
-export const PLATFORM_ROLES = ["centre_manager", "facility_manager", "finance", "communications", "read_only_analyst"] as const;
+export const PLATFORM_ROLES = ["centre_manager", "facility_manager", "finance", "communications", "read_only_analyst", "checkin_staff"] as const;
 
 /** Host Manage spec §27/§28 — display labels only, keeping the 5 real
  * `platform_role` values (and every requirePlatformRole/assertPlatformRole
@@ -2474,6 +2639,9 @@ export const PLATFORM_ROLE_LABELS: Record<(typeof PLATFORM_ROLES)[number], strin
   finance: "Finance",
   communications: "Communications",
   read_only_analyst: "Read-only Analyst",
+  // Participation Phase 2 — check people in at the door, only for the events
+  // or dates the organisation assigns; nothing else in the workspace.
+  checkin_staff: "Check-in only",
 };
 
 export interface Participant {

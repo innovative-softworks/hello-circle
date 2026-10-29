@@ -138,6 +138,11 @@ export async function endPendingHold(table: PendingTable, ref: string, mode: "de
       ? await tx.prepare(`DELETE FROM ${table} WHERE ref = ? AND payment_status = 'pending'`).run(ref)
       : await tx.prepare(`UPDATE ${table} SET payment_status = 'failed' WHERE ref = ? AND payment_status = 'pending'`).run(ref);
     if (info.changes !== 1) return false;
+    // Participation Phase 2 — a deleted pending order takes its people and answers with it.
+    if (mode === "delete" && table === "experience_bookings") {
+      await tx.prepare(`DELETE FROM booking_attendees WHERE source_type = 'experience' AND source_ref = ?`).run(ref);
+      await tx.prepare(`DELETE FROM registration_answers WHERE source_type = 'experience' AND source_ref = ?`).run(ref);
+    }
     await releaseCoupon(tx, row.coupon_code);
     await releaseRedemption(tx, table, ref);
     return true;

@@ -117,6 +117,9 @@ export function onSale(o: Pick<OfferingOption, "saleStartsAt" | "saleEndsAt">, n
 export const participationOptionsOn = () => featureOn("participation.options");
 export const participationEventsOn = () => featureOn("participation.events");
 export const partialCancelOn = () => featureOn("participation.partial_cancel");
+export const attendeesOn = () => featureOn("participation.attendees");
+export const checkinOn = () => featureOn("participation.checkin");
+export const specialCategoryQuestionsOn = () => featureOn("participation.special_category_questions");
 
 // --- validation ---------------------------------------------------------------
 

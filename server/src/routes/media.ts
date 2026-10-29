@@ -2,7 +2,7 @@ import fs from "node:fs";
 import { Router } from "express";
 import { LocalImageError, privateUploadPath, saveLocalImage } from "../localUploads.js";
 import multer from "multer";
-import { ORG_SUSPENDED_ERROR, REMOVED_STAFF_ERROR, orgSuspended, orgVendorIds, removedStaff } from "../auth.js";
+import { CHECKIN_ONLY_ERROR, ORG_SUSPENDED_ERROR, REMOVED_STAFF_ERROR, checkinOnly, orgSuspended, orgVendorIds, removedStaff } from "../auth.js";
 import { db } from "../db/index.js";
 import { findMediaAssetByProviderKey, findMediaAssetsByGroup, markDeletedByProviderKey } from "../media/mediaAssets.js";
 import { isMember, isOrganiser } from "./circleHelpers.js";
@@ -139,6 +139,7 @@ async function requireApprovedVendor(req: import("express").Request): Promise<{ 
   if (req.user.role !== "vendor" || req.user.status !== "approved") return { status: 403, error: "Vendor account required" };
   if (orgSuspended(req.user)) return { status: 403, error: ORG_SUSPENDED_ERROR };
   if (removedStaff(req.user)) return { status: 403, error: REMOVED_STAFF_ERROR };
+  if (checkinOnly(req.user)) return { status: 403, error: CHECKIN_ONLY_ERROR };
   return orgVendorIds(req.user);
 }
 
@@ -213,7 +214,7 @@ async function checkUploadPermission(
       // never a listing id.
       if (!req.user) return { status: 401, error: "Vendor login required" };
       if (req.user.role !== "vendor" || req.user.status !== "approved") return { status: 403, error: "Vendor account required" };
-      if (orgSuspended(req.user) || removedStaff(req.user)) return { status: 403, error: "Not available for your account right now" };
+      if (orgSuspended(req.user) || removedStaff(req.user) || checkinOnly(req.user)) return { status: 403, error: "Not available for your account right now" };
       const scope = req.user.orgId ?? req.user.id;
       if (scope !== entityId) return { status: 403, error: "Not your organisation" };
       return null;
