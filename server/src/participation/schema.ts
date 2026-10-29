@@ -227,7 +227,7 @@ async function initParticipationPhase2Schema(ensureColumn: EnsureColumn, ensureI
   await ensureColumn("registration_questions", "show_if_json", "show_if_json TEXT NULL");
   // Phase H — the same form engine for club registrations, programme enrolments
   // and hall bookings: each listing keeps its own published-version counter.
-  for (const table of ["clubs", "programs", "centres"]) await ensureColumn(table, "questions_version", "questions_version INT NOT NULL DEFAULT 0");
+  for (const table of ["clubs", "programs", "centres", "games"]) await ensureColumn(table, "questions_version", "questions_version INT NOT NULL DEFAULT 0");
   // Phase K — partner messages: who sent it, to which audience, from which
   // template; one delivery row per person and channel (status, attempts),
   // and one row per (sender, idempotency key) so a repeated send is a no-op.

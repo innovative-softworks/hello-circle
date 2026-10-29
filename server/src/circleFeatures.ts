@@ -52,6 +52,8 @@ export const FEATURE_SWITCHES: FeatureSwitch[] = [
   { key: "participation.checkin", group: "participation", label: "Door check-in", description: "Partners check people in one by one at the door, by scanning the pass or searching by name, including part of a group. Check-in-only staff can be assigned to an event or one date." },
   // Phase K (docs/participation-expansion/20) — off until the owner turns it on.
   { key: "participation.reminders", group: "participation", label: "Booking reminders", description: "Signed-in people get an in-app reminder (and a push on the app) the day before an event, experience, hall booking or programme session, with where to go and whether the organiser is still waiting for answers. Respects each person's Booking reminders setting." },
+  // Phase N (docs/participation-expansion/24) — off until the owner turns it on.
+  { key: "participation.host_questions", group: "participation", label: "Questions on resident-hosted activities", description: "Residents who host an activity can ask joiners up to three questions from an approved list (level, position, equipment, team, arriving on time). Only the host sees the answers. Hosts can't write their own questions." },
   { key: "participation.special_category_questions", group: "participation", label: "Sensitive registration questions", description: "Questions about health, religion, ethnicity or other special-category data. Locked until a privacy policy for them is approved.", locked: true },
 ];
 

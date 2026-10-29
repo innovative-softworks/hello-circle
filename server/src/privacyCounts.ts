@@ -21,7 +21,8 @@ export const PAST_RETENTION_SQL = `SELECT COUNT(*) AS n FROM registration_answer
   LEFT JOIN bookings hb ON a.source_type = 'booking' AND hb.ref = a.source_ref
   LEFT JOIN registrations cr ON a.source_type = 'registration' AND cr.ref = a.source_ref
   LEFT JOIN program_enrollments pe ON a.source_type = 'program' AND pe.ref = a.source_ref
-  WHERE q.category = ? AND COALESCE(es.date, hb.date, DATE(cr.created_at), DATE(pe.created_at)) < DATE_SUB(CURDATE(), INTERVAL ? DAY)`;
+  LEFT JOIN games gm ON a.source_type = 'game' AND gm.id = SUBSTRING_INDEX(a.source_ref, ':', 1)
+  WHERE q.category = ? AND COALESCE(es.date, hb.date, gm.date, DATE(cr.created_at), DATE(pe.created_at)) < DATE_SUB(CURDATE(), INTERVAL ? DAY)`;
 
 export type Query = (sql: string, params?: unknown[]) => Promise<Record<string, unknown>[]>;
 

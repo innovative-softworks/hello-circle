@@ -640,6 +640,8 @@ export interface MyIntent {
 // --- Join a Game (MVP) / paid games (NEXT) ---------------------------------
 
 export interface Game {
+  /** Phase N — the host's participation questions (empty when none or switched off). */
+  participationQuestions?: ListingRegistrationForm;
   /** Trust & Retention — who welcomes newcomers (a role or first name, where to find them); null = not provided. */
   newcomerWelcome?: string | null;
   /** Card word source (list endpoints only). See CategoryLabel. */
@@ -767,6 +769,8 @@ export interface GameParticipantSummary {
 /** Host-only, uncapped participant view (HelloCircle Manage /manage/activities)
  * — distinct from GameParticipantSummary's public names-only preview. */
 export interface ManageParticipant {
+  /** Phase N — answers to the host's questions (host only). */
+  answers?: StoredAnswer[];
   residentId: string;
   name: string;
   status: string;

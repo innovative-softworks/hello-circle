@@ -21,6 +21,7 @@ import { InviteSheetButton } from "./InviteSheetButton";
 import { ShareButton } from "./ShareButton";
 import { TextInput } from "./form";
 import { Avatar, Button, Card, ConfirmDialog, inputStyle, labelStyle } from "./ui";
+import { useGameJoinQuestions } from "./GameJoinQuestions";
 import { dateLabel } from "../euro";
 import { colors, fonts, radius } from "../theme";
 import type { Game, Resident } from "../types";
@@ -353,6 +354,8 @@ export function GameJoinCard({ game, resident, isHost, onRefresh }: JoinCardProp
   const [calendarAdded, setCalendarAdded] = useState(false);
   const [invited, setInvited] = useState(false);
   const toast = useToast();
+  // Phase N — the host's questions (a game that asks them never joins in one tap).
+  const gq = useGameJoinQuestions(game);
   // The "Undo" after a one-tap join stays for 10 seconds.
   useEffect(() => {
     if (!undoOpen) return;
@@ -397,7 +400,7 @@ export function GameJoinCard({ game, resident, isHost, onRefresh }: JoinCardProp
     let requested = false;
     run(
       () =>
-        joinGame(game.id, couponCode ?? undefined, game.minAge ? ageOk : undefined, requestNote.trim() || undefined).then((r) => {
+        joinGame(game.id, couponCode ?? undefined, game.minAge ? ageOk : undefined, requestNote.trim() || undefined, gq.payload).then((r) => {
           requested = !!r.requested;
           return r;
         }),
@@ -417,7 +420,7 @@ export function GameJoinCard({ game, resident, isHost, onRefresh }: JoinCardProp
   // One tap for a free, open activity (owner 2026-10-27): no confirm step,
   // "Undo" for a few seconds instead. Paid, approval and age-checked joins
   // keep the confirm dialog (it shows the total / the note / the age check).
-  const oneTap = !game.priceCents && game.joinMode !== "approval" && !game.minAge;
+  const oneTap = !game.priceCents && game.joinMode !== "approval" && !game.minAge && !gq.asks;
   const startJoin = () => {
     if (!oneTap) return setConfirmOpen(true);
     run(
@@ -800,6 +803,7 @@ export function GameJoinCard({ game, resident, isHost, onRefresh }: JoinCardProp
             <PlanRecap game={game} couponCode={couponCode} />
             {!!game.priceCents && <GameCouponField gameId={game.id} subtotalCents={game.priceCents} onApplied={setCouponCode} />}
             {!!game.minAge && <MinAgeConfirm minAge={game.minAge} checked={ageOk} onChange={setAgeOk} />}
+            {gq.block}
             {game.joinMode === "approval" && !game.priceCents && (
               <div style={{ marginTop: 12 }}>
                 <label htmlFor="join-request-note" style={labelStyle}>
@@ -816,7 +820,7 @@ export function GameJoinCard({ game, resident, isHost, onRefresh }: JoinCardProp
         cancelLabel="Cancel"
         tone="neutral"
         busy={busy}
-        confirmDisabled={(!!game.minAge && !ageOk) || paidClosed}
+        confirmDisabled={(!!game.minAge && !ageOk) || paidClosed || gq.missing.length > 0}
         onConfirm={handleConfirmJoin}
         onCancel={() => {
           setConfirmOpen(false);
@@ -869,6 +873,7 @@ export function MobileJoinBar({ game, resident, isHost, onRefresh }: JoinCardPro
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [couponCode, setCouponCode] = useState<string | null>(null);
   const [ageOk, setAgeOk] = useState(false);
+  const gq = useGameJoinQuestions(game);
 
   const state = computeState(game, resident, isHost);
   const notify = useGameNotifyMe(game.id, resident, state === "coming-soon");
@@ -928,7 +933,7 @@ export function MobileJoinBar({ game, resident, isHost, onRefresh }: JoinCardPro
     }
     // One tap for a free, open activity, same as the booking box (the box,
     // in the page, then shows "You're in · Undo").
-    if (!game.priceCents && game.joinMode !== "approval" && !game.minAge) {
+    if (!game.priceCents && game.joinMode !== "approval" && !game.minAge && !gq.asks) {
       setBusy(true);
       joinGame(game.id)
         .then(() => {
@@ -961,6 +966,7 @@ export function MobileJoinBar({ game, resident, isHost, onRefresh }: JoinCardPro
             <PlanRecap game={game} couponCode={couponCode} />
             {!!game.priceCents && <GameCouponField gameId={game.id} subtotalCents={game.priceCents} onApplied={setCouponCode} />}
             {!!game.minAge && <MinAgeConfirm minAge={game.minAge} checked={ageOk} onChange={setAgeOk} />}
+            {gq.block}
             {paidClosed && <p role="status" style={{ margin: "10px 0 0", fontSize: 13.5, fontWeight: 600, color: colors.orangeDark }}>{PAID_CLOSED_MESSAGE}</p>}
           </>
         }
@@ -968,10 +974,10 @@ export function MobileJoinBar({ game, resident, isHost, onRefresh }: JoinCardPro
         cancelLabel="Cancel"
         tone="neutral"
         busy={busy}
-        confirmDisabled={(!!game.minAge && !ageOk) || paidClosed}
+        confirmDisabled={(!!game.minAge && !ageOk) || paidClosed || gq.missing.length > 0}
         onConfirm={() => {
           setBusy(true);
-          joinGame(game.id, couponCode ?? undefined, game.minAge ? ageOk : undefined)
+          joinGame(game.id, couponCode ?? undefined, game.minAge ? ageOk : undefined, undefined, gq.payload)
             .then((res) => {
               if (res.url) {
                 openCheckout(res.url);
