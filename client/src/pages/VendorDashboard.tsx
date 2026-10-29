@@ -1,3 +1,4 @@
+import { VendorReportsTab } from "../components/VendorReports";
 import { useEffect, useState, type ReactNode } from "react";
 import { AttendeeConfirmPanel } from "../components/trust/AttendeeConfirmPanel";
 import { AttendanceRequestsPanel } from "../components/trust/AttendanceRequestsPanel";
@@ -286,6 +287,7 @@ export function VendorDashboard() {
       {activeTab === "reviews" && <VendorReviewsTab />}
       {activeTab === "offers" && <VendorOffersTab />}
       {activeTab === "demand" && <DemandTab />}
+      {activeTab === "reports" && <VendorReportsTab />}
       {activeTab === "programs" && <VendorProgramsTab onOpenProgram={(id) => navigate(`/vendor/programs/${id}`)} />}
       {activeTab === "experiences" && <VendorExperiencesTab onOpenExperience={(id) => navigate(`/vendor/experiences/${id}`)} />}
       {activeTab === "schedule" && <VendorScheduleTab onNavigateItem={goTab} />}

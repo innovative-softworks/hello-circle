@@ -3,7 +3,7 @@ import { featureOn } from "../circleFeatures.js";
 import { irelandTodayIso } from "../irelandTime.js";
 import { notifyResident } from "../notifications.js";
 import { formQuestionsOn } from "./formAnswers.js";
-import { missingRequired, orderPeople, ownedOrderForReminder, type OrderSource } from "./orderRecords.js";
+import { missingRequired, orderPeople, orderByRef, type OrderSource } from "./orderRecords.js";
 import { activeQuestions, readAnswersFor } from "./questions.js";
 import { ANSWER_SOURCE } from "./formListings.js";
 
@@ -55,7 +55,7 @@ export async function sweepBookingReminders(today = irelandTodayIso()): Promise<
     // Once per order and day (a programme gets one per session day).
     const already = await db.prepare(`SELECT id FROM notifications WHERE resident_id = ? AND kind = 'reminder' AND ref = ? AND body LIKE ? LIMIT 1`).get(d.residentId, key, `%${tomorrow}%`);
     if (already) continue;
-    const order = await ownedOrderForReminder(d.source, d.ref);
+    const order = await orderByRef(d.source, d.ref);
     let waiting = false;
     if (order && (await formQuestionsOn(order.vendorId))) {
       const questions = await activeQuestions(order.listingType, order.listingId);

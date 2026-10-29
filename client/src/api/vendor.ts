@@ -1129,3 +1129,24 @@ export function cancelVendorExperienceBooking(experienceId: string, bookingId: n
 export function refundVendorExperienceBooking(experienceId: string, bookingId: number): Promise<{ ok: boolean }> {
   return request(`/vendor/experiences/${encodeURIComponent(experienceId)}/bookings/${bookingId}/refund`, { method: "POST" });
 }
+
+// --- Phase L: participation report and the answers export -------------------------
+export interface ParticipationReport {
+  from: string;
+  to: string;
+  byType: { type: string; orders: number; active: number; cancelled: number; people: number }[];
+  attendance: { type: string; expected: number; attended: number; noShow: number; unmarked: number }[];
+  capacity: { type: string; offered: number; taken: number }[];
+  cancellationsByMonth: { month: string; type: string; total: number; cancelled: number }[];
+  forms: { listingsWithForm: number; ordersChecked: number; complete: number; incomplete: number; truncated: boolean };
+}
+export function fetchParticipationReport(from: string, to: string): Promise<ParticipationReport> {
+  return request(`/vendor/reports/participation?from=${from}&to=${to}`);
+}
+export function downloadParticipationReport(from: string, to: string): Promise<void> {
+  return downloadJson(`/vendor/reports/participation.csv?from=${from}&to=${to}`, `participation-${from}-to-${to}.csv`);
+}
+/** Exportable answers of one club, programme or hall (audited server-side). */
+export function downloadFormAnswers(ref: Exclude<FormRef, string>): Promise<void> {
+  return downloadJson(`${formBase(ref)}/answers.csv`, `answers-${ref.listingType}-${ref.id}.csv`);
+}

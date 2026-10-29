@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
-import { BarChart3, Building2, CalendarDays, ClipboardList, Compass, DoorOpen, GraduationCap, LayoutDashboard, MessageSquare, Star, Tag, UserRound, Users, Wallet } from "lucide-react";
+import { BarChart3, Building2, FileBarChart, CalendarDays, ClipboardList, Compass, DoorOpen, GraduationCap, LayoutDashboard, MessageSquare, Star, Tag, UserRound, Users, Wallet } from "lucide-react";
 import type { AuthUser as AuthedUser } from "../../types";
 import { vendorTabAvailable } from "../../vendorTabAccess";
 import { useOrgCapabilities } from "../../orgCapabilities";
@@ -11,7 +11,7 @@ import { useParticipationFeatures } from "../../circleFeatures";
 // dashboard (/vendor) and the full-page editors (/vendor/centres|clubs|
 // programs|experiences/:id), so the editors sit inside the same shell.
 
-export type VendorTab = "overview" | "listings" | "messages" | "bookings" | "customers" | "earnings" | "programs" | "experiences" | "schedule" | "reviews" | "offers" | "demand" | "org" | "checkin";
+export type VendorTab = "overview" | "listings" | "messages" | "bookings" | "customers" | "earnings" | "programs" | "experiences" | "schedule" | "reviews" | "offers" | "demand" | "reports" | "org" | "checkin";
 
 const I = { size: 18, strokeWidth: 1.9, "aria-hidden": true } as const;
 // Keys are unchanged so existing ?tab= links keep working.
@@ -28,6 +28,7 @@ export const VENDOR_TABS: { key: VendorTab; label: string; icon: ReactNode; grou
   { key: "earnings", label: "Earnings", icon: <Wallet {...I} />, group: "Business", summary: "Payments received, refunds and payout status." },
   { key: "offers", label: "Offers", icon: <Tag {...I} />, group: "Business", summary: "Discount codes you fund for your own listings." },
   { key: "reviews", label: "Reviews", icon: <Star {...I} />, group: "Business", summary: "What people say about your listings, and your public replies." },
+  { key: "reports", label: "Reports", icon: <FileBarChart {...I} />, group: "Business", summary: "Registrations, attendance, capacity, cancellations and form completion — counts only." },
   { key: "demand", label: "Demand", icon: <BarChart3 {...I} />, group: "Business", summary: "What people nearby search for that isn't on offer yet." },
   { key: "org", label: "Organisation", icon: <Users {...I} />, group: "Organisation", summary: "Profile, policies, staff and roles, trader details." },
 ];

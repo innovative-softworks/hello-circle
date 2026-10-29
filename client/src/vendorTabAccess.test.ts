@@ -13,13 +13,13 @@ describe("vendor tab access", () => {
   });
 
   it("a read-only analyst sees no write tabs", () => {
-    expect(visibleFor("read_only_analyst").sort()).toEqual(["demand", "org", "overview", "schedule"]);
+    expect(visibleFor("read_only_analyst").sort()).toEqual(["demand", "org", "overview", "reports", "schedule"]);
   });
 
   it("each role sees the tabs it can act in", () => {
-    expect(visibleFor("centre_manager").sort()).toEqual(["bookings", "checkin", "customers", "experiences", "listings", "org", "overview", "programs", "schedule"]);
-    expect(visibleFor("facility_manager").sort()).toEqual(["bookings", "checkin", "customers", "experiences", "listings", "org", "overview", "programs", "schedule"]);
-    expect(visibleFor("finance").sort()).toEqual(["bookings", "customers", "demand", "earnings", "offers", "org", "overview", "schedule"]);
+    expect(visibleFor("centre_manager").sort()).toEqual(["bookings", "checkin", "customers", "experiences", "listings", "org", "overview", "programs", "reports", "schedule"]);
+    expect(visibleFor("facility_manager").sort()).toEqual(["bookings", "checkin", "customers", "experiences", "listings", "org", "overview", "programs", "reports", "schedule"]);
+    expect(visibleFor("finance").sort()).toEqual(["bookings", "customers", "demand", "earnings", "offers", "org", "overview", "reports", "schedule"]);
     expect(visibleFor("communications").sort()).toEqual(["customers", "messages", "org", "overview", "reviews", "schedule"]);
   });
 

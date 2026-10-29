@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { ApiError, fetchFormAnswers, type FormRef } from "../../api";
+import { ApiError, downloadFormAnswers, fetchFormAnswers, type FormRef } from "../../api";
 import { LoadErrorState, PageSpinner } from "../ui";
 import { colors, radius } from "../../theme";
 import type { StoredAnswer } from "../../types";
@@ -35,7 +35,13 @@ export function FormAnswersPanel({ listing }: { listing: Exclude<FormRef, string
   const noun = listing.listingType === "club" ? "registration" : listing.listingType === "program" ? "enrolment" : "booking";
   return (
     <section aria-labelledby={`answers-${listing.id}`} style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 24 }}>
-      <h2 id={`answers-${listing.id}`} style={{ fontSize: 16, margin: 0 }}>Answers</h2>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <h2 id={`answers-${listing.id}`} style={{ fontSize: 16, margin: 0 }}>Answers</h2>
+        {/* Phase L — exportable answers only, under the platform's field policy; audited. */}
+        {state === "ok" && orders && orders.length > 0 && (
+          <button type="button" className="adm-btn adm-btn--sm" onClick={() => void downloadFormAnswers(listing).catch(() => setState("error"))}>Download answers (CSV)</button>
+        )}
+      </div>
       {state === "forbidden" ? (
         <p style={{ margin: 0, color: colors.muted, fontSize: 14 }}>Only the managers of this listing can see people's answers.</p>
       ) : state === "error" ? (

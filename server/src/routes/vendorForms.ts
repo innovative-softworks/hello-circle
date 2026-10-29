@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from "express";
 import { assertPlatformRole } from "../auth.js";
 import { assertCapability, capabilityLimit } from "../capabilities.js";
 import { CLASS_LABELS, DATA_CLASSES, fieldPolicy, INPUT_TYPES, LIBRARY } from "../fieldRegistry.js";
+import { orderByRef, orderPeople, type OrderSource } from "../participation/orderRecords.js";
 import { writeAudit } from "../audit.js";
 import { db } from "../db/index.js";
 import { attendeesOn, specialCategoryQuestionsOn } from "../participation/options.js";
@@ -179,4 +180,46 @@ vendorFormsRouter.get(`/forms/:listingType(${TYPES})/:id/answers`, async (req, r
       .filter((o) => answers.has(o.ref))
       .map((o) => ({ ref: o.ref, name: o.name, at: o.at instanceof Date ? o.at.toISOString() : String(o.at), cancelled: o.status === "cancelled", answers: answers.get(o.ref) ?? [] })),
   });
+});
+
+// --- export (Phase L) -------------------------------------------------------------
+// The answers as CSV for the listing's role, under the same rules as the
+// experience export: only questions the partner marked exportable AND whose
+// data class the platform lets be exported; never contact details or
+// special categories. Every export is audited (who, which listing, how many rows).
+
+const SOURCE_OF: Record<Typed, OrderSource> = { club: "registration", program: "program", centre: "booking" };
+const csvCell = (v: unknown) => {
+  const t = v === null || v === undefined ? "" : String(v);
+  const safe = /^[=+\-@\t\r]/.test(t) ? `'${t}` : t;
+  return `"${safe.replace(/"/g, '""')}"`;
+};
+
+vendorFormsRouter.get(`/forms/:listingType(${TYPES})/:id/answers.csv`, async (req, res) => {
+  const l = await ownedListing(req, res);
+  if (!l || !assertPlatformRole(req, res, l.role)) return;
+  const policy = await fieldPolicy();
+  const questions = (await activeQuestions(l.type, l.id)).filter((q) => q.exportable && q.inputType !== "info" && (DATA_CLASSES as readonly string[]).includes(q.category) && policy.classes[q.category as (typeof DATA_CLASSES)[number]].exportable);
+  const sql =
+    l.type === "club"
+      ? `SELECT ref FROM registrations WHERE club_id = ? AND payment_status = 'paid' ORDER BY created_at`
+      : l.type === "program"
+        ? `SELECT ref FROM program_enrollments WHERE program_id = ? AND payment_status = 'paid' ORDER BY created_at`
+        : `SELECT ref FROM bookings WHERE centre_id = ? AND payment_status = 'paid' ORDER BY date, time`;
+  const refs = ((await db.prepare(sql).all(l.id)) as { ref: string }[]).map((r) => r.ref);
+  const answers = await readAnswersFor(ANSWER_SOURCE[l.type], refs);
+  const header = ["Reference", "Status", "Person", "Adult or child", ...questions.map((q) => q.label)];
+  const lines = [header.map(csvCell).join(",")];
+  for (const ref of refs) {
+    const order = await orderByRef(SOURCE_OF[l.type], ref);
+    if (!order) continue;
+    const own = answers.get(ref) ?? [];
+    const person = (await orderPeople(order))[0];
+    const cell = (key: string, scope: string) => own.find((a) => a.key === key && a.attendeeNo === (scope === "booking" ? 0 : 1))?.display ?? "";
+    lines.push([ref, order.status === "cancelled" ? "Cancelled" : "Confirmed", person?.name ?? order.contactName, person ? (person.personType === "child" ? "Child" : "Adult") : "", ...questions.map((q) => cell(q.key, q.scope))].map(csvCell).join(","));
+  }
+  await writeAudit({ actorUserId: req.user!.id, action: `${l.type}.answers_exported`, objectType: l.type, objectId: l.id, newValue: { rows: refs.length, questions: questions.map((q) => q.key) } });
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="answers-${l.type}-${l.id}.csv"`);
+  res.send(lines.join("\r\n"));
 });

@@ -17,6 +17,7 @@ import type { PLATFORM_ROLES } from "./types";
 //   offers — finance (coupons)
 //   earnings — finance (payments, payout account, plan are finance-only)
 //   demand — finance, read_only_analyst
+//   reports — the managers, finance and read_only_analyst (counts only)
 
 export type PlatformRole = (typeof PLATFORM_ROLES)[number];
 
@@ -33,6 +34,7 @@ export type VendorTabKey =
   | "reviews"
   | "offers"
   | "demand"
+  | "reports"
   | "org"
   | "checkin";
 
@@ -53,6 +55,8 @@ export const VENDOR_TAB_ROLES: Record<VendorTabKey, "all" | readonly PlatformRol
   offers: ["finance"],
   earnings: ["finance"],
   demand: ["finance", "read_only_analyst"],
+  // Phase L — counts only (no personal data): managers, finance and the analyst.
+  reports: [...MANAGERS, "finance", "read_only_analyst"],
   // Participation Phase 2 — door check-in: the two managers, and check-in-only
   // staff (for the events or dates they're assigned to).
   checkin: [...MANAGERS, "checkin_staff"],
