@@ -66,6 +66,7 @@ test("CFG-OPERATIONS: resident registration management, the partner record by ro
         await expect(section.getByText(/Name on the shirt/).first()).toBeVisible();
         await expect(section.getByText(/Answered on form version 1/)).toBeVisible();
         await expect(section.getByText(/can't be changed/)).toBeVisible();
+        await expect(section.getByTestId("registration-status")).toHaveText("Needs your answers");
         expect(await noHorizontalScroll(page)).toBe(true);
         await shot(page, "30-resident-registration-attention-phone");
         await section.getByRole("button", { name: "Answer now" }).click();
@@ -75,6 +76,7 @@ test("CFG-OPERATIONS: resident registration management, the partner record by ro
         await section.getByRole("button", { name: "Save answers" }).click();
         await expect(section.getByText(/Needs your attention/)).toHaveCount(0);
         await expect(section.getByText("AOIFE", { exact: true })).toBeVisible();
+        await expect(section.getByTestId("registration-status")).toHaveText(/^Registration complete/);
         await shot(page, "31-resident-answers-saved-phone");
         expect(resident.consoleErrors).toEqual([]);
       } finally { await resident.close(); }
@@ -95,6 +97,17 @@ test("CFG-OPERATIONS: resident registration management, the partner record by ro
         await expect(page.getByText(/Answers changed by the person who booked/)).toBeVisible();
         await expect(page.getByRole("button", { name: "Cancel" })).toBeVisible();
         await shot(page, "32-partner-record-owner");
+        // The club's registrations: search and filter.
+        await page.goto(`/vendor/clubs/${clubId}`);
+        await page.getByRole("tab", { name: "Questions" }).or(page.getByRole("button", { name: "Questions" })).first().click();
+        const regs = page.locator("section", { has: page.getByRole("heading", { name: /^Registrations and answers/ }) });
+        await expect(regs.getByRole("link", { name: /^Aoife/ })).toBeVisible();
+        await regs.getByLabel("Show").selectOption("missing");
+        await expect(regs.getByText("Nothing matches.")).toBeVisible();
+        await regs.getByLabel("Show").selectOption("complete");
+        await regs.getByLabel("Search by name or reference").fill(ref);
+        await expect(regs.getByRole("link", { name: /^Aoife/ })).toBeVisible();
+        await shot(page, "35-partner-registrations-search");
         await page.goto("/vendor?tab=reports");
         await expect(page.getByRole("heading", { name: "Registrations by listing type" })).toBeVisible();
         await shot(page, "34-partner-reports");
