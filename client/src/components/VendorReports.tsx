@@ -68,6 +68,10 @@ function WeeklyBars({ weeks }: { weeks: ParticipationDetail["overTime"] }) {
   );
 }
 
+// Filters wrap on phones: a long listing name must not widen the page (375px reflow).
+const FIELD = { display: "flex", flexDirection: "column", gap: 4, fontSize: 13, minWidth: 0, maxWidth: "100%" } as const;
+const FIT = { maxWidth: "100%", minWidth: 0 } as const;
+
 function Filters({ value, onChange }: { value: { type: string; listing: string; session: string }; onChange: (v: { type: string; listing: string; session: string }) => void }) {
   const [listings, setListings] = useState<ListingPick[]>([]);
   const [sessions, setSessions] = useState<{ id: string; label: string }[]>([]);
@@ -89,16 +93,16 @@ function Filters({ value, onChange }: { value: { type: string; listing: string; 
   const shown = listings.filter((l) => !value.type || l.type === value.type);
   return (
     <>
-      <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 13 }}>
+      <label style={FIELD}>
         Type
-        <select className="adm-select" value={value.type} onChange={(e) => onChange({ type: e.target.value, listing: "", session: "" })}>
+        <select className="adm-select" style={FIT} value={value.type} onChange={(e) => onChange({ type: e.target.value, listing: "", session: "" })}>
           <option value="">All types</option>
           {(Object.keys(TYPE_NAME) as ListingPick["type"][]).map((t) => <option key={t} value={t}>{TYPE_NAME[t]}</option>)}
         </select>
       </label>
-      <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 13 }}>
+      <label style={FIELD}>
         Listing
-        <select className="adm-select" value={value.listing} onChange={(e) => {
+        <select className="adm-select" style={FIT} value={value.listing} onChange={(e) => {
           const pick = listings.find((l) => l.id === e.target.value);
           onChange({ type: pick ? pick.type : value.type, listing: e.target.value, session: "" });
         }}>
@@ -107,9 +111,9 @@ function Filters({ value, onChange }: { value: { type: string; listing: string; 
         </select>
       </label>
       {sessions.length > 0 && (
-        <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 13 }}>
+        <label style={FIELD}>
           Date
-          <select className="adm-select" value={value.session} onChange={(e) => onChange({ ...value, session: e.target.value })}>
+          <select className="adm-select" style={FIT} value={value.session} onChange={(e) => onChange({ ...value, session: e.target.value })}>
             <option value="">All dates</option>
             {sessions.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
           </select>
@@ -144,11 +148,11 @@ export function VendorReportsTab() {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <Toolbar label="Report period">
-        <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 13 }}>
+        <label style={FIELD}>
           From
           <input type="date" className="adm-input" value={from} max={to} onChange={(e) => e.target.value && setFrom(e.target.value)} />
         </label>
-        <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 13 }}>
+        <label style={FIELD}>
           To
           <input type="date" className="adm-input" value={to} min={from} onChange={(e) => e.target.value && setTo(e.target.value)} />
         </label>
