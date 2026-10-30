@@ -136,26 +136,26 @@ process.on("unhandledRejection", (reason) => {
 sweepExpiredWaitlistOffers();
 setInterval(sweepExpiredWaitlistOffers, 15 * 60 * 1000);
 // Revenue & Connect Stage 5b — end Pro for subscriptions still unpaid after the grace period (hourly; a no-op when none are).
-setInterval(() => void sweepSubscriptions().catch((e) => console.error("[subscriptions] sweep failed:", e)), 60 * 60 * 1000);
+setInterval(() => void sweepSubscriptions().catch((e) => reportException("job.subscriptions", e)), 60 * 60 * 1000);
 // D-10 — payment review holds: halfway and expiry alerts, released places,
 // and refunds left without a provider answer. Restart-safe (every step is a
 // conditional state change; alerts are recorded once), so it also runs at
 // startup to catch up on anything that fell due while the server was down.
-void sweepPaymentReviews().catch((e) => console.error("[payments] review sweep failed:", e));
-setInterval(() => void sweepPaymentReviews().catch((e) => console.error("[payments] review sweep failed:", e)), 5 * 60 * 1000);
+void sweepPaymentReviews().catch((e) => reportException("job.payments", e));
+setInterval(() => void sweepPaymentReviews().catch((e) => reportException("job.payments", e)), 5 * 60 * 1000);
 // Experience 3.0 — tell people waiting on a full departure when a place opens
 // (once each, re-checked; does nothing while experience.spot_alerts is off).
-setInterval(() => void sweepSpotAlerts().catch((e) => console.error("[spot-alerts] sweep failed:", e)), 5 * 60 * 1000);
+setInterval(() => void sweepSpotAlerts().catch((e) => reportException("job.spot-alerts", e)), 5 * 60 * 1000);
 // My Life 3.0 opt-in alerts (mylife.alerts + the resident's own setting), every 30 minutes.
-setInterval(() => void sweepMyLifeAlerts().catch((e) => console.error("[mylife-alerts] sweep failed:", e)), 30 * 60 * 1000);
+setInterval(() => void sweepMyLifeAlerts().catch((e) => reportException("job.mylife-alerts", e)), 30 * 60 * 1000);
 // Trust & Retention — review invitations become due when the occurrence ends.
-setInterval(() => void sweepReviewInvitations().catch((e) => console.error("[review-invitations] sweep failed:", e)), 5 * 60 * 1000);
+setInterval(() => void sweepReviewInvitations().catch((e) => reportException("job.review-invitations", e)), 5 * 60 * 1000);
 // Circles 3.0 — day-before reminders for dated Circle plans (once per plan).
-setInterval(() => void sweepCirclePlanReminders().catch((e) => console.error("[circle-plans] reminder sweep failed:", e)), 30 * 60 * 1000);
+setInterval(() => void sweepCirclePlanReminders().catch((e) => reportException("job.circle-plans", e)), 30 * 60 * 1000);
 // Phase K — day-before booking reminders (participation.reminders, off by default; once per order and day).
-setInterval(() => void sweepBookingReminders().catch((e) => console.error("[booking-reminders] sweep failed:", e)), 30 * 60 * 1000);
+setInterval(() => void sweepBookingReminders().catch((e) => reportException("job.booking-reminders", e)), 30 * 60 * 1000);
 // Phase K — retry failed partner-message deliveries (at most 3 attempts) and pick up any left queued.
-setInterval(() => void sweepMessageDeliveries().catch((e) => console.error("[partner-messages] sweep failed:", e)), 5 * 60 * 1000);
+setInterval(() => void sweepMessageDeliveries().catch((e) => reportException("job.partner-messages", e)), 5 * 60 * 1000);
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
