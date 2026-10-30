@@ -6,6 +6,20 @@ Severity:
 - **P2:** a significant secondary workflow, reporting, accessibility or usability defect.
 - **P3:** minor.
 
+## 0. Pilot remediation update (2026-10-30, working tree on `2f279ad`; see [14](14-pilot-remediation.md))
+
+| ID | Status now | Fix | Regression test |
+|---|---|---|---|
+| DEF-03 reminder starvation above 200 | **Fixed** | keyset pages, durable claim, re-check before send, attempts vs sent | `bookingRemindersReliability.test.ts` (5) |
+| DEF-04 event no-shows per booking | **Fixed** | bookings and people counted separately from per-person evidence; definitions in UI and CSV | `vendorReports.test.ts` (+4), `eventAttendance.test.ts` (7) |
+| DEF-05 club check-ins missing from the summary | **Open (P3)** | — | — |
+| DEF-06 SANDBOX-SPLIT once per DB | **Open (P3, harness)** | — | — |
+| DEF-08 duplicate API calls on 3 resident pages | **Open (P3)** | — | — |
+| DEF-09 (new) date inputs lose the focus ring on their internal parts | **Fixed** | `admin.css` `:focus-within` ring on workspace date and time inputs | `booking-final-a11y` keyboard sweep |
+| DEF-10 (new) cancel dialog shows "Failed to fetch" on a dropped connection | **Fixed** | `ConfirmDialog` maps a network `TypeError` to a plain message | HC-GAP-UI-EXP-PAID |
+| DEF-11 (new) check-ins by day double-count door check-ins | **Fixed** | the booking mark counts only when nobody was checked in at the door | `vendorReports.test.ts` |
+| The 28 baseline browser failures | **Repaired:** all stale tests, none an application defect (DEF-10 found alongside) | [14](14-pilot-remediation.md) §4 | the specs themselves |
+
 ## 1. New regressions found and fixed in this validation
 
 | ID | Found by | Signature | Severity | Root cause | Fix | Regression test | Re-run |

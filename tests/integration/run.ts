@@ -254,6 +254,7 @@ async function main() {
       ["booking-final-security", "final-security-probe\\.spec\\.ts$"],
       ["booking-final-perf", "final-perf\\.spec\\.ts$"],
       ["booking-final-a11y", "final-a11y\\.spec\\.ts$"],
+      ["booking-final-restrictions", "final-pilot-restrictions\\.spec\\.ts$"],
       // Provider-independent paid state machine (QA provider seam enabled for this batch only).
       ["booking-provider", "booking-provider\\.spec\\.ts$"],
       // Phase 8 remediation scenarios (extended beyond the preserved regressions).

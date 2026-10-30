@@ -1588,7 +1588,14 @@ export function ConfirmDialog({
         .then(() => setPending(false))
         .catch((e: unknown) => {
           setPending(false);
-          setFailure(e instanceof Error && e.message ? e.message : "That didn't work. Nothing was changed — try again.");
+          // A dropped connection surfaces as fetch's TypeError ("Failed to fetch"): say what it means.
+          setFailure(
+            e instanceof TypeError
+              ? "We couldn't reach HelloCircle — check your connection and try again."
+              : e instanceof Error && e.message
+              ? e.message
+              : "That didn't work. Nothing was changed — try again."
+          );
         });
     }
   };

@@ -54,7 +54,8 @@ test("OG-27-UI: a join request on an approval activity, approved by the host", a
       await user.page.getByRole("button", { name: "Request to join" }).filter({ visible: true }).first().click();
       await user.page.locator("#join-request-note").fill("New to the area");
       await user.page.getByRole("button", { name: "Send request" }).click();
-      await expect(user.page.getByRole("heading", { name: "Request sent" })).toBeVisible();
+      // Since the booking-box pass (2026-10-27) the state is the activity pass's status.
+      await expect(user.page.getByRole("article", { name: "Activity pass: Request sent" })).toBeVisible();
       expect(await rows(f, "SELECT status FROM game_participants WHERE game_id = ? AND resident_id = ?", [game.id, personas.QA_USER.id])).toEqual([]);
       expect(await rows(f, "SELECT status, message FROM game_join_requests WHERE game_id = ?", [game.id])).toEqual([{ status: "requested", message: "New to the area" }]);
 
@@ -63,7 +64,7 @@ test("OG-27-UI: a join request on an approval activity, approved by the host", a
       await host.page.getByRole("button", { name: /^Approve / }).click();
       await expect.poll(async () => rows(f, "SELECT status FROM game_participants WHERE game_id = ? AND resident_id = ?", [game.id, personas.QA_USER.id])).toEqual([{ status: "joined" }]);
       await user.page.reload();
-      await expect(user.page.getByRole("heading", { name: /You're going/ })).toBeVisible();
+      await expect(user.page.getByRole("article", { name: "Activity pass: You're going" })).toBeVisible();
       await evidence("og-27-ui", { requestedNotSeated: true, approvedSeated: true });
     } finally {
       await host.close();
@@ -86,6 +87,8 @@ test("OG-26-UI: a weekly series from the create form, then cancelling the remain
       await host.page.locator("#game-time").fill("19:00");
       await host.page.locator("#game-repeat").selectOption("weekly");
       await host.page.getByPlaceholder("Times").fill("3");
+      // Free or paid is a required choice on step 1 ("Say whether it's free or paid").
+      await host.page.getByRole("radio", { name: "Free", exact: true }).check();
       await host.page.getByRole("button", { name: "Continue →" }).click();
       await host.page.getByRole("button", { name: "Create 3 sessions" }).click();
       await expect(host.page.getByRole("heading", { name: "You're live." })).toBeVisible();
@@ -112,7 +115,8 @@ test("OG-29/OG-31-UI: a privacy request answered by an admin; consent lookup and
     const user = await uiActor(browser, "QA_USER", "desktop");
     const admin = await staffActor(browser, "QA_ADMIN");
     try {
-      await user.page.goto("/profile");
+      // Account sidebar merge (2026-10-24): privacy requests live under Sign-in & data.
+      await user.page.goto("/profile?tab=security");
       await user.page.getByRole("button", { name: "Make a request" }).click();
       await user.page.locator("#privacy-kind").selectOption("correction");
       await user.page.locator("#privacy-details").fill("My surname is misspelt");
@@ -132,7 +136,8 @@ test("OG-29/OG-31-UI: a privacy request answered by an admin; consent lookup and
 
       // Erasure: nothing is deleted yet (D-07, DEC-14), so it can't be "completed" —
       // the admin replies and it stays open; the person sees "nothing deleted yet".
-      await user.page.goto("/profile");
+      // Account sidebar merge (2026-10-24): privacy requests live under Sign-in & data.
+      await user.page.goto("/profile?tab=security");
       await user.page.getByRole("button", { name: "Make a request" }).click();
       await user.page.locator("#privacy-kind").selectOption("erasure");
       await user.page.locator("#privacy-details").fill("Please delete my account");

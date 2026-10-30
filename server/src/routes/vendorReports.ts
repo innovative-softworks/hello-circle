@@ -7,6 +7,7 @@ import { formQuestionsOn } from "../participation/formAnswers.js";
 import { ANSWER_SOURCE } from "../participation/formListings.js";
 import { missingRequired, orderPeople, orderByRef, type OrderSource } from "../participation/orderRecords.js";
 import { activeQuestions, readAnswersFor, type Question } from "../participation/questions.js";
+import { eventAttendanceFor } from "../participation/eventAttendance.js";
 import { inClause } from "./vendorHelpers.js";
 
 // Phase L (docs/participation-expansion/20) — the organisation's participation
@@ -34,13 +35,25 @@ export interface ParticipationReport {
   from: string;
   to: string;
   byType: { type: string; orders: number; active: number; cancelled: number; people: number }[];
-  attendance: { type: string; expected: number; attended: number; noShow: number; unmarked: number }[];
+  attendance: { type: string; unit: AttendanceUnit; expected: number; attended: number; noShow: number; unmarked: number; markedPresentNotRecorded?: number }[];
+  eventAttendanceTruncated: boolean;
+  definitions: string[];
   capacity: { type: string; offered: number; taken: number }[];
   cancellationsByMonth: { month: string; type: string; total: number; cancelled: number }[];
   forms: { listingsWithForm: number; ordersChecked: number; complete: number; incomplete: number; truncated: boolean };
 }
 
 const FORM_CHECK_LIMIT = 1000;
+const EVENT_ATTENDANCE_LIMIT = 20000;
+type AttendanceUnit = "bookings" | "people";
+
+/** Shown under the attendance table and written into the CSV, so every reader gets the same meaning. */
+export const ATTENDANCE_DEFINITIONS = [
+  "Only sessions before today count. Cancelled bookings, cancelled sessions and people removed from a booking are left out.",
+  "Event bookings: attended = at least one person checked in at the door, or the organiser marked the booking present; no-show = the organiser marked the booking \"didn't come\" and nobody on it was checked in; not recorded = neither.",
+  "Event attendees: attended = the person was checked in at the door; no-show = their booking was marked \"didn't come\" and they weren't checked in; not recorded = everyone else, including the rest of a partly checked-in group and people on a booking marked present without person-by-person check-in.",
+  "Hall bookings count bookings; programme sessions count each enrolled person at each session.",
+];
 
 export async function participationReport(vendorIds: string[], from: string, to: string): Promise<ParticipationReport> {
   const ids = inClause(vendorIds);
@@ -78,17 +91,17 @@ export async function participationReport(vendorIds: string[], from: string, to:
     ] as [string, Record<string, unknown>][]
   ).map(([type, r]) => ({ type, orders: n(r.orders), active: n(r.active), cancelled: n(r.cancelled), people: n(r.people) }));
 
-  // Attendance for what has already happened in the range.
-  const expAtt = await typeRows(
-    `SELECT SUM(eb.party_size) AS expected,
-            (SELECT COUNT(*) FROM attendee_checkins ac JOIN experience_bookings b2 ON b2.ref = ac.source_ref AND ac.source_type = 'experience'
-               JOIN experience_sessions s2 ON s2.id = b2.session_id JOIN experiences e2 ON e2.id = b2.experience_id
-               WHERE e2.vendor_id IN (${ids}) AND b2.status <> 'cancelled' AND b2.payment_status = 'paid' AND s2.date BETWEEN ? AND ?) AS attended,
-            SUM(EXISTS (SELECT 1 FROM attendance a WHERE a.kind = 'experience' AND a.ref = eb.ref AND a.status = 'no_show')) AS noShow
-     FROM experience_bookings eb JOIN experience_sessions es ON es.id = eb.session_id JOIN experiences e ON e.id = eb.experience_id
-     WHERE e.vendor_id IN (${ids}) AND eb.status <> 'cancelled' AND eb.payment_status = 'paid' AND es.date BETWEEN ? AND ?`,
-    [...vendorIds, from, pastTo, ...vendorIds, from, pastTo]
-  );
+  // Attendance for what has already happened in the range (sessions before today).
+  // Events count bookings and people separately, from per-person evidence (eventAttendance.ts).
+  const pastEvents = (await db
+    .prepare(
+      `SELECT eb.ref, eb.party_size AS partySize, eb.participant_name AS participantName
+       FROM experience_bookings eb JOIN experience_sessions es ON es.id = eb.session_id JOIN experiences e ON e.id = eb.experience_id
+       WHERE e.vendor_id IN (${ids}) AND eb.status <> 'cancelled' AND eb.payment_status = 'paid' AND COALESCE(es.status, 'scheduled') <> 'cancelled' AND es.date BETWEEN ? AND ?
+       LIMIT ${EVENT_ATTENDANCE_LIMIT + 1}`
+    )
+    .all(...vendorIds, from, pastTo)) as { ref: string; partySize: number; participantName: string }[];
+  const ev = (await eventAttendanceFor(pastEvents.slice(0, EVENT_ATTENDANCE_LIMIT).map((b) => ({ ref: b.ref, partySize: Number(b.partySize), participantName: b.participantName })))).total;
   const orderAtt = async (kind: "booking" | "registration", sql: string) => {
     const r = await typeRows(sql, [...vendorIds, from, pastTo]);
     return { expected: n(r.expected), attended: n(r.attended), noShow: n(r.noShow) };
@@ -106,11 +119,12 @@ export async function participationReport(vendorIds: string[], from: string, to:
      WHERE p.vendor_id IN (${ids}) AND pe.status <> 'cancelled' AND pe.payment_status = 'paid' AND s.status <> 'cancelled' AND s.date BETWEEN ? AND ?`,
     [...vendorIds, from, pastTo]
   );
-  const att = (type: string, r: { expected: number; attended: number; noShow: number }) => ({ type, ...r, unmarked: Math.max(0, r.expected - r.attended - r.noShow) });
+  const att = (type: string, unit: AttendanceUnit, r: { expected: number; attended: number; noShow: number }) => ({ type, unit, ...r, unmarked: Math.max(0, r.expected - r.attended - r.noShow) });
   const attendance = [
-    att("Events and experiences (people)", { expected: n(expAtt.expected), attended: n(expAtt.attended), noShow: n(expAtt.noShow) }),
-    att("Hall bookings", hallAtt),
-    att("Programme sessions (per person)", { expected: n(progAtt.expected), attended: n(progAtt.attended), noShow: n(progAtt.noShow) }),
+    att("Event bookings", "bookings", ev.bookings),
+    { ...att("Event attendees", "people", ev.people), markedPresentNotRecorded: ev.people.markedPresentNotRecorded },
+    att("Hall bookings", "bookings", hallAtt),
+    att("Programme sessions (per person)", "people", { expected: n(progAtt.expected), attended: n(progAtt.attended), noShow: n(progAtt.noShow) }),
   ];
 
   const expCap = await typeRows(
@@ -174,6 +188,8 @@ export async function participationReport(vendorIds: string[], from: string, to:
     to,
     byType,
     attendance,
+    eventAttendanceTruncated: pastEvents.length > EVENT_ATTENDANCE_LIMIT,
+    definitions: ATTENDANCE_DEFINITIONS,
     capacity,
     cancellationsByMonth,
     forms: { listingsWithForm: [...formCache.values()].filter(Boolean).length, ordersChecked: complete + incomplete, complete, incomplete, truncated: refs.length > FORM_CHECK_LIMIT },
@@ -194,7 +210,12 @@ vendorReportsRouter.get("/reports/participation.csv", requirePlatformRole(...REP
   const rep = await participationReport(req.vendorIds!, r.from, r.to);
   const lines = [["Section", "Type", "Month", "Measure", "Value"].map(cell).join(",")];
   for (const t of rep.byType) for (const [k, v] of Object.entries({ orders: t.orders, active: t.active, cancelled: t.cancelled, people: t.people })) lines.push(["Registrations", t.type, "", k, v].map(cell).join(","));
-  for (const t of rep.attendance) for (const [k, v] of Object.entries({ expected: t.expected, attended: t.attended, noShow: t.noShow, unmarked: t.unmarked })) lines.push(["Attendance", t.type, "", k, v].map(cell).join(","));
+  for (const t of rep.attendance) {
+    const measures: Record<string, number> = { [`expected ${t.unit}`]: t.expected, [`attended ${t.unit}`]: t.attended, [`no-show ${t.unit}`]: t.noShow, [`not recorded ${t.unit}`]: t.unmarked };
+    if (t.markedPresentNotRecorded !== undefined) measures[`of not recorded: on a booking marked present`] = t.markedPresentNotRecorded;
+    for (const [k, v] of Object.entries(measures)) lines.push(["Attendance", t.type, "", k, v].map(cell).join(","));
+  }
+  for (const d of rep.definitions) lines.push(["Definition", "Attendance", "", "", d].map(cell).join(","));
   for (const t of rep.capacity) for (const [k, v] of Object.entries({ offered: t.offered, taken: t.taken })) lines.push(["Capacity", t.type, "", k, v].map(cell).join(","));
   for (const m of rep.cancellationsByMonth) for (const [k, v] of Object.entries({ total: m.total, cancelled: m.cancelled })) lines.push(["Cancellations", m.type, m.month, k, v].map(cell).join(","));
   for (const [k, v] of Object.entries({ complete: rep.forms.complete, incomplete: rep.forms.incomplete })) lines.push(["Form completion", "All listings with a form", "", k, v].map(cell).join(","));
@@ -230,30 +251,30 @@ export async function participationDetail(vendorIds: string[], from: string, to:
   const lp = f.listingId ? [f.listingId] : [];
   if (want("experience"))
     push(
-      `SELECT 'experience' AS t, e.id AS lid, e.title, eb.ref, COALESCE(eb.resident_id, LOWER(eb.email)) AS person, es.date AS day, eb.status, eb.party_size AS people, eb.session_id AS sid
+      `SELECT 'experience' AS t, e.id AS lid, e.title, eb.ref, COALESCE(eb.resident_id, LOWER(eb.email)) AS person, es.date AS day, eb.status, eb.party_size AS people, eb.session_id AS sid, eb.participant_name AS pname, COALESCE(es.status, 'scheduled') AS sst
        FROM experience_bookings eb JOIN experience_sessions es ON es.id = eb.session_id JOIN experiences e ON e.id = eb.experience_id
        WHERE e.vendor_id IN (${ids}) AND eb.payment_status IN ('paid', 'refunded') AND es.date BETWEEN ? AND ?${listingCond("e.id")}${f.sessionId ? " AND eb.session_id = ?" : ""}`,
       [...vendorIds, from, to, ...lp, ...(f.sessionId ? [f.sessionId] : [])]
     );
   if (want("centre"))
     push(
-      `SELECT 'centre' AS t, c.id AS lid, c.name AS title, b.ref, COALESCE(b.resident_id, LOWER(b.email)) AS person, b.date AS day, b.status, b.guests AS people, NULL AS sid
+      `SELECT 'centre' AS t, c.id AS lid, c.name AS title, b.ref, COALESCE(b.resident_id, LOWER(b.email)) AS person, b.date AS day, b.status, b.guests AS people, NULL AS sid, NULL AS pname, NULL AS sst
        FROM bookings b JOIN centres c ON c.id = b.centre_id WHERE c.vendor_id IN (${ids}) AND b.payment_status IN ('paid', 'refunded') AND b.date BETWEEN ? AND ?${listingCond("c.id")}`,
       [...vendorIds, from, to, ...lp]
     );
   if (want("club"))
     push(
-      `SELECT 'club' AS t, c.id AS lid, c.name AS title, r.ref, COALESCE(r.resident_id, LOWER(r.email)) AS person, DATE(r.created_at) AS day, r.status, 1 AS people, NULL AS sid
+      `SELECT 'club' AS t, c.id AS lid, c.name AS title, r.ref, COALESCE(r.resident_id, LOWER(r.email)) AS person, DATE(r.created_at) AS day, r.status, 1 AS people, NULL AS sid, NULL AS pname, NULL AS sst
        FROM registrations r JOIN clubs c ON c.id = r.club_id WHERE c.vendor_id IN (${ids}) AND r.payment_status IN ('paid', 'refunded') AND DATE(r.created_at) BETWEEN ? AND ?${listingCond("c.id")}`,
       [...vendorIds, from, to, ...lp]
     );
   if (want("program"))
     push(
-      `SELECT 'program' AS t, p.id AS lid, p.title, pe.ref, COALESCE(pe.resident_id, LOWER(pe.email)) AS person, DATE(pe.created_at) AS day, pe.status, 1 AS people, NULL AS sid
+      `SELECT 'program' AS t, p.id AS lid, p.title, pe.ref, COALESCE(pe.resident_id, LOWER(pe.email)) AS person, DATE(pe.created_at) AS day, pe.status, 1 AS people, NULL AS sid, NULL AS pname, NULL AS sst
        FROM program_enrollments pe JOIN programs p ON p.id = pe.program_id WHERE p.vendor_id IN (${ids}) AND pe.payment_status IN ('paid', 'refunded') AND DATE(pe.created_at) BETWEEN ? AND ?${listingCond("p.id")}`,
       [...vendorIds, from, to, ...lp]
     );
-  type Row = { t: keyof typeof TYPE_LABEL; lid: string; title: string; ref: string; person: string | null; day: string | Date; status: string; people: number; sid: string | null };
+  type Row = { t: keyof typeof TYPE_LABEL; lid: string; title: string; ref: string; person: string | null; day: string | Date; status: string; people: number; sid: string | null; pname: string | null; sst: string | null };
   const rows = parts.length ? ((await db.prepare(`${parts.join(" UNION ALL ")} LIMIT ${DETAIL_LIMIT + 1}`).all(...params)) as Row[]) : [];
   const truncated = rows.length > DETAIL_LIMIT;
   const list = rows.slice(0, DETAIL_LIMIT).map((r) => ({ ...r, day: r.day instanceof Date ? r.day.toISOString().slice(0, 10) : String(r.day).slice(0, 10), people: Number(r.people ?? 1) }));
@@ -269,10 +290,10 @@ export async function participationDetail(vendorIds: string[], from: string, to:
   const overTime = [...weeks.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([week, byType]) => ({ week, total: Object.values(byType).reduce((a, b) => a + b, 0), byType }));
 
   // Per listing (programme enrolment, club participation, event performance, hall use).
-  const per = new Map<string, { type: string; listingId: string; title: string; orders: number; cancelled: number; people: number; refs: string[] }>();
+  const per = new Map<string, { t: keyof typeof TYPE_LABEL; type: string; listingId: string; title: string; orders: number; cancelled: number; people: number; refs: string[] }>();
   for (const r of list) {
     const k = `${r.t}:${r.lid}`;
-    const p = per.get(k) ?? { type: TYPE_LABEL[r.t], listingId: r.lid, title: r.title, orders: 0, cancelled: 0, people: 0, refs: [] };
+    const p = per.get(k) ?? { t: r.t, type: TYPE_LABEL[r.t], listingId: r.lid, title: r.title, orders: 0, cancelled: 0, people: 0, refs: [] };
     p.orders++;
     if (r.status === "cancelled") p.cancelled++;
     else {
@@ -281,26 +302,59 @@ export async function participationDetail(vendorIds: string[], from: string, to:
     }
     per.set(k, p);
   }
-  // Attendance per listing: door check-ins (people) for experiences; check-in per order for halls and clubs.
-  const attended = new Map<string, number>();
-  const refsAll = list.filter((r) => r.status !== "cancelled").map((r) => r.ref);
-  for (let i = 0; i < refsAll.length; i += 500) {
-    const chunk = refsAll.slice(i, i + 500);
-    const q = chunk.map(() => "?").join(", ");
-    for (const row of (await db.prepare(`SELECT source_ref AS ref, COUNT(*) AS n FROM attendee_checkins WHERE source_type = 'experience' AND source_ref IN (${q}) GROUP BY source_ref`).all(...chunk)) as { ref: string; n: number }[]) attended.set(row.ref, Number(row.n));
-    for (const row of (await db.prepare(`SELECT ref, 1 AS n FROM attendance WHERE kind IN ('booking', 'registration') AND status <> 'no_show' AND ref IN (${q})`).all(...chunk)) as { ref: string; n: number }[]) attended.set(row.ref, Math.max(attended.get(row.ref) ?? 0, 1));
+  // Attendance per listing, for what has already happened, in one stated unit per type:
+  // events in people (eventAttendance.ts rules); halls and clubs in bookings; programmes
+  // per session in the summary instead (null here).
+  const pastTo = (() => { const today = irelandTodayIso(); return to < today ? to : shift(today, -1); })();
+  const pastEvents = list.filter((r) => r.t === "experience" && r.status !== "cancelled" && r.sst !== "cancelled" && r.day <= pastTo);
+  const ev = (await eventAttendanceFor(pastEvents.map((r) => ({ ref: r.ref, partySize: r.people, participantName: r.pname ?? "" })))).byRef;
+  const orderRefs = list.filter((r) => (r.t === "centre" && r.day <= pastTo) || r.t === "club").filter((r) => r.status !== "cancelled").map((r) => r.ref);
+  const orderMark = new Map<string, string>();
+  for (let i = 0; i < orderRefs.length; i += 500) {
+    const chunk = orderRefs.slice(i, i + 500);
+    for (const row of (await db.prepare(`SELECT ref, status FROM attendance WHERE kind IN ('booking', 'registration') AND ref IN (${chunk.map(() => "?").join(", ")})`).all(...chunk)) as { ref: string; status: string }[]) orderMark.set(row.ref, row.status);
   }
+  const counted = new Set(orderRefs);
   const perListing = [...per.values()]
-    .map(({ refs, ...p }) => ({ ...p, attended: refs.reduce((a, ref) => a + (attended.get(ref) ?? 0), 0) }))
+    .map(({ refs, t, ...p }) => {
+      if (t === "program") return { ...p, unit: null, expected: null, attended: null, noShow: null, notRecorded: null };
+      const a = { expected: 0, attended: 0, noShow: 0, notRecorded: 0 };
+      for (const ref of refs) {
+        if (t === "experience") {
+          const c = ev.get(ref);
+          if (!c) continue;
+          a.expected += c.people.expected;
+          a.attended += c.people.attended;
+          a.noShow += c.people.noShow;
+          a.notRecorded += c.people.notRecorded;
+        } else if (counted.has(ref)) {
+          const m = orderMark.get(ref);
+          a.expected++;
+          if (m === "no_show") a.noShow++;
+          else if (m) a.attended++;
+          else a.notRecorded++;
+        }
+      }
+      return { ...p, unit: t === "experience" ? ("people" as const) : ("bookings" as const), ...a };
+    })
     .sort((a, b) => b.orders - a.orders);
 
   // Check-in activity by day (door check-ins and per-booking check-ins), for the selection.
+  const refsAll = list.filter((r) => r.status !== "cancelled").map((r) => r.ref);
   const byDay = new Map<string, number>();
   for (let i = 0; i < refsAll.length; i += 500) {
     const chunk = refsAll.slice(i, i + 500);
     const q = chunk.map(() => "?").join(", ");
-    const rowsA = (await db.prepare(`SELECT DATE(checked_in_at) AS d, COUNT(*) AS n FROM attendee_checkins WHERE source_ref IN (${q}) GROUP BY DATE(checked_in_at)`).all(...chunk)) as { d: Date | string; n: number }[];
-    const rowsB = (await db.prepare(`SELECT DATE(checked_in_at) AS d, COUNT(*) AS n FROM attendance WHERE kind IN ('booking', 'registration', 'experience') AND status <> 'no_show' AND ref IN (${q}) GROUP BY DATE(checked_in_at)`).all(...chunk)) as { d: Date | string; n: number }[];
+    const rowsA = (await db.prepare(`SELECT DATE(checked_in_at) AS d, COUNT(*) AS n FROM attendee_checkins WHERE source_type = 'experience' AND source_ref IN (${q}) GROUP BY DATE(checked_in_at)`).all(...chunk)) as { d: Date | string; n: number }[];
+    // A door check-in also writes the booking's 'present' mark: count that mark only when nobody on the booking has a door check-in.
+    const rowsB = (await db
+      .prepare(
+        `SELECT DATE(a.checked_in_at) AS d, COUNT(*) AS n FROM attendance a
+         WHERE a.status <> 'no_show' AND a.ref IN (${q})
+           AND (a.kind IN ('booking', 'registration') OR (a.kind = 'experience' AND NOT EXISTS (SELECT 1 FROM attendee_checkins ac WHERE ac.source_type = 'experience' AND ac.source_ref = a.ref)))
+         GROUP BY DATE(a.checked_in_at)`
+      )
+      .all(...chunk)) as { d: Date | string; n: number }[];
     for (const r of [...rowsA, ...rowsB]) {
       const d = r.d instanceof Date ? r.d.toISOString().slice(0, 10) : String(r.d).slice(0, 10);
       byDay.set(d, (byDay.get(d) ?? 0) + Number(r.n));

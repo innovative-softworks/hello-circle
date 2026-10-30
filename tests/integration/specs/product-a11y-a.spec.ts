@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { expect, personas } from "../fixtures";
 import { evidence } from "../authorization-fixture";
 import { test, withActors, createActivity, createCircle } from "../lifecycle-fixture";
@@ -10,25 +11,20 @@ import { focused, tabTo } from "../product-fixture";
 test("HC-QA-066: My Life activity and Circle rows open from the keyboard", async ({ playwright, browser }) => {
   await withActors(playwright, ["QA_HOST", "QA_USER"], async (f) => {
     const game = await createActivity(f, "QA_HOST");
-    const circle = await createCircle(f, "QA_HOST", { joinMode: "open" });
+    const circleName = `QA keyboard circle ${randomUUID().slice(0, 6)}`;
+    const circle = await createCircle(f, "QA_HOST", { joinMode: "open", name: circleName });
     expect((await f.actors.QA_USER.post(`/api/games/${game.id}/join`, { data: {} })).status()).toBeLessThan(300);
     expect((await f.actors.QA_USER.post(`/api/circles/${circle.id}/join`, { data: {} })).status()).toBe(201);
     const ui = await uiActor(browser, "QA_USER", "desktop");
     try {
       const { page } = ui;
-      for (const [label, url] of [[game.activityLabel, `/games/${game.id}`], [null, `/circles/`]] as const) {
-        await page.goto("/my-life");
+      // My Life 3.0: joined activities are cards under My Plans → "Coming up"; Circles have their own tab.
+      for (const [tab, label, url] of [["plans", game.activityLabel, `/games/${game.id}`], ["circles", circleName, `/circles/${circle.slug}`]] as const) {
+        await page.goto(`/my-life?tab=${tab}`);
+        await expect(page.getByRole("link").filter({ hasText: label }).first()).toBeVisible({ timeout: 20_000 });
         await page.locator("body").focus();
-        // The rows live under "View full activity" (keyboard-operable toggle).
-        const toggle = page.getByRole("button", { name: /View full activity/ });
-        await expect(toggle).toHaveAttribute("aria-expanded", "false");
-        await toggle.focus();
-        await page.keyboard.press("Enter");
-        await expect(page.getByRole("button", { name: /Hide full activity/ })).toHaveAttribute("aria-expanded", "true");
-        const target = label
-          ? await tabTo(page, (x) => x.tag === "A" && x.name.includes(label), { max: 120 })
-          : await tabTo(page, (x) => x.tag === "A" && /member/.test(x.name), { max: 120 });
-        expect(target, `${label ?? "Circle"} row reachable by Tab as a link with an accessible name`).not.toBeNull();
+        const target = await tabTo(page, (x) => x.tag === "A" && x.name.includes(label), { max: 160 });
+        expect(target, `${tab}: "${label}" reachable by Tab as a link with an accessible name`).not.toBeNull();
         expect(target!.focusVisible, "visible focus").toBe(true);
         await page.keyboard.press("Enter");
         await expect(page).toHaveURL(new RegExp(url.replace(/\//g, "\\/")));
@@ -42,12 +38,16 @@ test("HC-QA-066: My Life activity and Circle rows open from the keyboard", async
 for (const viewport of ["desktop", "mobile"] as const) {
   test(`HC-QA-069: join dialog moves focus inside, traps Tab, closes on Escape and restores focus (${viewport})`, async ({ playwright, browser }) => {
     await withActors(playwright, ["QA_HOST"], async (f) => {
+      // A free, open activity joins in one tap (owner 2026-10-27), so it has no dialog.
+      // An approval activity still asks in a dialog (with a note field): test that one.
       const game = await createActivity(f, "QA_HOST");
+      f.track("game_join_requests", "game_id", game.id);
+      expect((await f.actors.QA_HOST.post(`/api/games/${game.id}/booking-settings`, { data: { joinMode: "approval" } })).status()).toBe(200);
       const ui = await uiActor(browser, "QA_USER", viewport);
       try {
         const { page } = ui;
         await page.goto(`/games/${game.id}`);
-        const trigger = page.getByRole("button", { name: /^(I'm in|Join)/ }).filter({ visible: true }).first();
+        const trigger = page.getByRole("button", { name: /^Request to join/ }).filter({ visible: true }).first();
         await trigger.focus();
         const triggerName = (await focused(page)).name;
         await page.keyboard.press("Enter");

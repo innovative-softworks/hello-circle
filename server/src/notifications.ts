@@ -143,30 +143,35 @@ function pushPathFor(params: NotifyResidentParams): string | undefined {
  * PREF_KEY_BY_KIND). */
 export async function notifyResident(params: NotifyResidentParams) {
   try {
-    const prefKey = PREF_KEY_BY_KIND[params.kind];
-    if (prefKey && !(await residentAllows(params.residentId, prefKey))) return;
-    await insertResidentNotification.run({
-      residentId: params.residentId,
-      kind: params.kind,
-      title: params.title,
-      body: params.body,
-      listingType: params.listingType,
-      listingId: params.listingId,
-      ref: params.ref,
-    });
+    await notifyResidentWithOutcome(params);
   } catch (e) {
     console.error("[notifications] resident notify failed:", e);
   }
-  // Native push (Capacitor migration Phase 5) — same gating as the in-app
-  // notification above, but never allowed to affect it: a push failure
-  // (including an entirely unconfigured Firebase project) must not stop the
-  // in-app notification from having already been written.
+}
+
+/** Same delivery as notifyResident, but tells the caller what happened instead of
+ * swallowing it (the day-before reminder sweep records it). The in-app insert
+ * throws on failure; push stays best-effort and is reported, never thrown. */
+export async function notifyResidentWithOutcome(params: NotifyResidentParams): Promise<{ inApp: "sent" | "skipped_preference"; push: "sent" | "failed" | "skipped" }> {
+  const prefKey = PREF_KEY_BY_KIND[params.kind];
+  if (prefKey && !(await residentAllows(params.residentId, prefKey))) return { inApp: "skipped_preference", push: "skipped" };
+  await insertResidentNotification.run({
+    residentId: params.residentId,
+    kind: params.kind,
+    title: params.title,
+    body: params.body,
+    listingType: params.listingType,
+    listingId: params.listingId,
+    ref: params.ref,
+  });
+  // Native push (Capacitor migration Phase 5) — never allowed to affect the in-app
+  // notification above (including an entirely unconfigured Firebase project).
   try {
-    const prefKey = PREF_KEY_BY_KIND[params.kind];
-    if (prefKey && !(await residentAllows(params.residentId, prefKey))) return;
     await sendPush(params.residentId, { title: params.title, body: params.body, path: pushPathFor(params) });
+    return { inApp: "sent", push: "sent" };
   } catch (e) {
     console.error("[notifications] resident push failed:", e);
+    return { inApp: "sent", push: "failed" };
   }
 }
 

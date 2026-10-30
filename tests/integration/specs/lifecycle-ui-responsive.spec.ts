@@ -24,6 +24,8 @@ for (const viewport of ["tablet", "mobile"] as const) {
         await host.page.locator("#game-date").fill("2030-10-04");
         await host.page.locator("#game-time").fill("10:00");
         overflow.hostCreate = await noHorizontalScroll(host.page);
+        // Free or paid is a required choice on step 1 ("Say whether it's free or paid").
+        await host.page.getByRole("radio", { name: "Free", exact: true }).check();
         await host.page.getByRole("button", { name: "Continue →" }).click();
         await host.page.getByRole("button", { name: "Create session", exact: true }).click();
         await expect(host.page.getByRole("heading", { name: "You're live." })).toBeVisible();
@@ -38,8 +40,8 @@ for (const viewport of ["tablet", "mobile"] as const) {
         await expect(user.page.getByRole("heading", { name: label }).first()).toBeVisible();
         overflow.detail = await noHorizontalScroll(user.page);
         await user.page.getByRole("button", { name: "Join activity", exact: true }).filter({ visible: true }).first().click();
-        await user.page.getByRole("button", { name: "Confirm I'm in" }).click();
-        await expect(user.page.getByRole("button", { name: "View activity" })).toBeVisible();
+        // One tap for a free, open activity (owner 2026-10-27): no confirm step, an Undo instead.
+        await expect(user.page.getByRole("article", { name: "Activity pass: You're going" }).filter({ visible: true }).first()).toBeVisible();
         expect(await rows(f, "SELECT status FROM game_participants WHERE game_id = ? AND resident_id = ?", [game.id, personas.QA_USER.id])).toEqual([{ status: "joined" }]);
 
         // Circle detail → membership → plan idea → chat.
@@ -85,8 +87,8 @@ test("LC-UI-MOBILE-CONSENT: first-visit consent banner (known mobile overlap) vs
       const bannerShown = await banner.isVisible().catch(() => false);
       let joinClickable = true;
       try {
+        // One tap for a free, open activity (owner 2026-10-27): no confirm step.
         await user.page.getByRole("button", { name: "Join activity", exact: true }).filter({ visible: true }).first().click({ timeout: 5000 });
-        await user.page.getByRole("button", { name: "Confirm I'm in" }).click({ timeout: 5000 });
       } catch { joinClickable = false; }
       let joined = false;
       try {

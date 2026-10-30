@@ -150,7 +150,7 @@ test("COMPLETE-SILENT: an unavailable credit balance and a failed review-eligibi
       await page.route((u) => eligibilityDown && u.pathname === "/api/reviews/eligible", (r) => r.fulfill({ status: 500, contentType: "application/json", body: '{"error":"Server error"}' }));
       await page.goto(`/experiences/${exp.id}`);
       // Review eligibility (on the page itself).
-      await expect(page.getByText("We couldn't check whether you can review this right now.")).toBeVisible();
+      await expect(page.getByText("We couldn't check whether you can review this.")).toBeVisible();
       // Credit (inside the booking dialog; the single departure skips to the details step).
       await page.getByRole("button", { name: /^Book/ }).first().click();
       const booking = page.getByRole("dialog");
@@ -163,12 +163,12 @@ test("COMPLETE-SILENT: an unavailable credit balance and a failed review-eligibi
       await booking.getByRole("button", { name: "Check again" }).click();
       await expect(booking.getByText("We couldn't check your HelloCircle credit just now")).toHaveCount(0);
       await page.keyboard.press("Escape");
-      await expect(page.getByText("We couldn't check whether you can review this right now.")).toBeVisible();
+      await expect(page.getByText("We couldn't check whether you can review this.")).toBeVisible();
       await shot(page, "resident-review-check-failed");
       // Retry reaches the real server: the review check now gives its real answer.
       eligibilityDown = false;
       await page.getByRole("button", { name: "Try again" }).click();
-      await expect(page.getByText("We couldn't check whether you can review this right now.")).toHaveCount(0);
+      await expect(page.getByText("We couldn't check whether you can review this.")).toHaveCount(0);
     } finally {
       await user.close();
     }

@@ -80,6 +80,25 @@ These batches drive the phone viewport (390) and check for no horizontal scroll 
 - a spacing check of the small targets;
 - keyboard-only completion of the form builder (drag and reorder controls).
 
+## Pilot remediation update (2026-10-30; see [14](14-pilot-remediation.md) §5)
+**Automated, extended:**
+- `booking-final-a11y` now covers 320 px (WCAG 1.4.10 reflow, equivalent to 1280 px at 400% zoom) plus 375, 768, 1024 and 1440: 13 pages × 5 widths = **65 page views**.
+- It adds a **keyboard sweep** at 375 and 1440 px. Every Tab stop must be on screen, outside `aria-hidden`, and show a focus indicator (on the element or a `:focus-within` wrapper), and no element may keep focus beyond a native control's own parts.
+
+**Found and fixed:**
+- **DEF-09:** Reports date filters had no visible focus on their internal parts. Fixed in `admin.css`.
+
+**Result:** **PASS** on the final working tree.
+
+**Other fixes and repairs:**
+- **DEF-10:** the cancel dialog's network-error message is now announced in plain words (`role="alert"`).
+- **Keyboard and focus tests repaired:** HC-QA-066, HC-QA-068, HC-QA-069 (now on the approval join dialog that exists), HC-GAP-UI-EXP (keyboard-only cancel, with the dialog taking focus) and HC-QA-043. All pass.
+
+**Screen reader: NOT TESTED.**
+- **Why:** VoiceOver can't be operated from this session (macOS denies synthetic input, error −25204; no assistive-technology driver).
+- **Not substituted:** automated scans and DOM inspection weren't used in its place.
+- **What's left:** the exact remaining manual checklist (tool, browser, pages, scenarios) is in [14](14-pilot-remediation.md) §5.
+
 ## Gate 10 (accessibility)
 **PASS for the automated structural checks**, with no open accessibility defect in the new participation UI after DEF-07.
 

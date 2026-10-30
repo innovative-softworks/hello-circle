@@ -111,7 +111,9 @@ describe("Phase L — participation report", () => {
     expect(by["Club registrations"]).toMatchObject({ orders: 1, active: 1 });
     expect(by["Events and experiences"]).toMatchObject({ orders: 1, people: 2 });
     const att = Object.fromEntries(r.attendance.map((t: { type: string }) => [t.type, t]));
-    expect(att["Events and experiences (people)"]).toMatchObject({ expected: 2, attended: 1, unmarked: 1 });
+    // A legacy booking for 2 (no attendee rows) with one person checked in at the door.
+    expect(att["Event bookings"]).toMatchObject({ unit: "bookings", expected: 1, attended: 1, noShow: 0, unmarked: 0 });
+    expect(att["Event attendees"]).toMatchObject({ unit: "people", expected: 2, attended: 1, noShow: 0, unmarked: 1 });
     expect(att["Hall bookings"]).toMatchObject({ expected: 1, attended: 1 });
     expect(r.capacity[0]).toMatchObject({ offered: 10, taken: 2 });
     expect(r.forms).toMatchObject({ ordersChecked: 1, complete: 0, incomplete: 1 });
@@ -172,5 +174,113 @@ describe("Phase L — report detail and filters", () => {
     const foreign = (await json(`/vendor/reports/participation/detail${Q}&listingId=${centreId}`, [vendorB])).body;
     expect(foreign.perListing).toEqual([]);
     expect(JSON.stringify(all)).not.toMatch(/secret@|Secret Booker|Medium/);
+  });
+});
+
+// Pilot remediation (final-validation/14): event no-shows counted as bookings and
+// as people, from per-person evidence. A deterministic organisation C, with the
+// expected numbers worked out by hand below; organisation D is the other tenant.
+describe("Event attendance — bookings and people", () => {
+  const vendorC = id("vendorC");
+  const vendorD = id("vendorD");
+  const evC = id("evC");
+  const evD = id("evD");
+  const past = id("past");
+  const future = id("future");
+  const gone = id("gone");
+  const pastD = id("pastD");
+  const R = (k: string) => `EV-${k}-${run}`;
+  const refs = ["B1", "B2", "B3", "B4", "B5", "B6", "B7", "B8", "D1"].map(R);
+  const booking = async (ref: string, exp: string, sess: string, party: number, status = "confirmed") =>
+    db.prepare(`INSERT INTO experience_bookings (ref, experience_id, session_id, client_id, participant_name, email, phone, party_size, total_cents, payment_status, status) VALUES (?, ?, ?, 'c', 'Synthetic', 'ev@example.test', '', ?, 0, 'paid', ?)`).run(ref, exp, sess, party, status);
+  const people = async (ref: string, n: number, removed: number[] = []) => {
+    for (let i = 1; i <= n; i++) await db.prepare(`INSERT INTO booking_attendees (source_type, source_ref, attendee_no, name, status) VALUES ('experience', ?, ?, ?, ?)`).run(ref, i, `P${i}`, removed.includes(i) ? "removed" : "active");
+  };
+  const checkin = async (ref: string, no: number, sess: string) => {
+    await db.prepare(`INSERT INTO attendee_checkins (source_type, source_ref, attendee_no, session_id, checked_in_by) VALUES ('experience', ?, ?, ?, ?)`).run(ref, no, sess, vendorC);
+    // The door also writes the booking-level mark (as checkin.ts does).
+    await db.prepare(`INSERT INTO attendance (kind, ref, status, source) VALUES ('experience', ?, 'present', 'door') ON DUPLICATE KEY UPDATE status = 'present'`).run(ref);
+  };
+  const mark = (ref: string, status: string, source = "host_manual") => db.prepare(`INSERT INTO attendance (kind, ref, status, source) VALUES ('experience', ?, ?, ?)`).run(ref, status, source);
+
+  beforeAll(async () => {
+    for (const v of [vendorC, vendorD]) await db.prepare(`INSERT INTO users (id, email, password_hash, role, status, name) VALUES (?, ?, 'x', 'vendor', 'approved', 'EV')`).run(v, `${v}@example.test`);
+    for (const [e, v] of [[evC, vendorC], [evD, vendorD]]) {
+      await db.prepare(`INSERT INTO experiences (id, vendor_id, kind, title, blurb, description, fitness_requirements, itinerary, equipment_provided, equipment_required, transport_info, safety_info, weather_policy, eligibility, cancellation_terms, status, capacity, price_cents, payment_method) VALUES (?, ?, 'event', 'EV Event', 'b', 'd', '', '', '', '', '', '', '', '', '', 'approved', 20, 0, 'cash')`).run(e, v);
+    }
+    for (const [sid, e, d, st] of [[past, evC, day(-3), "scheduled"], [future, evC, day(5), "scheduled"], [gone, evC, day(-4), "cancelled"], [pastD, evD, day(-3), "scheduled"]] as const) {
+      await db.prepare(`INSERT INTO experience_sessions (id, experience_id, date, time, capacity, status) VALUES (?, ?, ?, '10:00', 20, ?)`).run(sid, e, d, st);
+    }
+    // B1 single attendee, checked in.
+    await booking(R("B1"), evC, past, 1); await people(R("B1"), 1); await checkin(R("B1"), 1, past);
+    // B2 group of 3: person 3 removed (cancelled attendee), person 1 checked in, person 2 not.
+    await booking(R("B2"), evC, past, 3); await people(R("B2"), 3, [3]); await checkin(R("B2"), 1, past);
+    // B3 group of 2 marked "didn't come".
+    await booking(R("B3"), evC, past, 2); await people(R("B3"), 2); await mark(R("B3"), "no_show");
+    // B4 cancelled booking, marked no-show before it was cancelled: left out.
+    await booking(R("B4"), evC, past, 2, "cancelled"); await people(R("B4"), 2); await mark(R("B4"), "no_show");
+    // B5 upcoming session: left out even with a stray mark.
+    await booking(R("B5"), evC, future, 2); await people(R("B5"), 2); await mark(R("B5"), "no_show");
+    // B6 legacy booking for 2 (no attendee rows), marked present by the organiser, no door check-in.
+    await booking(R("B6"), evC, past, 2); await mark(R("B6"), "present");
+    // B7 legacy booking for 1, nothing recorded.
+    await booking(R("B7"), evC, past, 1);
+    // B8 on a cancelled session (booking itself not cancelled): left out.
+    await booking(R("B8"), evC, gone, 2); await people(R("B8"), 2); await mark(R("B8"), "no_show");
+    // D1 another organisation's no-show.
+    await booking(R("D1"), evD, pastD, 4); await people(R("D1"), 4); await mark(R("D1"), "no_show");
+  });
+
+  afterAll(async () => {
+    for (const r of refs) {
+      await db.prepare(`DELETE FROM attendee_checkins WHERE source_ref = ?`).run(r);
+      await db.prepare(`DELETE FROM attendance WHERE ref = ?`).run(r);
+      await db.prepare(`DELETE FROM booking_attendees WHERE source_ref = ?`).run(r);
+    }
+    await db.prepare(`DELETE FROM experience_bookings WHERE experience_id IN (?, ?)`).run(evC, evD);
+    await db.prepare(`DELETE FROM experience_sessions WHERE experience_id IN (?, ?)`).run(evC, evD);
+    await db.prepare(`DELETE FROM experiences WHERE id IN (?, ?)`).run(evC, evD);
+    await db.prepare(`DELETE FROM audit_log WHERE actor_user_id IN (?, ?)`).run(vendorC, vendorD);
+    await db.prepare(`DELETE FROM users WHERE id IN (?, ?)`).run(vendorC, vendorD);
+  });
+
+  // By hand: counted bookings B1, B2, B3, B6, B7 (B4 cancelled, B5 upcoming, B8 cancelled session).
+  // Bookings: attended B1, B2 (check-ins), B6 (marked present) = 3; no-show B3 = 1; not recorded B7 = 1.
+  // People: expected 1 + 2 (B2 minus removed) + 2 + 2 + 1 = 8; attended B1·1 + B2·1 = 2; no-show B3·2 = 2;
+  // not recorded B2·1 + B6·2 + B7·1 = 4, of which 2 on a booking marked present.
+  const BOOKINGS = { expected: 5, attended: 3, noShow: 1, unmarked: 1 };
+  const PEOPLE = { expected: 8, attended: 2, noShow: 2, unmarked: 4, markedPresentNotRecorded: 2 };
+
+  it("summary: bookings and people are counted separately, from per-person evidence", async () => {
+    const r = (await json(`/vendor/reports/participation${Q}`, [vendorC])).body;
+    const att = Object.fromEntries(r.attendance.map((t: { type: string }) => [t.type, t]));
+    expect(att["Event bookings"]).toMatchObject({ unit: "bookings", ...BOOKINGS });
+    expect(att["Event attendees"]).toMatchObject({ unit: "people", ...PEOPLE });
+    expect(r.definitions.join(" ")).toMatch(/not recorded/);
+  });
+
+  it("the per-listing result and the check-ins by day agree with the summary (no double count of door check-ins)", async () => {
+    const d = (await json(`/vendor/reports/participation/detail${Q}&listingType=experience&listingId=${evC}`, [vendorC])).body;
+    expect(d.perListing).toEqual([expect.objectContaining({ title: "EV Event", unit: "people", expected: 8, attended: 2, noShow: 2, notRecorded: 4 })]);
+    // Door check-ins B1·1 + B2·1, plus B6's organiser mark (no door check-in): 3, not 5.
+    expect(d.checkins.reduce((a: number, c: { count: number }) => a + c.count, 0)).toBe(3);
+  });
+
+  it("the CSV carries the same numbers with their unit, and the definitions", async () => {
+    const csv = (await as(`/vendor/reports/participation.csv${Q}`, [vendorC])).text;
+    expect(csv).toContain('"Attendance","Event bookings","","no-show bookings","1"');
+    expect(csv).toContain('"Attendance","Event attendees","","no-show people","2"');
+    expect(csv).toContain('"Attendance","Event attendees","","not recorded people","4"');
+    expect(csv).toContain('"Attendance","Event attendees","","of not recorded: on a booking marked present","2"');
+    expect(csv).toMatch(/"Definition","Attendance","","",".*didn't come/);
+  });
+
+  it("another organisation's bookings never count, and it sees none of these", async () => {
+    const d = (await json(`/vendor/reports/participation${Q}`, [vendorD])).body;
+    const att = Object.fromEntries(d.attendance.map((t: { type: string }) => [t.type, t]));
+    expect(att["Event bookings"]).toMatchObject({ expected: 1, attended: 0, noShow: 1, unmarked: 0 });
+    expect(att["Event attendees"]).toMatchObject({ expected: 4, attended: 0, noShow: 4, unmarked: 0 });
+    const foreign = (await json(`/vendor/reports/participation/detail${Q}&listingId=${evC}`, [vendorD])).body;
+    expect(foreign.perListing).toEqual([]);
   });
 });

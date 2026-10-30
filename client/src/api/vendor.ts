@@ -1166,7 +1166,10 @@ export interface ParticipationReport {
   from: string;
   to: string;
   byType: { type: string; orders: number; active: number; cancelled: number; people: number }[];
-  attendance: { type: string; expected: number; attended: number; noShow: number; unmarked: number }[];
+  /** unmarked = not recorded (unknown). Events come as two rows: bookings and attendees (people). */
+  attendance: { type: string; unit: "bookings" | "people"; expected: number; attended: number; noShow: number; unmarked: number; markedPresentNotRecorded?: number }[];
+  eventAttendanceTruncated: boolean;
+  definitions: string[];
   capacity: { type: string; offered: number; taken: number }[];
   cancellationsByMonth: { month: string; type: string; total: number; cancelled: number }[];
   forms: { listingsWithForm: number; ordersChecked: number; complete: number; incomplete: number; truncated: boolean };
@@ -1185,7 +1188,8 @@ export interface ParticipationDetail {
   from: string;
   to: string;
   overTime: { week: string; total: number; byType: Record<string, number> }[];
-  perListing: { type: string; listingId: string; title: string; orders: number; cancelled: number; people: number; attended: number }[];
+  /** Attendance for past dates, in `unit` (events: people; halls and clubs: bookings). Programmes: null (per session in the summary). */
+  perListing: { type: string; listingId: string; title: string; orders: number; cancelled: number; people: number; unit: "people" | "bookings" | null; expected: number | null; attended: number | null; noShow: number | null; notRecorded: number | null }[];
   checkins: { day: string; count: number }[];
   repeat: { people: number; returning: number };
   truncated: boolean;

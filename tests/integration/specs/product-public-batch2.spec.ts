@@ -29,7 +29,8 @@ test("B2-LISTS: one results grid, the no-photo card, and the first result on the
         // One grid — the old per-type section headings are gone.
         await expect(page.getByText("THINGS TO DO", { exact: true })).toHaveCount(0);
         await expect(page.getByRole("button", { name: /^Filters/ })).toBeVisible();
-        await expect(page.getByLabel("Sort results")).toBeVisible();
+        // Explore redesign: sorting is a "Sort" control in the "Filter and sort" toolbar.
+        await expect(page.getByRole("toolbar", { name: "Filter and sort" }).getByRole("button", { name: "Sort" })).toBeVisible();
         if (viewport === "mobile") {
           const top = await card.evaluate((el) => el.getBoundingClientRect().top + window.scrollY);
           expect(top, "first Explore result within the first phone screen").toBeLessThan(600);

@@ -34,7 +34,10 @@ test("PUB-05/33: a visitor who never signed in sees one sign-in state on My Life
     try {
       const { page } = ui;
       await page.goto("/my-life");
-      await expect(page.getByRole("heading", { level: 1, name: "Sign in to see your life" })).toBeVisible();
+      // My Life 3.0: the page heading is "My Life"; the one sign-in prompt sits under it.
+      await expect(page.getByRole("heading", { level: 1, name: "My Life" })).toBeVisible();
+      await expect(page.getByText("Sign in to see your life", { exact: true })).toHaveCount(1);
+      await expect(page.getByRole("button", { name: "Sign in", exact: true })).toBeVisible();
       await page.waitForLoadState("networkidle");
       await expect(page.getByText("Your session has expired")).toHaveCount(0);
       await expect(page.getByText("Nothing here yet")).toHaveCount(0);
@@ -151,21 +154,19 @@ test("PUB-08/31: My Life lists every Circle, never shows a nearby activity as a 
       const ui = await uiActor(browser, "QA_USER", viewport);
       try {
         const { page } = ui;
-        await page.goto("/my-life");
-        const section = page.locator("#my-circles");
-        await expect(section).toBeVisible();
-        const header = page.getByText(/\d+ Circles? active/);
-        const count = Number(((await header.textContent()) ?? "").match(/(\d+) Circle/)![1]);
+        // My Life 3.0: every Circle is a card on the My Circles tab.
+        await page.goto("/my-life?tab=circles");
+        const count = mine.length;
         expect(count).toBeGreaterThanOrEqual(4);
-        const rowLinks = section.locator("a.stretched-link");
-        await expect(rowLinks).toHaveCount(3);
-        await section.getByRole("button", { name: `Show all ${count} Circles` }).click();
-        await expect(rowLinks).toHaveCount(count);
-        const nearbyRow = section.locator(`a.stretched-link[href="/circles/${circles[0].slug}"]`).locator("xpath=..");
-        await expect(nearbyRow).toContainText("Nothing planned yet");
-        await expect(nearbyRow).not.toContainText("NEXT");
+        await expect(page.getByText(`${count} Circles you're part of`)).toBeVisible();
+        const cards = page.locator(".mlx-tab a.mlx-card[href^='/circles/']");
+        await expect(cards).toHaveCount(count);
+        const nearbyCard = page.locator(`.mlx-tab a.mlx-card[href="/circles/${circles[0].slug}"]`);
+        await expect(nearbyCard).toContainText("Nothing planned yet");
+        await expect(nearbyCard).not.toContainText("Next:");
         expect(await page.locator("button button, a a, button a, a button").count(), "no nested interactive elements").toBe(0);
-        // With nothing joined coming up, the main column says so instead of staying blank.
+        // With nothing joined coming up, My Plans says so instead of staying blank.
+        await page.goto("/my-life?tab=plans");
         await expect(page.getByRole("heading", { name: "Nothing booked yet" }).or(page.getByRole("heading", { name: "Coming up" })).first()).toBeVisible();
         expect(await noHorizontalScroll(page)).toBe(true);
         await shot(page, `pub-my-life-circles-${viewport}`);
@@ -210,7 +211,8 @@ test("PUB-09/10: no discovery link leads to the venue gate while venues are clos
     const { page } = ui;
     // The QA client runs with VITE_LAUNCH_MODE=public and venue pages gated (VITE_VENUE_PAGES_PUBLIC unset).
     await page.goto("/explore");
-    await expect(page.getByRole("heading", { level: 1, name: "Explore" })).toBeVisible();
+    // Explore redesign: the page heading is the search prompt.
+    await expect(page.getByRole("heading", { level: 1, name: "Find something worth doing." })).toBeVisible();
     await expect(page.getByRole("button", { name: "Compare places" })).toHaveCount(0);
     const gated = await page.locator('main a[href^="/browse/"], main a[href^="/centres/"], main a[href^="/clubs/"]').count();
     expect(gated, "Explore links into gated venue routes").toBe(0);

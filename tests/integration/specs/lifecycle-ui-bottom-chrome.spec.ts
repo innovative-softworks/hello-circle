@@ -145,8 +145,8 @@ test("HC-QA-001-STACK: join bars sit on the tab bar, the banner above both, and 
         // The activity join CTA works through the join bar (lifecycle unaffected) — last, as it changes the CTA.
         if (label === "390x844") {
           await page.goto(`/games/${game.id}`);
+          // One tap for a free, open activity (owner 2026-10-27): no confirm step.
           await page.locator(".mobile-join-bar").getByRole("button", { name: "Join activity", exact: true }).click();
-          await page.getByRole("button", { name: "Confirm I'm in" }).click();
           await expect.poll(async () => (await rows(f, "SELECT status FROM game_participants WHERE game_id = ? AND resident_id = ?", [game.id, personas.QA_USER.id])).map(r => r.status)).toEqual(["joined"]);
         }
         // The Browse compare tray (centres) shares the fix (bottom: var(--bottom-nav), data-bottom-chrome)

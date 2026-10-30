@@ -524,6 +524,13 @@
   outline: 2px solid var(--color-brand) !important;
   outline-offset: 2px;
 }
+/* Native date/time inputs: tabbing onto their own parts (day/month/year, the picker
+   button) focuses the input's internal shadow parts, which matches neither :focus-visible
+   nor :focus on the input in Chromium — only :focus-within. Keep the same ring throughout. */
+:is(.adm, .adm-sheet, .adm-panel, .adm-dlg) input:is([type="date"], [type="time"], [type="datetime-local"]):is(:focus, :focus-within) {
+  outline: 2px solid var(--color-brand) !important;
+  outline-offset: 2px;
+}
 
 /* ---------- panels ---------- */
 .adm-box {

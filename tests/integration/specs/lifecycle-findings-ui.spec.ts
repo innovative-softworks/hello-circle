@@ -70,6 +70,8 @@ test("HC-QA-032-DRAFT-COPY: saving a draft is not confirmed as live", async ({ p
       await host.page.locator("#game-location").fill("QA park");
       await host.page.locator("#game-date").fill("2030-09-21");
       await host.page.locator("#game-time").fill("09:30");
+      // Free or paid is a required choice on step 1 ("Say whether it's free or paid").
+      await host.page.getByRole("radio", { name: "Free", exact: true }).check();
       await host.page.getByRole("button", { name: "Continue →" }).click();
       await host.page.getByRole("radio", { name: /Save as draft/ }).check();
       await host.page.getByRole("button", { name: "Create session", exact: true }).click();
@@ -120,6 +122,8 @@ test("HC-QA-032-SEMANTICS: state-accurate confirmation; past dates rejected on c
       await host.page.locator("#game-location").fill("QA park");
       await host.page.locator("#game-date").fill("2021-05-05");
       await host.page.locator("#game-time").fill("09:30");
+      // Free or paid is a required choice on step 1 ("Say whether it's free or paid").
+      await host.page.getByRole("radio", { name: "Free", exact: true }).check();
       await host.page.getByRole("button", { name: "Continue →" }).click();
       await expect(host.page.getByText("Pick a date that hasn't passed")).toBeVisible();
       await host.page.locator("#game-date").fill("2030-09-21");

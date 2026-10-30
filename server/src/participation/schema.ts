@@ -258,6 +258,26 @@ async function initParticipationPhase2Schema(ensureColumn: EnsureColumn, ensureI
       UNIQUE KEY uq_message_delivery (message_id, recipient_key, channel),
       KEY idx_message_delivery_status (status, attempts)
     );
+    -- Pilot remediation (final-validation/14): one row per order and reminder day. The
+    -- unique key is the claim: a run that inserts (or atomically re-claims) the row is
+    -- the only one allowed to send. status: sending | sent | failed | skipped_*.
+    -- attempts counts tries; sent_at is set only after the in-app notice was written.
+    CREATE TABLE IF NOT EXISTS booking_reminder_sends (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      source_type VARCHAR(20) NOT NULL,
+      order_ref VARCHAR(191) NOT NULL,
+      remind_for DATE NOT NULL,
+      resident_id VARCHAR(191) NOT NULL,
+      status VARCHAR(24) NOT NULL DEFAULT 'sending',
+      attempts INT NOT NULL DEFAULT 1,
+      claimed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      sent_at DATETIME NULL,
+      push_status VARCHAR(16) NULL,
+      last_error VARCHAR(120) NULL,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_booking_reminder (source_type, order_ref, remind_for),
+      KEY idx_booking_reminder_status (status, remind_for)
+    );
     CREATE TABLE IF NOT EXISTS order_notes (
       id BIGINT AUTO_INCREMENT PRIMARY KEY,
       source_type VARCHAR(20) NOT NULL,

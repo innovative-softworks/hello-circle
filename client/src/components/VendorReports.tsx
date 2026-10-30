@@ -174,7 +174,18 @@ export function VendorReportsTab() {
             {detail.data.perListing.length === 0 ? (
               <p className="adm-note">Nothing in this period.</p>
             ) : (
-              <Table caption="By listing" head={["Listing", "Orders", "Cancelled", "People", "Checked in", "Attendance"]} rows={detail.data.perListing.map((l) => [`${l.title} · ${l.type}`, l.orders, l.cancelled, l.people, l.attended, pct(l.attended, l.people)])} />
+              <>
+                <Table
+                  caption="By listing"
+                  head={["Listing", "Orders", "Cancelled", "People", "Past: counted in", "Expected", "Attended", "No-show", "Not recorded", "Attendance"]}
+                  rows={detail.data.perListing.map((l) =>
+                    l.unit === null
+                      ? [`${l.title} · ${l.type}`, l.orders, l.cancelled, l.people, "per session (see Attendance)", "—", "—", "—", "—", "—"]
+                      : [`${l.title} · ${l.type}`, l.orders, l.cancelled, l.people, l.unit, l.expected ?? 0, l.attended ?? 0, l.noShow ?? 0, l.notRecorded ?? 0, pct(l.attended ?? 0, l.expected ?? 0)]
+                  )}
+                />
+                <p className="adm-note">Attendance columns cover dates before today only. Events count people; halls and clubs count bookings.</p>
+              </>
             )}
           </Box>
           <Box title="Check-in activity">
@@ -197,7 +208,14 @@ export function VendorReportsTab() {
             <Table caption="Registrations by listing type" head={["Type", "Orders", "Confirmed", "Cancelled", "People"]} rows={report.data.byType.map((t) => [t.type, t.orders, t.active, t.cancelled, t.people])} />
           </Box>
           <Box title="Attendance (what has already happened)">
-            <Table caption="Attendance" head={["Type", "Expected", "Attended", "Not attended", "Not marked", "Attendance"]} rows={report.data.attendance.map((t) => [t.type, t.expected, t.attended, t.noShow, t.unmarked, pct(t.attended, t.expected)])} />
+            <Table caption="Attendance" head={["Type", "Counted in", "Expected", "Attended", "No-show", "Not recorded", "Attendance"]} rows={report.data.attendance.map((t) => [t.type, t.unit, t.expected, t.attended, t.noShow, t.unmarked, pct(t.attended, t.expected)])} />
+            {report.data.attendance.some((t) => (t.markedPresentNotRecorded ?? 0) > 0) && (
+              <p className="adm-note">Of the event attendees not recorded, {report.data.attendance.reduce((a, t) => a + (t.markedPresentNotRecorded ?? 0), 0)} are on bookings the organiser marked present without checking people in one by one.</p>
+            )}
+            {report.data.eventAttendanceTruncated && <p className="adm-note">Only the first 20,000 event bookings were counted — choose a shorter period.</p>}
+            <ul className="adm-note" style={{ margin: "8px 0 0", paddingLeft: 18 }}>
+              {report.data.definitions.map((d) => <li key={d}>{d}</li>)}
+            </ul>
           </Box>
           <Box title="Capacity">
             <Table caption="Capacity" head={["Places", "Offered", "Taken", "Filled"]} rows={report.data.capacity.map((t) => [t.type, t.offered, t.taken, pct(t.taken, t.offered)])} />

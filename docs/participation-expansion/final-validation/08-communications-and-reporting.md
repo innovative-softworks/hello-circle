@@ -38,11 +38,11 @@
 | Changed sessions | PASS (code review) | Reads the session's current date at sweep time, so a moved session reminds for the new date. The dedupe key includes the date. No test (**missing coverage**). |
 | Retry behaviour | PARTIAL | A failure throws out of the sweep; the next 5-minute sweep picks up what wasn't sent. No explicit test. |
 | Opt-out | PASS | "honours the setting" (`bookingReminders` preference) |
-| **More than 200 due in one day** | **FAIL: DEF-03 (P2)** | `sweepBookingReminders` takes `slice(0, 200)` of all due rows **before** skipping those already reminded, with no `ORDER BY`. Once the first 200 are reminded, later sweeps keep re-selecting them and may never reach the rest. Not reachable while the switch is off. Fix: filter already-sent rows in SQL (or before slicing), then add a test with >200 due. |
+| **More than 200 due in one day** | **FIXED: DEF-03** ([14](14-pilot-remediation.md) §3) | Was: `slice(0, 200)` before skipping already-sent orders, with no `ORDER BY`, so later sweeps could re-select the same 200. Now: stable keyset pages over (source, ref) with finished, claimed and given-up orders filtered in SQL; a per-order claim row (`booking_reminder_sends`); a re-check before sending; and `sent`/`failed`/`skipped` recorded. Verified with 450 due (3 pages) plus a cancellation mid-run, a moved session, failure and retry, a 3-attempt cap, overlapping runs and a restart (`bookingRemindersReliability.test.ts`, 5 tests). |
 | Guests (no resident account) | By design | Guests aren't reminded; their confirmation e-mail has the date |
 | Cash-on-arrival orders | Note | Only `payment_status = 'paid'` orders are reminded. Free and cash paths are recorded as `'paid'`; pending online checkouts aren't reminded (correct). |
 
-**Gate status:** reminders stay **disabled**; enabling them is **blocked** by the consent decision and DEF-03.
+**Gate status:** reminders stay **disabled**. DEF-03 is fixed and tested in isolated QA, but enabling them is still **blocked** by the consent decision.
 
 ## 3. Reporting (Phase L)
 
@@ -88,8 +88,13 @@ The expected values below were computed by hand from that dataset:
 - The CSV neutralises formulas (`'=` prefix), also checked by FINAL-SEC.
 
 ### Inconsistencies found
-- **DEF-04 (P2): event no-shows count orders, not people.** In `vendorReports.ts` (lines 82–90), "Events and experiences (people)" counts `expected` and `attended` in **people** (party size, per-attendee check-ins). `noShow` counts **bookings** with a no-show row. A party of 4 marked no-show shows 1 no-show and 3 "unmarked". Fix: count `party_size` for no-show bookings, or record no-shows per attendee.
-- **DEF-05 (P3): club check-ins missing from the summary.** Club check-ins (`attendance.kind = 'registration'`) appear in the per-listing detail but not in the summary attendance table. That table only has events, halls and programmes.
+- **DEF-04: FIXED** ([14](14-pilot-remediation.md) §2). Events are now reported twice, each in one stated unit:
+  - **Event bookings:** attended, no-show, not recorded.
+  - **Event attendees (people):** attended (a door check-in), no-show (booking marked "didn't come", person not checked in), not recorded.
+  - The definitions are shown in the UI and written into the CSV.
+  - The summary, the per-listing table and the CSV share one rule (`participation/eventAttendance.ts`).
+- **DEF-11: FIXED.** "Check-ins by day" double-counted door check-ins (the per-person row plus the booking's `present` mark the door also writes). The mark now counts only when nobody on the booking was checked in at the door.
+- **DEF-05 (P3, open): club check-ins missing from the summary.** Club check-ins (`attendance.kind = 'registration'`) appear in the per-listing detail but not in the summary attendance table. That table only has events, halls and programmes.
 - **Programme completion:** "finished" means every session is in the past (doc 25, O2). No attendance threshold is applied (owner decision), so "completion rate" isn't a reported measure.
 - **No duplicate counting** was found:
   - repeat people are deduplicated by e-mail;

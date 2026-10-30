@@ -16,7 +16,52 @@ import { headingAudit } from "../a11y-audit";
 // 24×24 px and text below the WCAG contrast ratio. Not a substitute for a
 // manual screen-reader and keyboard pass.
 
-const WIDTHS = [375, 768, 1024, 1440] as const;
+// 320 px is the WCAG 1.4.10 reflow width (1280 px at 400% zoom).
+const WIDTHS = [320, 375, 768, 1024, 1440] as const;
+const KEYBOARD_WIDTHS = new Set<number>([375, 1440]);
+
+/** Tabs through the page: every stop must be on screen, outside aria-hidden, and show a focus
+ * indicator (on the element or a wrapper up to three levels up, e.g. a :focus-within ring);
+ * the same element may keep focus for a native control's own parts (a date input's day,
+ * month and year) but not longer. Elements are tracked by identity, not by name. */
+async function keyboardSweep(page: Page, max = 40) {
+  const issues: string[] = [];
+  await page.locator("body").focus();
+  let last = -1;
+  let repeats = 0;
+  let stops = 0;
+  for (let i = 0; i < max; i++) {
+    await page.keyboard.press("Tab");
+    const info = await page.evaluate((n) => {
+      const e = document.activeElement as HTMLElement | null;
+      if (!e || e === document.body) return null;
+      if (!e.dataset.kbdStop) e.dataset.kbdStop = String(n);
+      const r = e.getBoundingClientRect();
+      const shows = (el: Element | null) => {
+        if (!el) return false;
+        const st = getComputedStyle(el);
+        return (st.outlineStyle !== "none" && parseFloat(st.outlineWidth) > 0) || st.boxShadow !== "none";
+      };
+      let ring = shows(e);
+      for (let a = e.parentElement, k = 0; !ring && a && k < 3; a = a.parentElement, k++) ring = a.matches(":focus-within") && shows(a);
+      const name = (e.getAttribute("aria-label") || e.textContent || (e as HTMLInputElement).placeholder || "").replace(/\s+/g, " ").trim().slice(0, 40);
+      const cs = getComputedStyle(e);
+      const detail = `outline=${cs.outlineStyle}/${cs.outlineWidth} shadow=${cs.boxShadow.slice(0, 30)} focusVisible=${e.matches(":focus-visible")} focus=${e.matches(":focus")} root=${e.closest(".adm,.adm-panel,.adm-sheet,.adm-dlg")?.className.split(" ")[0] ?? "none"}`;
+      const segmented = e.tagName === "INPUT" && /^(date|time|datetime-local|month|week)$/.test((e as HTMLInputElement).type);
+      return { id: Number(e.dataset.kbdStop), label: `${e.tagName}[${(e as HTMLInputElement).type ?? ""}] "${name}"`, w: r.width, h: r.height, hidden: !!e.closest("[aria-hidden='true'],[inert]"), ring, segmented, detail };
+    }, i);
+    if (!info) break;
+    stops++;
+    repeats = info.id === last ? repeats + 1 : 0;
+    last = info.id;
+    // A native date/time input's parts (day, month, year, picker) are separate Tab stops of one element.
+    if (repeats >= (info.segmented ? 5 : 3)) { issues.push(`focus stuck on ${info.label}`); break; }
+    if (info.w === 0 || info.h === 0) issues.push(`focus on an invisible element: ${info.label}`);
+    else if (info.hidden) issues.push(`focus inside aria-hidden: ${info.label}`);
+    else if (!info.ring) issues.push(`no visible focus indicator: ${info.label} (${info.detail})`);
+  }
+  return { issues, stops };
+}
 
 async function structure(page: Page) {
   return page.evaluate(() => {
@@ -83,7 +128,7 @@ async function structure(page: Page) {
   });
 }
 
-test("FINAL-A11Y: participation pages (partner, resident, host, admin) at 375, 768, 1024 and 1440 — overflow, headings, landmarks, names; targets and contrast measured", async ({ playwright, browser }) => {
+test("FINAL-A11Y: participation pages (partner, resident, host, admin) at 320, 375, 768, 1024 and 1440 — overflow, headings, landmarks, names, keyboard focus; targets and contrast measured", async ({ playwright, browser }) => {
   test.setTimeout(600_000);
   const pages: { who: "vendor" | "resident" | "host" | "admin"; url: string; name: string }[] = [];
   const findings: Record<string, unknown> = {};
@@ -144,7 +189,12 @@ test("FINAL-A11Y: participation pages (partner, resident, host, admin) at 375, 7
           const s = await structure(page);
           if (s.unlabelled.length) failures.push(`${key} unlabelled controls: ${s.unlabelled.join(", ")}`);
           if (s.unnamed.length) failures.push(`${key} unnamed buttons/links: ${s.unnamed.join(", ")}`);
-          findings[key] = { h1: h.h1Text, headingSkips: h.skips, smallTargets: s.smallCount, smallExamples: s.small, lowContrast: s.lowContrastCount, lowContrastExamples: s.lowContrast };
+          let keyboard: { issues: string[]; stops: number } | null = null;
+          if (KEYBOARD_WIDTHS.has(width)) {
+            keyboard = await keyboardSweep(page);
+            for (const issue of keyboard.issues) failures.push(`${key} keyboard: ${issue}`);
+          }
+          findings[key] = { h1: h.h1Text, headingSkips: h.skips, smallTargets: s.smallCount, smallExamples: s.small, lowContrast: s.lowContrastCount, lowContrastExamples: s.lowContrast, keyboardStops: keyboard?.stops ?? null };
         }
       }
     } finally {
@@ -154,5 +204,5 @@ test("FINAL-A11Y: participation pages (partner, resident, host, admin) at 375, 7
       await restoreSwitches();
     }
   });
-  expect(failures, "participation pages at 375/768/1024/1440").toEqual([]);
+  expect(failures, "participation pages at 320/375/768/1024/1440").toEqual([]);
 });
