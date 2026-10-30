@@ -3,7 +3,7 @@ import { assertCapability } from "../capabilities.js";
 import { parseNewcomerWelcome, saveNewcomerWelcome } from "../newcomerWelcome.js";
 import crypto from "node:crypto";
 import { Router } from "express";
-import { requirePlatformRole } from "../auth.js";
+import { assertPlatformRole, requirePlatformRole } from "../auth.js";
 import { writeAudit } from "../audit.js";
 import { approximateCoords, db } from "../db/index.js";
 import { getCentre, getClub } from "../db/queries.js";
@@ -142,6 +142,12 @@ vendorListingsRouter.post("/claims", async (req, res) => {
   // POST /centres, /clubs below: only platform-role gated, not vendorType),
   // so claiming an unclaimed listing of the *other* type is allowed too.
   const table = b.listingType === "centre" ? "centres" : "clubs";
+  // Role-activity validation (2026-10-30) — a claim brings a listing into the
+  // organisation, so it needs the same staff role and capability as creating
+  // that listing type (POST /centres, /clubs). Finance, communications and
+  // read-only staff could file one before.
+  if (!assertPlatformRole(req, res, b.listingType === "centre" ? "centre_manager" : "facility_manager")) return;
+  if (!(await assertCapability(req, res, b.listingType === "centre" ? "venues" : "clubs"))) return;
 
   const listing = (await db.prepare(`SELECT vendor_id FROM ${table} WHERE id = ?`).get(b.listingId)) as
     | { vendor_id: string | null }

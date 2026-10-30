@@ -105,6 +105,10 @@ describe("Phase N — host participation questions", () => {
 
   it("host attendance: check-in and no-show, repeat-safe, host only", async () => {
     expect((await call("POST", `/participants/${joiner}/no-show`, other)).status).toBe(403);
+    // RAV-DEF-01 — not before the activity day (the game is 10 days out).
+    expect((await call("POST", `/participants/${joiner}/no-show`, host)).status).toBe(409);
+    expect(await db.prepare(`SELECT status FROM attendance WHERE kind = 'game' AND ref = ?`).get(`${gameId}:${joiner}`)).toBeUndefined();
+    await db.prepare(`UPDATE games SET date = ? WHERE id = ?`).run(irelandTodayIso(), gameId);
     expect((await call("POST", `/participants/${joiner}/no-show`, host)).status).toBe(200);
     expect((await call("POST", `/participants/${joiner}/no-show`, host)).status).toBe(200);
     const att = (await db.prepare(`SELECT status FROM attendance WHERE kind = 'game' AND ref = ?`).all(`${gameId}:${joiner}`)) as { status: string }[];
@@ -112,6 +116,7 @@ describe("Phase N — host participation questions", () => {
     expect((await call("POST", `/participants/${joiner}/check-in`, host)).status).toBe(200);
     expect(((await db.prepare(`SELECT status FROM attendance WHERE kind = 'game' AND ref = ?`).get(`${gameId}:${joiner}`)) as { status: string }).status).toBe("present");
     expect((await call("POST", `/participants/${other}/no-show`, host)).status).toBe(404);
+    await db.prepare(`UPDATE games SET date = ? WHERE id = ?`).run(date, gameId);
   });
 
   it("leaving takes the answers with it", async () => {

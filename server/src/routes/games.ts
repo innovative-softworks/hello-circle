@@ -873,9 +873,14 @@ gamesRouter.put("/:id/questions", requireResident, async (req, res) => {
 // Phase N — the host marks someone as not attended (the counterpart of the host
 // check-in below); repeating it changes nothing. A later check-in overrides it.
 gamesRouter.post("/:id/participants/:residentId/no-show", requireResident, async (req, res) => {
-  const row = (await db.prepare(`SELECT host_resident_id FROM games WHERE id = ?`).get(req.params.id)) as { host_resident_id: string } | undefined;
+  const row = (await db.prepare(`SELECT host_resident_id, date FROM games WHERE id = ?`).get(req.params.id)) as { host_resident_id: string; date: string } | undefined;
   if (!row) return res.status(404).json({ error: "Session not found" });
   if (row.host_resident_id !== req.resident!.id) return res.status(403).json({ error: "Only the host can record attendance" });
+  // Role-activity validation (2026-10-30, RAV-DEF-01) — you can't miss
+  // something in advance: a no-show blocks the person's review and shows as
+  // "missed" in My Life, so it waits for the activity day, the same rule as
+  // partner attendance (vendorExperiences.ts).
+  if (row.date > irelandTodayIso()) return res.status(409).json({ error: "You can mark attendance once the activity has started" });
   const info = await db.prepare(`UPDATE game_participants SET attended = 0, checked_in_at = NULL WHERE game_id = ? AND resident_id = ? AND status = 'joined'`).run(req.params.id, req.params.residentId);
   if (info.changes === 0) {
     const joined = await db.prepare(`SELECT id FROM game_participants WHERE game_id = ? AND resident_id = ? AND status = 'joined'`).get(req.params.id, req.params.residentId);

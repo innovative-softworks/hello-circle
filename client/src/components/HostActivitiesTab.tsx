@@ -306,7 +306,7 @@ function ActivityRecord({ game, onBack, onCheckIn, onChanged }: { game: Game; on
                 </div>
                 {!isHost && (
                   <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                    {p.status === "joined" && !p.checkedInAt && p.attended !== false && (
+                    {p.status === "joined" && !p.checkedInAt && p.attended !== false && game.date <= irelandToday() && (
                       <Button variant="ghost" onClick={() => void markGameNoShow(game.id, p.residentId).then(loadParticipants)} aria-label={`Mark ${p.name} as didn't come`}>
                         Didn't come
                       </Button>
