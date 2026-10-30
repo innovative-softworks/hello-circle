@@ -250,6 +250,7 @@ async function main() {
       ["booking-config-universal-forms", "config-universal-forms\\.spec\\.ts$"],
       ["booking-config-operations", "config-operations\\.spec\\.ts$"],
       ["booking-config-messages", "config-messages\\.spec\\.ts$"],
+      ["booking-config-host-questions", "config-host-questions\\.spec\\.ts$"],
       // Provider-independent paid state machine (QA provider seam enabled for this batch only).
       ["booking-provider", "booking-provider\\.spec\\.ts$"],
       // Phase 8 remediation scenarios (extended beyond the preserved regressions).
