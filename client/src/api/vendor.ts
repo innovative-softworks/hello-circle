@@ -327,11 +327,35 @@ export function markVendorNotificationRead(id: number): Promise<{ ok: boolean }>
 
 // --- vendor: messages / demand / check-in (NEXT / FUTURE) ------------------
 
-export function sendVendorMessage(input: { listingType: "centre" | "club"; listingId: string; subject: string; body: string }): Promise<{ ok: boolean; recipientCount: number }> {
+// Phase K — partner messages: audience resolved on the server from the
+// organisation's own listing; preview shows counts and first names only.
+export type MessageListingType = "centre" | "club" | "program" | "experience";
+export interface MessageAudience {
+  listingType: MessageListingType;
+  listingId: string;
+  sessionId?: string | null;
+  date?: string | null;
+  filter?: "all" | "checked_in" | "not_checked_in" | "waiting_answers";
+}
+export interface MessagePreview { recipients: number; inApp: number; email: number; emailHeldBack: number; sample: string[]; more: number }
+export type DeliverySummary = Record<string, Record<string, number>>;
+export interface MessageTemplate { key: string; label: string; subject: string; body: string }
+
+export function fetchMessageTemplates(): Promise<{ templates: MessageTemplate[] }> {
+  return request(`/vendor/messages/templates`);
+}
+export function previewVendorMessage(audience: MessageAudience): Promise<MessagePreview> {
+  return request(`/vendor/messages/preview`, { method: "POST", body: JSON.stringify({ audience }) });
+}
+export function sendVendorMessage(input: { audience: MessageAudience; templateKey?: string; subject: string; body: string; idempotencyKey: string }): Promise<{ ok: boolean; messageId: number; duplicate: boolean; recipientCount: number; delivery: DeliverySummary }> {
   return request(`/vendor/messages`, { method: "POST", body: JSON.stringify(input) });
 }
+/** Sends the rendered message to the sender's own email only. */
+export function sendTestVendorMessage(input: { audience: MessageAudience; subject: string; body: string }): Promise<{ sent: string; to: string }> {
+  return request(`/vendor/messages/test`, { method: "POST", body: JSON.stringify(input) });
+}
 
-export function fetchVendorMessages(): Promise<{ id: number; listingType: string; listingId: string; subject: string; body: string; createdAt: string }[]> {
+export function fetchVendorMessages(): Promise<{ id: number; listingType: string; listingId: string; subject: string; body: string; createdAt: string; templateKey?: string | null; recipientCount?: number; delivery?: DeliverySummary }[]> {
   return request(`/vendor/messages`);
 }
 
@@ -490,6 +514,8 @@ export function removeProgramSession(programId: string, sessionId: string): Prom
 }
 
 export interface ProgramEnrollment {
+  /** Phase O2 — progress from the register. */
+  progress?: { sessionsTotal: number; sessionsSoFar: number; attended: number; missed: number; notRecorded: number; finished: boolean };
   id: number;
   ref: string;
   participantName: string;
@@ -592,6 +618,17 @@ export function createVendorExperience(input: Partial<ExperienceInput> & { title
 
 export function updateVendorExperience(id: string, input: Partial<ExperienceInput>): Promise<{ ok: boolean }> {
   return request(`/vendor/experiences/${id}`, { method: "PUT", body: JSON.stringify(input) });
+}
+
+/** Participation Phase 1 — a listing's registration options (all of them,
+ * active and inactive), the version to send back, and whether editing is on. */
+export function fetchExperienceOptions(id: string): Promise<{ options: import("../types").VendorOfferingOption[]; version: number; enabled: boolean }> {
+  return request(`/vendor/experiences/${id}/options`);
+}
+
+/** Replaces the whole option set; 409 `stale_options` when someone saved in between. */
+export function saveExperienceOptions(id: string, options: import("../types").VendorOfferingOption[], version: number): Promise<{ options: import("../types").VendorOfferingOption[]; version: number }> {
+  return request(`/vendor/experiences/${id}/options`, { method: "PUT", body: JSON.stringify({ options, version }) });
 }
 
 /** Vendor-triggered 'draft' → 'pending' transition — see publishVendorCentre. */
@@ -980,4 +1017,185 @@ export function fetchVendorStatement(month: string): Promise<VendorStatement> {
 
 export function downloadVendorStatement(month: string): Promise<void> {
   return downloadJson(`/vendor/statements/${month}?format=csv`, `hellocircle-statement-${month}.csv`);
+}
+
+// --- Participation Phase 2: attendees, questions, check-in staff, door -----------
+
+/** Phase H — a form belongs to an experience (its id) or to a club, programme or hall. */
+export type FormRef = string | { listingType: "club" | "program" | "centre"; id: string };
+const formBase = (ref: FormRef) => (typeof ref === "string" ? `/vendor/experiences/${ref}` : `/vendor/forms/${ref.listingType}/${ref.id}`);
+
+export function fetchExperienceQuestions(id: FormRef): Promise<{ questions: import("../types").VendorRegistrationQuestion[]; version: number; enabled: boolean; specialCategoryEnabled: boolean; draft?: import("../types").FormDraft | null; suggestedFormType?: string | null; personQuestions?: boolean } & Partial<import("../types").QuestionBuilderOptions>> {
+  return request(`${formBase(id)}/questions`);
+}
+/** Replaces the whole question set; 409 when stale, 400 `special_category` for sensitive questions. */
+export function saveExperienceQuestions(id: string, questions: import("../types").VendorRegistrationQuestion[], version: number): Promise<{ questions: import("../types").VendorRegistrationQuestion[]; version: number }> {
+  return request(`/vendor/experiences/${id}/questions`, { method: "PUT", body: JSON.stringify({ questions, version }) });
+}
+export function fetchExperienceAttendees(id: string, sessionId?: string): Promise<{ questions: import("../types").VendorRegistrationQuestion[]; bookings: import("../types").VendorAttendeeBooking[] }> {
+  return request(`/vendor/experiences/${id}/attendees${sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : ""}`);
+}
+export function fetchAttendanceSummary(id: string): Promise<{ sessions: import("../types").AttendanceSummaryRow[] }> {
+  return request(`/vendor/experiences/${id}/attendance-summary`);
+}
+export function fetchCheckinStaff(id: string): Promise<{ assignments: import("../types").CheckinStaffAssignment[]; members: { id: string; name: string; email: string }[]; enabled: boolean }> {
+  return request(`/vendor/experiences/${id}/checkin-staff`);
+}
+export function assignCheckinStaff(id: string, userId: string, sessionId: string | null): Promise<{ ok: true }> {
+  return request(`/vendor/experiences/${id}/checkin-staff`, { method: "POST", body: JSON.stringify({ userId, sessionId }) });
+}
+export function revokeCheckinStaff(id: string, assignmentId: number): Promise<{ ok: true }> {
+  return request(`/vendor/experiences/${id}/checkin-staff/${assignmentId}`, { method: "DELETE" });
+}
+
+export interface DoorSessionListItem {
+  sessionId: string;
+  experienceId: string;
+  title: string;
+  kind: string;
+  date: string;
+  time: string;
+  status: string;
+  isToday: boolean;
+}
+export function fetchDoorSessions(): Promise<{ today: string; sessions: DoorSessionListItem[] }> {
+  return request(`/vendor/door`);
+}
+export function fetchDoorSession(sessionId: string): Promise<{ session: import("../types").DoorSessionInfo; counts: { bookings: number; people: number; checkedIn: number; notArrived: number }; bookings: import("../types").DoorBooking[] }> {
+  return request(`/vendor/door/sessions/${sessionId}`);
+}
+export function doorLookup(sessionId: string, code: string): Promise<{ booking: import("../types").DoorBooking; verdict: import("../types").DoorBooking["admit"] }> {
+  return request(`/vendor/door/sessions/${sessionId}/lookup`, { method: "POST", body: JSON.stringify({ code }) });
+}
+export function doorCheckIn(sessionId: string, ref: string, attendeeNos: number[], method: "qr" | "manual"): Promise<{ results: { attendeeNo: number; result: "checked_in" | "already"; checkedInAt: string }[]; booking: import("../types").DoorBooking | null }> {
+  return request(`/vendor/door/sessions/${sessionId}/checkins`, { method: "POST", body: JSON.stringify({ ref, attendeeNos, method }) });
+}
+export function doorUndo(sessionId: string, ref: string, attendeeNo: number): Promise<{ ok: true; booking: import("../types").DoorBooking }> {
+  return request(`/vendor/door/sessions/${sessionId}/checkins/${encodeURIComponent(ref)}/${attendeeNo}`, { method: "DELETE" });
+}
+
+// --- Configuration Phase G: form builder (drafts, publish, history, templates) ----------
+type Q = import("../types").VendorRegistrationQuestion;
+export function saveQuestionsDraft(id: FormRef, questions: Q[]): Promise<{ draft: import("../types").FormDraft }> {
+  return request(`${formBase(id)}/questions/draft`, { method: "PUT", body: JSON.stringify({ questions }) });
+}
+export function discardQuestionsDraft(id: FormRef): Promise<{ discarded: boolean }> {
+  return request(`${formBase(id)}/questions/draft`, { method: "DELETE" });
+}
+export function publishQuestionsDraft(id: FormRef): Promise<{ version: number; questions: Q[] }> {
+  return request(`${formBase(id)}/questions/publish`, { method: "POST" });
+}
+export function draftQuestionsFrom(id: FormRef, from: { templateId: string } | { version: number }): Promise<{ draft: import("../types").FormDraft }> {
+  return request(`${formBase(id)}/questions/draft/from`, { method: "POST", body: JSON.stringify(from) });
+}
+export function fetchQuestionVersions(id: FormRef): Promise<{ versions: import("../types").FormVersion[] }> {
+  return request(`${formBase(id)}/questions/versions`);
+}
+export function fetchQuestionVersion(id: FormRef, version: number): Promise<{ version: number; questions: Q[] }> {
+  return request(`${formBase(id)}/questions/versions/${version}`);
+}
+/** Phase H — the answers people gave on a club, programme or hall form (the listing's editing role). */
+export function fetchFormAnswers(ref: Exclude<FormRef, string>): Promise<{ orders: { ref: string; name: string; at: string; cancelled: boolean; answers: import("../types").StoredAnswer[]; missing: string[] }[]; asksRequired: boolean }> {
+  return request(`${formBase(ref)}/answers`);
+}
+export function fetchFormTemplates(includeArchived = false): Promise<{ templates: import("../types").FormTemplate[] }> {
+  return request(`/vendor/form-templates${includeArchived ? "?archived=1" : ""}`);
+}
+export function createFormTemplate(input: { name: string; description?: string; formType: string; questions: Q[] }): Promise<{ id: string }> {
+  return request(`/vendor/form-templates`, { method: "POST", body: JSON.stringify(input) });
+}
+export function duplicateFormTemplate(templateId: string): Promise<{ id: string }> {
+  return request(`/vendor/form-templates/${encodeURIComponent(templateId)}/duplicate`, { method: "POST" });
+}
+export function setFormTemplateArchived(templateId: string, archived: boolean): Promise<{ ok: true }> {
+  return request(`/vendor/form-templates/${encodeURIComponent(templateId)}/${archived ? "archive" : "restore"}`, { method: "POST" });
+}
+
+
+// --- Phase J: one partner record for any participation order ----------------------
+export interface VendorOrderRecord {
+  source: import("../types").OrderSource;
+  listingType: "experience" | "club" | "program" | "centre";
+  listingId: string;
+  title: string;
+  ref: string;
+  /** Programme enrolment id / experience booking id (their action routes use it). */
+  orderId: number | null;
+  date: string | null;
+  time: string | null;
+  status: string;
+  paymentStatus: string;
+  createdAt: string;
+  contact: { name: string; email: string; phone: string };
+  partySize: number;
+  notes: string | null;
+  people: { attendeeNo: number; name: string; personType: "adult" | "child"; lineLabel: string | null; guardianName: string | null; status: "active" | "removed"; checkedInAt: string | null }[];
+  attendance: import("../types").OrderAttendance;
+  /** false = this role can't read registration answers (they exist: answerCount). */
+  answersVisible: boolean;
+  answers: import("../types").StoredAnswer[] | null;
+  answerCount: number;
+  questionsVersion: number;
+  missingAnswers: string[];
+  actions: { cancel: boolean; refund: boolean };
+  /** Phase O3 — the team's own notes (managers only; null for other roles). */
+  notes_internal: { id: number; body: string; author: string; at: string }[] | null;
+  history: { label: string; at: string }[];
+}
+export function addVendorOrderNote(source: import("../types").OrderSource, ref: string, body: string): Promise<{ notes: NonNullable<VendorOrderRecord["notes_internal"]> }> {
+  return request(`/vendor/orders/${source}/${encodeURIComponent(ref)}/notes`, { method: "POST", body: JSON.stringify({ body }) });
+}
+export function fetchVendorOrder(source: import("../types").OrderSource, ref: string): Promise<VendorOrderRecord> {
+  return request(`/vendor/orders/${source}/${encodeURIComponent(ref)}`);
+}
+export function cancelVendorEnrollment(programId: string, enrollmentId: number): Promise<ProviderCancelResult> {
+  return request(`/vendor/programs/${encodeURIComponent(programId)}/enrollments/${enrollmentId}/cancel`, { method: "POST" });
+}
+export function refundVendorEnrollment(programId: string, enrollmentId: number): Promise<{ ok: boolean }> {
+  return request(`/vendor/programs/${encodeURIComponent(programId)}/enrollments/${enrollmentId}/refund`, { method: "POST" });
+}
+export function cancelVendorExperienceBooking(experienceId: string, bookingId: number): Promise<ProviderCancelResult> {
+  return request(`/vendor/experiences/${encodeURIComponent(experienceId)}/bookings/${bookingId}/cancel`, { method: "POST" });
+}
+export function refundVendorExperienceBooking(experienceId: string, bookingId: number): Promise<{ ok: boolean }> {
+  return request(`/vendor/experiences/${encodeURIComponent(experienceId)}/bookings/${bookingId}/refund`, { method: "POST" });
+}
+
+// --- Phase L: participation report and the answers export -------------------------
+export interface ParticipationReport {
+  from: string;
+  to: string;
+  byType: { type: string; orders: number; active: number; cancelled: number; people: number }[];
+  /** unmarked = not recorded (unknown). Events come as two rows: bookings and attendees (people). */
+  attendance: { type: string; unit: "bookings" | "people"; expected: number; attended: number; noShow: number; unmarked: number; markedPresentNotRecorded?: number }[];
+  eventAttendanceTruncated: boolean;
+  definitions: string[];
+  capacity: { type: string; offered: number; taken: number }[];
+  cancellationsByMonth: { month: string; type: string; total: number; cancelled: number }[];
+  forms: { listingsWithForm: number; ordersChecked: number; complete: number; incomplete: number; truncated: boolean };
+}
+export function fetchParticipationReport(from: string, to: string): Promise<ParticipationReport> {
+  return request(`/vendor/reports/participation?from=${from}&to=${to}`);
+}
+export function downloadParticipationReport(from: string, to: string): Promise<void> {
+  return downloadJson(`/vendor/reports/participation.csv?from=${from}&to=${to}`, `participation-${from}-to-${to}.csv`);
+}
+/** Exportable answers of one club, programme or hall (audited server-side). */
+export function downloadFormAnswers(ref: Exclude<FormRef, string>): Promise<void> {
+  return downloadJson(`${formBase(ref)}/answers.csv`, `answers-${ref.listingType}-${ref.id}.csv`);
+}
+export interface ParticipationDetail {
+  from: string;
+  to: string;
+  overTime: { week: string; total: number; byType: Record<string, number> }[];
+  /** Attendance for past dates, in `unit` (events: people; halls and clubs: bookings). Programmes: null (per session in the summary). */
+  perListing: { type: string; listingId: string; title: string; orders: number; cancelled: number; people: number; unit: "people" | "bookings" | null; expected: number | null; attended: number | null; noShow: number | null; notRecorded: number | null }[];
+  checkins: { day: string; count: number }[];
+  repeat: { people: number; returning: number };
+  truncated: boolean;
+}
+export function fetchParticipationDetail(from: string, to: string, f: { listingType?: string; listingId?: string; sessionId?: string }): Promise<ParticipationDetail> {
+  const q = new URLSearchParams({ from, to });
+  for (const [k, v] of Object.entries(f)) if (v) q.set(k, v);
+  return request(`/vendor/reports/participation/detail?${q.toString()}`);
 }

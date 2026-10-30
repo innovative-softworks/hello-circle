@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { dateLabel } from "../euro";
 import { useNavigate } from "react-router-dom";
-import { answerGameJoinRequest, cancelGame, cancelRemainingGameSeries, fetchGameSeries, fetchActivityMoney, fetchGameJoinRequests, updateGameBookingSettings, moveGameWithVenue, fetchGameParticipantsForManage, fetchGameWaitlist, fetchMyGames, offerGameWaitlistEntry, postGameUpdate, refundGameParticipant, removeGameParticipant } from "../api";
+import { answerGameJoinRequest, cancelGame, cancelRemainingGameSeries, fetchGameSeries, fetchActivityMoney, fetchGameJoinRequests, updateGameBookingSettings, moveGameWithVenue, fetchGameParticipantsForManage, fetchGameQuestionSetup, fetchGameWaitlist, markGameNoShow, saveGameQuestions, type HostQuestionSetup, fetchMyGames, offerGameWaitlistEntry, postGameUpdate, refundGameParticipant, removeGameParticipant } from "../api";
 import { deriveActivityStatus } from "../activityStatus";
 import { rehostHref } from "../rehost";
 import { CalendarIcon, SearchIcon } from "./icons";
@@ -296,12 +296,21 @@ function ActivityRecord({ game, onBack, onCheckIn, onChanged }: { game: Game; on
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontWeight: 700, fontSize: 13.5 }}>{p.name}{isHost ? " (host)" : ""}</div>
                     <div style={{ fontSize: 12, color: colors.mutedLight }}>
-                      Place: {joinLabel(p)} · Payment: {paymentLabel(p, paid)} · Check-in: {p.checkedInAt ? "Checked in" : "Not yet"}
+                      Place: {joinLabel(p)} · Payment: {paymentLabel(p, paid)} · Check-in: {p.checkedInAt ? "Checked in" : p.attended === false ? "Didn't come" : "Not yet"}
                     </div>
+                    {/* Phase N — answers to your questions (only you see them). */}
+                    {(p.answers ?? []).length > 0 && (
+                      <div style={{ fontSize: 12.5, color: colors.muted, marginTop: 2 }}>{(p.answers ?? []).map((a) => `${a.label}: ${a.display ?? a.value}`).join(" · ")}</div>
+                    )}
                   </div>
                 </div>
                 {!isHost && (
                   <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    {p.status === "joined" && !p.checkedInAt && p.attended !== false && game.date <= irelandToday() && (
+                      <Button variant="ghost" onClick={() => void markGameNoShow(game.id, p.residentId).then(loadParticipants)} aria-label={`Mark ${p.name} as didn't come`}>
+                        Didn't come
+                      </Button>
+                    )}
                     {p.paymentStatus === "paid" && paid && (
                       <Button variant="ghost" onClick={() => setRefundTarget(p)} aria-label={`Refund ${p.name}`}>
                         Refund
@@ -338,6 +347,7 @@ function ActivityRecord({ game, onBack, onCheckIn, onChanged }: { game: Game; on
         onCancel={() => setRefundTarget(null)}
       />
       {game.seriesId && <ActivitySeriesPanel seriesId={game.seriesId} currentId={game.id} onChanged={onChanged} />}
+      {game.status !== "cancelled" && !isPastGame(game) && <HostQuestionsPanel gameId={game.id} />}
       {game.status !== "cancelled" && !isPastGame(game) && <ActivityBookingSettings game={game} onChanged={() => { onChanged(); loadParticipants(); }} />}
       {paid || game.bookingRef ? <ActivityMoneyPanel gameId={game.id} /> : null}
       {/* OG-12 — the activity and its venue booking move together, or not at all. */}
@@ -603,6 +613,65 @@ export function ActivitiesTab() {
 
 /** OG-28 — what's recorded for this activity, side by side. Not netted: a
  * profit figure would need an approved rule for shared costs and timing. */
+/**
+ * Phase N — up to three questions for people joining, from an approved list
+ * (no own wording, so nothing sensitive can be asked). Only the host sees the
+ * answers. Hidden while HelloCircle hasn't switched the feature on.
+ */
+function HostQuestionsPanel({ gameId }: { gameId: string }) {
+  const [setup, setSetup] = useState<HostQuestionSetup | null>(null);
+  const [picks, setPicks] = useState<{ key: string; required: boolean }[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  useEffect(() => {
+    fetchGameQuestionSetup(gameId)
+      .then((r) => {
+        setSetup(r);
+        setPicks(r.picks);
+      })
+      .catch(() => setSetup(null));
+  }, [gameId]);
+  if (!setup?.enabled) return null;
+  const on = (key: string) => picks.some((p) => p.key === key);
+  const toggle = (key: string) => setPicks((ps) => (on(key) ? ps.filter((p) => p.key !== key) : ps.length >= setup.max ? ps : [...ps, { key, required: false }]));
+  const save = async () => {
+    setBusy(true);
+    setNote(null);
+    try {
+      await saveGameQuestions(gameId, picks);
+      setNote("Saved. People joining from now on are asked these.");
+    } catch (e) {
+      setNote(e instanceof Error ? e.message : "Couldn't save");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section aria-labelledby={`hq-${gameId}`} style={{ marginTop: 20 }}>
+      <SectionLabel>Questions for people joining</SectionLabel>
+      <p id={`hq-${gameId}`} style={{ margin: "0 0 8px", fontSize: 13, color: colors.muted }}>Pick up to {setup.max}. Only you see the answers.</p>
+      <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 6 }}>
+        {setup.library.map((l) => (
+          <li key={l.key} style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", fontSize: 13.5 }}>
+            <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <input type="checkbox" checked={on(l.key)} disabled={!on(l.key) && picks.length >= setup.max} onChange={() => toggle(l.key)} /> {l.label}
+            </label>
+            {on(l.key) && (
+              <label style={{ display: "flex", gap: 6, alignItems: "center", color: colors.muted }}>
+                <input type="checkbox" checked={picks.find((p) => p.key === l.key)?.required ?? false} onChange={(e) => setPicks((ps) => ps.map((p) => (p.key === l.key ? { ...p, required: e.target.checked } : p)))} /> Must be answered
+              </label>
+            )}
+          </li>
+        ))}
+      </ul>
+      <div style={{ marginTop: 10, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+        <Button variant="ghost" onClick={save} disabled={busy} aria-busy={busy || undefined}>{busy ? "Saving…" : "Save questions"}</Button>
+        {note && <span role="status" style={{ fontSize: 13 }}>{note}</span>}
+      </div>
+    </section>
+  );
+}
+
 function ActivityMoneyPanel({ gameId }: { gameId: string }) {
   const state = useAdminData(() => fetchActivityMoney(gameId), [gameId]);
   const money = (cents: number) => `€${(cents / 100).toFixed(2)}`;

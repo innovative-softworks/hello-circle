@@ -16,7 +16,7 @@ import crypto from "node:crypto";
 import { syncCreditUses } from "./credits.js";
 import type { CheckoutLineItem, CheckoutType } from "../checkoutService.js";
 import { db } from "../db/index.js";
-import { BPS, divRoundHalfUp, priceBreakdown, type PriceBreakdown, type PricingValues } from "./money.js";
+import { BPS, allocate, divRoundHalfUp, priceBreakdown, type PriceBreakdown, type PricingValues } from "./money.js";
 import { resolveRule, type ResolvedRule } from "./rules.js";
 import { commerceSwitch } from "./switches.js";
 import type { Category, Scenario } from "./catalog.js";
@@ -154,6 +154,9 @@ export interface QuoteInput {
   couponCode: string | null;
   clientId: string | null;
   residentId: string | null;
+  /** Participation Phase 1 — canonical requested lines (participation/lines.ts
+   * linesKey); null for a single-price order. Compared when consumed. */
+  linesKey?: string | null;
 }
 
 export async function createQuote(input: QuoteInput, price: EnginePrice): Promise<{ id: string; expiresAt: string }> {
@@ -161,8 +164,8 @@ export async function createQuote(input: QuoteInput, price: EnginePrice): Promis
   const expiresAt = new Date(Date.now() + QUOTE_TTL_MINUTES * 60_000);
   await db
     .prepare(
-      `INSERT INTO commerce_quotes (id, source_type, resource_id, session_id, quantity, coupon_code, client_id, resident_id, currency, customer_paid_minor, rule_hash, breakdown, expires_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO commerce_quotes (id, source_type, resource_id, session_id, quantity, coupon_code, client_id, resident_id, currency, customer_paid_minor, rule_hash, breakdown, expires_at, lines_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       id,
@@ -177,7 +180,8 @@ export async function createQuote(input: QuoteInput, price: EnginePrice): Promis
       price.breakdown.customerPaidMinor,
       price.resolved.hash,
       JSON.stringify(price.breakdown),
-      expiresAt.toISOString().slice(0, 19).replace("T", " ")
+      expiresAt.toISOString().slice(0, 19).replace("T", " "),
+      input.linesKey ?? null
     );
   return { id, expiresAt: expiresAt.toISOString() };
 }
@@ -201,6 +205,7 @@ export async function consumeQuote(tx: Tx, quoteId: string, input: QuoteInput, c
     (q.session_id ?? null) !== input.sessionId ||
     Number(q.quantity) !== input.quantity ||
     (q.coupon_code ?? null) !== input.couponCode ||
+    (q.lines_json ?? null) !== (input.linesKey ?? null) ||
     !sameIdentity
   ) {
     throw new QuoteError("This checkout doesn't match the price you were shown — please review the total again", "quote_mismatch");
@@ -231,7 +236,19 @@ export interface OrderInput {
   couponCode: string | null;
   paymentStatus: "pending" | "paid";
   line: { itemType: string; itemId: string; quantity: number; unitMinor: number };
+  /** Participation Phase 1 — several purchased lines instead of `line`. Their
+   * subtotals must add up to the breakdown's list price; discount, VAT and
+   * goods totals are spread across them (largest remainder) so the rows always
+   * reconcile exactly to the snapshot. */
+  lines?: { itemType: string; itemId: string; quantity: number; unitMinor: number }[];
   price: EnginePrice;
+}
+
+/** Spreads a total across weights exactly; zero weights get zero. */
+function spread(total: number, weights: number[]): number[] {
+  const sum = weights.reduce((a, w) => a + w, 0);
+  if (sum === 0) return weights.map((_, i) => (i === 0 ? total : 0));
+  return allocate(total, weights);
 }
 
 /** Creates the order, its line and its immutable pricing snapshot inside the
@@ -264,12 +281,28 @@ export async function createOrder(tx: Tx, input: OrderInput): Promise<string> {
       input.quoteId,
       input.price.resolved.hash
     );
-  await tx
-    .prepare(
-      `INSERT INTO commerce_order_lines (order_id, item_type, item_id, quantity, unit_minor, line_subtotal_minor, discount_minor, tax_minor, final_minor)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    )
-    .run(id, input.line.itemType, input.line.itemId, input.line.quantity, input.line.unitMinor, b.listMinor, b.discountMinor, b.vatMinor, b.goodsGrossMinor);
+  if (input.lines && input.lines.length > 0) {
+    const subtotals = input.lines.map((l) => l.unitMinor * l.quantity);
+    if (subtotals.reduce((a, v) => a + v, 0) !== b.listMinor) throw new Error("Order lines don't add up to the priced list amount");
+    const discounts = spread(b.discountMinor, subtotals);
+    const taxes = spread(b.vatMinor, subtotals);
+    const finals = spread(b.goodsGrossMinor, subtotals);
+    for (const [i, l] of input.lines.entries()) {
+      await tx
+        .prepare(
+          `INSERT INTO commerce_order_lines (order_id, item_type, item_id, quantity, unit_minor, line_subtotal_minor, discount_minor, tax_minor, final_minor)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run(id, l.itemType, l.itemId, l.quantity, l.unitMinor, subtotals[i], discounts[i], taxes[i], finals[i]);
+    }
+  } else {
+    await tx
+      .prepare(
+        `INSERT INTO commerce_order_lines (order_id, item_type, item_id, quantity, unit_minor, line_subtotal_minor, discount_minor, tax_minor, final_minor)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(id, input.line.itemType, input.line.itemId, input.line.quantity, input.line.unitMinor, b.listMinor, b.discountMinor, b.vatMinor, b.goodsGrossMinor);
+  }
   await tx
     .prepare(
       `INSERT INTO pricing_snapshots (order_id, engine_version, rule_hash, rule_sources, rule_values, currency, list_minor, discount_minor, coupon_code,

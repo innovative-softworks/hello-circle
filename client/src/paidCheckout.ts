@@ -16,6 +16,8 @@ interface AppConfig {
   circleFeatures?: Record<string, boolean>;
   /** Experience 3.0 switches. */
   experienceFeatures?: Record<string, boolean>;
+  /** Participation Phase 1 switches (circleFeatures.ts). */
+  participationFeatures?: Record<string, boolean>;
 }
 
 let cached: Promise<AppConfig | null> | null = null;

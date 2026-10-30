@@ -1,4 +1,7 @@
 import { useEffect, useState } from "react";
+import { QuestionsEditor } from "../components/experience/QuestionsEditor";
+import { FormAnswersPanel } from "../components/experience/FormAnswersPanel";
+import { useParticipationFeatures } from "../circleFeatures";
 import { CircleCreationBanner } from "../components/circle/CircleCreationBanner";
 import { HostChatButton } from "../components/HostChatButton";
 import { useNavigate, useParams } from "react-router-dom";
@@ -28,6 +31,8 @@ export function VendorProgramEditPage() {
   const [loadError, setLoadError] = useState(false);
   const [dirty, setDirty] = useState(false);
   const { requestNavigation, dialog: unsavedDialog } = useUnsavedChangesGuard(dirty);
+  // Phase H — the shared enrolment form builder, while the participation switch is on.
+  const participation = useParticipationFeatures();
 
   const load = () => {
     setLoadError(false);
@@ -72,7 +77,16 @@ export function VendorProgramEditPage() {
         ) : programId === "new" ? (
           <ProgramCreateForm listings={listings} onCreated={(newId) => navigate(`/vendor/programs/${newId}${window.location.search}`, { replace: true })} onDirtyChange={setDirty} />
         ) : (
-          <ProgramManager programId={programId} onChanged={() => fetchVendorProgram(programId).then((p) => setTitle(p.title)).catch(() => {})} />
+          <>
+            <ProgramManager programId={programId} onChanged={() => fetchVendorProgram(programId).then((p) => setTitle(p.title)).catch(() => {})} />
+            {participation["participation.attendees"] && (
+              <section aria-labelledby="programme-form" style={{ marginTop: 28 }}>
+                <h2 id="programme-form" style={{ fontSize: 18, margin: "0 0 12px" }}>Enrolment questions</h2>
+                <QuestionsEditor listing={{ listingType: "program", id: programId }} />
+                <FormAnswersPanel listing={{ listingType: "program", id: programId }} />
+              </section>
+            )}
+          </>
         )}
       </div>
       {unsavedDialog}

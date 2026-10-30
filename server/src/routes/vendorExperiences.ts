@@ -1,4 +1,5 @@
 import { assertCreatorStillMember } from "../orgStatus.js";
+import { assertCapability } from "../capabilities.js";
 import { flagReviewsAfterAttendanceChange, isAbsence } from "../reviewAttendanceFlags.js";
 import { cancelExperienceBookingAsProvider } from "../hallBookingCancel.js";
 import crypto from "node:crypto";
@@ -15,13 +16,14 @@ import { logEvent } from "../analytics.js";
 import { db } from "../db/index.js";
 import { irelandTodayIso, irelandWallTimeToUtc } from "../irelandTime.js";
 import { HOST_ATTENDANCE_STATUSES } from "../attendanceState.js";
-import { orgFeatureFlags } from "../db/queries.js";
 import { exceedsGalleryLimit, GALLERY_LIMITS } from "../media/quotas.js";
 import { notifyCancellation, notifyRefund } from "../notifications.js";
 import { notifyVendorFollowers } from "./follows.js";
 import { generateSlug } from "../slugify.js";
 import { ConflictError, invalidCoordinateReason } from "../util.js";
 import { noticeListingCancelled } from "../circlePlanNotices.js";
+import { OptionValidationError, OptionsVersionError, cleanOptionSet, listOptions, participationEventsOn, participationOptionsOn, replaceExperienceOptions } from "../participation/options.js";
+import { optionTaken, readOrderLinesFor } from "../participation/lines.js";
 
 // Adventures & Experiences — vendor-side CRUD, split out the same way
 // vendorListings.ts/vendorPrograms.ts are (see CLAUDE.md). Mounted under
@@ -36,7 +38,7 @@ export const vendorExperiencesRouter = Router();
 const EXPERIENCE_ROLES = ["centre_manager", "facility_manager"] as const;
 
 interface ExperienceInput {
-  kind?: "adventure" | "experience" | "volunteer";
+  kind?: "adventure" | "experience" | "volunteer" | "event";
   /** Release 5 — volunteer listings. */
   skillsRequired?: string;
   cause?: string;
@@ -70,7 +72,26 @@ interface ExperienceInput {
   images?: string[];
 }
 
-const EXPERIENCE_KINDS = ["experience", "adventure", "volunteer"] as const;
+const EXPERIENCE_KINDS = ["experience", "adventure", "volunteer", "event"] as const;
+
+/** Participation Phase 1 — a community event has no adventure facts: those
+ * fields are cleared whenever the effective kind is 'event'. */
+async function applyEventFields(tx: Pick<typeof db, "prepare">, id: string) {
+  await tx
+    .prepare(`UPDATE experiences SET difficulty = '', distance_km = NULL, elevation_gain_m = NULL, terrain_type = '', fitness_requirements = '' WHERE id = ? AND kind = 'event'`)
+    .run(id);
+}
+
+/** The organisation capability a listing kind needs on top of "experiences". */
+function kindCapability(kind: unknown): "events" | "volunteering" | null {
+  return kind === "event" ? "events" : kind === "volunteer" ? "volunteering" : null;
+}
+
+/** 'event' can only be chosen while participation.events is on. */
+async function eventKindRefusal(kind: unknown): Promise<string | null> {
+  if (kind !== "event") return null;
+  return (await participationEventsOn()) ? null : "Community events aren't available yet";
+}
 
 // Release 5 — volunteer-only fields (skills needed, cause, minimum age) and
 // the "volunteering is free" rule, applied after either the create INSERT
@@ -168,7 +189,9 @@ vendorExperiencesRouter.get("/experiences/:id", async (req, res) => {
   const row = await db.prepare(`SELECT * FROM experiences WHERE id = ?`).get(req.params.id);
   if (!row) return res.status(404).json({ error: "Not found" });
   const images = await db.prepare(`SELECT url FROM experience_images WHERE experience_id = ? ORDER BY sort_order`).all(req.params.id);
-  res.json(toVendorExperienceJson(row as Record<string, any>, (images as { url: string }[]).map((i) => i.url)));
+  // Participation Phase 1 — whether this listing sells through options.
+  const usesOptions = (await listOptions("experience", req.params.id)).some((o) => o.active);
+  res.json({ ...toVendorExperienceJson(row as Record<string, any>, (images as { url: string }[]).map((i) => i.url)), registration: { mode: usesOptions ? "options" : "single" } });
 });
 
 vendorExperiencesRouter.post("/experiences", requirePlatformRole(...EXPERIENCE_ROLES), async (req, res) => {
@@ -179,6 +202,8 @@ vendorExperiencesRouter.post("/experiences", requirePlatformRole(...EXPERIENCE_R
   // across later steps' PUTs, until POST /experiences/:id/publish flips it
   // to 'pending' once title+blurb are both actually present.
   if (!b.title) return res.status(400).json({ error: "A title is required" });
+  const eventRefusal = await eventKindRefusal(b.kind);
+  if (eventRefusal) return res.status(403).json({ error: eventRefusal });
   const numberError = invalidExperienceNumbers(b as Record<string, unknown>);
   if (numberError) return res.status(400).json({ error: numberError });
   const coordError = invalidCoordinateReason(b.lat, b.lng);
@@ -188,9 +213,10 @@ vendorExperiencesRouter.post("/experiences", requirePlatformRole(...EXPERIENCE_R
   }
   // Feature flags (implementation backlog #5) — admin can disable
   // Experiences for an org; server-enforced, not just a hidden button.
-  if (!(await orgFeatureFlags(req.user!.id)).experiences) {
-    return res.status(403).json({ error: "Experiences aren't enabled for your organisation" });
-  }
+  // Configuration framework Phase B — "experiences" plus the kind's own capability.
+  if (!(await assertCapability(req, res, "experiences"))) return;
+  const kindCap = kindCapability(b.kind);
+  if (kindCap && !(await assertCapability(req, res, kindCap))) return;
 
   const id = crypto.randomUUID();
   const slug = await generateSlug("experiences", b.title);
@@ -218,7 +244,7 @@ vendorExperiencesRouter.post("/experiences", requirePlatformRole(...EXPERIENCE_R
         id,
         slug,
         vendorId: req.user!.id,
-        kind: b.kind === "adventure" || b.kind === "volunteer" ? b.kind : "experience",
+        kind: b.kind === "adventure" || b.kind === "volunteer" || b.kind === "event" ? b.kind : "experience",
         title: b.title,
         area: b.area ?? "",
         county: b.county ?? "",
@@ -252,6 +278,7 @@ vendorExperiencesRouter.post("/experiences", requirePlatformRole(...EXPERIENCE_R
       await tx.prepare(`INSERT INTO experience_images (experience_id, url, sort_order) VALUES (?, ?, ?)`).run(id, url, i);
     }
     await applyVolunteerFields(tx, id, b);
+    await applyEventFields(tx, id);
   });
   const fromDemand = (req.body as { fromDemand?: string }).fromDemand;
   if (fromDemand) void logEvent("host_created_from_demand", { metadata: { kind: "experience", id, clusterKey: fromDemand, userId: req.user!.id } });
@@ -267,6 +294,15 @@ vendorExperiencesRouter.put("/experiences/:id", requirePlatformRole(...EXPERIENC
   const b = req.body as Partial<ExperienceInput>;
   // `kind` goes straight into the UPDATE below — only the real kinds.
   if (b.kind !== undefined && !EXPERIENCE_KINDS.includes(b.kind)) return res.status(400).json({ error: `kind must be one of: ${EXPERIENCE_KINDS.join(", ")}` });
+  const eventRefusal = await eventKindRefusal(b.kind);
+  if (eventRefusal) return res.status(403).json({ error: eventRefusal });
+  // Configuration framework Phase B — switching a listing INTO events or
+  // volunteering needs that capability; editing an existing one never does.
+  const kindCap = kindCapability(b.kind);
+  if (kindCap) {
+    const current = (await db.prepare(`SELECT kind FROM experiences WHERE id = ?`).get(req.params.id)) as { kind: string } | undefined;
+    if (current?.kind !== b.kind && !(await assertCapability(req, res, kindCap))) return;
+  }
   const coordError = invalidCoordinateReason(b.lat, b.lng);
   if (coordError) return res.status(400).json({ error: coordError });
   const numberError = invalidExperienceNumbers(b as Record<string, unknown>);
@@ -334,6 +370,7 @@ vendorExperiencesRouter.put("/experiences/:id", requirePlatformRole(...EXPERIENC
       }
     }
     await applyVolunteerFields(tx, req.params.id, b);
+    await applyEventFields(tx, req.params.id);
   });
   res.json({ ok: true });
 });
@@ -476,6 +513,17 @@ vendorExperiencesRouter.post("/experiences/:id/bookings/:bookingId/move", requir
       if (!startIsInFuture(target.date, target.time)) throw new ConflictError("That departure has already started");
       const { n } = (await tx.prepare(`SELECT COALESCE(SUM(party_size), 0) as n FROM experience_bookings WHERE session_id = ? AND ${occupiesCapacitySql()}`).get(target.id)) as { n: number | string };
       if (Number(n) + b.partySize > Number(target.cap)) throw new ConflictError("Not enough places left on that departure");
+      // Participation Phase 1 — each option bought must also fit its own limit there.
+      const limited = (await tx
+        .prepare(
+          `SELECT ol.option_id AS optionId, ol.line_kind AS kind, ol.quantity, ol.heads, o.capacity, o.label FROM order_lines ol JOIN offering_options o ON o.id = ol.option_id
+           WHERE ol.source_type = 'experience' AND ol.source_ref = ? AND o.capacity IS NOT NULL ORDER BY ol.option_id`
+        )
+        .all(b.ref)) as { optionId: string; kind: string; quantity: number; heads: number; capacity: number; label: string }[];
+      for (const l of limited) {
+        await tx.prepare(`SELECT id FROM offering_options WHERE id = ? FOR UPDATE`).get(l.optionId);
+        if ((await optionTaken(tx, l.optionId, target.id)) + Number(l.kind === "addon" ? l.quantity : l.heads) > Number(l.capacity)) throw new ConflictError(`Not enough places left for ${l.label} on that departure`);
+      }
       await tx.prepare(`UPDATE experience_bookings SET session_id = ? WHERE ref = ?`).run(target.id, b.ref);
       return { ref: b.ref, from: b.sessionId, to: target };
     });
@@ -673,5 +721,47 @@ vendorExperiencesRouter.get("/experiences/:id/bookings", requirePlatformRole(...
         .prepare(`SELECT booking_ref as ref, name FROM experience_booking_participants WHERE booking_ref IN (${rows.map(() => "?").join(",")}) ORDER BY booking_ref, seat`)
         .all(...rows.map((r) => r.ref))) as { ref: string; name: string }[])
     : [];
-  res.json(rows.map((r) => ({ ...r, participants: names.filter((n) => n.ref === r.ref).map((n) => n.name) })));
+  // Participation Phase 1 — what each booking bought (purchase snapshots).
+  const lines = await readOrderLinesFor("experience", rows.map((r) => r.ref));
+  res.json(rows.map((r) => ({ ...r, participants: names.filter((n) => n.ref === r.ref).map((n) => n.name), lines: lines.get(r.ref) ?? [] })));
+});
+
+// --- Participation Phase 1: registration options --------------------------------
+// Read: anyone who can see the listing's editor. Write: the same roles that
+// edit the listing, only while participation.options is on. A save replaces
+// the whole set under options_version (409 when someone saved in between).
+
+vendorExperiencesRouter.get("/experiences/:id/options", async (req, res) => {
+  if (!(await ownsExperience(req.vendorIds!, req.params.id))) return res.status(403).json({ error: "Not your listing" });
+  const row = (await db.prepare(`SELECT options_version FROM experiences WHERE id = ?`).get(req.params.id)) as { options_version: number } | undefined;
+  if (!row) return res.status(404).json({ error: "Not found" });
+  res.json({ options: await listOptions("experience", req.params.id), version: Number(row.options_version), enabled: await participationOptionsOn() });
+});
+
+vendorExperiencesRouter.put("/experiences/:id/options", requirePlatformRole(...EXPERIENCE_ROLES), async (req, res) => {
+  if (!(await ownsExperience(req.vendorIds!, req.params.id))) return res.status(403).json({ error: "Not your listing" });
+  if (!(await participationOptionsOn())) return res.status(404).json({ error: "Registration options aren't available yet" });
+  if (!(await assertCapability(req, res, "registration_options"))) return;
+  const { options, version } = (req.body ?? {}) as { options?: unknown; version?: unknown };
+  if (typeof version !== "number" || !Number.isInteger(version)) return res.status(400).json({ error: "Send the version you edited" });
+  const listing = (await db.prepare(`SELECT kind, status FROM experiences WHERE id = ?`).get(req.params.id)) as { kind: string; status: string } | undefined;
+  if (!listing || listing.status === "deleted") return res.status(404).json({ error: "Not found" });
+  try {
+    const clean = cleanOptionSet(options, { free: listing.kind === "volunteer" });
+    const before = await listOptions("experience", req.params.id);
+    const saved = await db.transaction(async (tx) => replaceExperienceOptions(tx, req.params.id, clean, version, req.user!.id));
+    await writeAudit({
+      actorUserId: req.user!.id,
+      action: "experience.options_saved",
+      objectType: "experience",
+      objectId: req.params.id,
+      previousValue: before.map((o) => ({ id: o.id, label: o.label, priceMinor: o.priceMinor, active: o.active })),
+      newValue: clean.map((o) => ({ id: o.id, label: o.label, priceMinor: o.priceMinor, active: o.active })),
+    });
+    res.json({ options: await listOptions("experience", req.params.id), version: saved.version });
+  } catch (e) {
+    if (e instanceof OptionsVersionError) return res.status(409).json({ error: e.message, code: "stale_options" });
+    if (e instanceof OptionValidationError) return res.status(400).json({ error: e.message, index: e.index, field: e.field });
+    throw e;
+  }
 });

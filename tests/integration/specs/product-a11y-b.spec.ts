@@ -63,6 +63,8 @@ test("HC-QA-068: search, host and Circle forms have programmatic labels", async 
       await page.fill("#game-location", "QA park");
       await page.fill("#game-date", "2030-07-15");
       await page.fill("#game-time", "18:30");
+      // Free or paid is a required choice on step 1 (the form says "Say whether it's free or paid").
+      await page.getByRole("radio", { name: "Free" }).check();
       await page.getByRole("button", { name: /Continue/ }).click();
       await expect(page.getByText("A few more details.")).toBeVisible();
       results["/games/host step 2"] = await unlabeledControls(page);

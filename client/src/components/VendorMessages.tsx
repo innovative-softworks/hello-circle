@@ -1,9 +1,25 @@
 import { BulkBar, RowMenu, useRowSelection } from "./admin/adminUi";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Award, Bell, CalendarDays, CheckCheck, Compass, GraduationCap, MessageSquare, Send, type LucideIcon } from "lucide-react";
-import { fetchVendorMessages, fetchVendorNotifications, markVendorNotificationRead, sendVendorMessage } from "../api";
-import { EmptyState, LoadErrorState } from "./ui";
+import {
+  fetchMessageTemplates,
+  fetchVendorExperienceSessions,
+  fetchVendorExperiences,
+  fetchVendorMessages,
+  fetchVendorNotifications,
+  fetchVendorProgram,
+  fetchVendorPrograms,
+  markVendorNotificationRead,
+  previewVendorMessage,
+  sendTestVendorMessage,
+  sendVendorMessage,
+  type MessageAudience,
+  type MessageListingType,
+  type MessagePreview,
+  type MessageTemplate,
+} from "../api";
+import { ConfirmDialog, EmptyState, LoadErrorState } from "./ui";
 import { AdminButton, AdminModal, Box, FormField, IconTabs } from "./admin/adminUi";
 import { agoLabel } from "./admin/timeLabels";
 import { useToast } from "./Toast";
@@ -15,29 +31,16 @@ import type { VendorListingSummary, VendorNotification } from "../types";
 // message composer — split out of the original single VendorDashboard.tsx
 // (see CLAUDE.md).
 
-// Preset copy (Host Manage spec §13) — plain client-side string templates,
-// not a server-managed template system: prefills subject/body with the
-// selected listing's name, the vendor edits from there. Attachments stay
-// out of scope — sendVendorMessage/vendor_messages have no attachment
-// column or upload path, and adding one is a separate feature.
-const MESSAGE_TEMPLATES: { key: string; label: string; subject: (name: string) => string; body: (name: string) => string }[] = [
-  { key: "reminder", label: "Event reminder", subject: (name) => `Reminder: your session at ${name} is coming up`, body: (name) => `Just a quick reminder that your upcoming session at ${name} is coming up soon — looking forward to seeing you.` },
-  { key: "location", label: "Location info", subject: (name) => `How to find ${name}`, body: (name) => `Here's how to find us at ${name}: [add directions, parking, and which entrance to use].` },
-  { key: "weather", label: "Weather update", subject: (name) => `Weather update — ${name}`, body: (name) => `A quick weather update ahead of your session at ${name}: [add whether it's still on, moved indoors, etc.].` },
-  { key: "cancellation", label: "Cancellation", subject: (name) => `${name} — cancelled`, body: (name) => `Unfortunately we need to cancel your upcoming session at ${name}. [add the reason and any next steps].` },
-  { key: "schedule", label: "Schedule change", subject: (name) => `${name} — schedule change`, body: (name) => `There's been a change to the schedule at ${name}: [add the new date/time].` },
-];
-
-// Composer (Tier 3) — sendVendorMessage/fetchVendorMessages existed with no
-// form anywhere to use them. Distinct from the automatic notification feed
-// below: this is a vendor-authored message to everyone with a paid
-// booking/registration on one listing. `lockTo` (Host Manage spec §8's
-// per-listing workspace) pins the composer to one listing and hides the
-// picker — used by VendorCentreEditPage.tsx/VendorClubEditPage.tsx's own
-// Messages sub-tab; the dashboard-wide MessagesTab below still passes the
-// full `listings` picker.
-type ListingOption = { listingType: "centre" | "club"; listingId: string; name: string };
-type SentMessage = { id: number; listingType: string; listingId: string; subject: string; body: string; createdAt: string };
+// Phase K (docs/participation-expansion/22) — the partner's message to the
+// people booked on one of their listings. The audience (listing, date or
+// session, and who: everyone confirmed, checked in, not checked in, or still
+// owing answers) is resolved by the server from the organisation's own
+// listing; the preview shows how many people and first names, never
+// addresses. Approved templates come from the server ({name} and {listing}
+// are filled in per person). "Send me a test" reaches only the sender. Each
+// compose has one idempotency key, so a double click or retry sends once.
+type ListingOption = { listingType: MessageListingType; listingId: string; name: string };
+type SentMessage = Awaited<ReturnType<typeof fetchVendorMessages>>[number];
 
 function listingOptions(listings: { centres: VendorListingSummary[]; clubs: VendorListingSummary[] }): ListingOption[] {
   return [
@@ -45,6 +48,9 @@ function listingOptions(listings: { centres: VendorListingSummary[]; clubs: Vend
     ...listings.clubs.map((c) => ({ listingType: "club" as const, listingId: c.id, name: c.name })),
   ];
 }
+
+const TYPE_NOUN: Record<MessageListingType, string> = { centre: "Hall", club: "Club", program: "Programme", experience: "Event or experience" };
+const newKey = () => `msg-${Array.from(crypto.getRandomValues(new Uint8Array(12)), (b) => b.toString(16).padStart(2, "0")).join("")}`;
 
 function useSentMessages() {
   const [sent, setSent] = useState<SentMessage[]>([]);
@@ -62,45 +68,126 @@ function useSentMessages() {
   return { sent, failed, load };
 }
 
-/** Listing picker (unless locked), templates, subject, message, send. */
+/** "12 people · in the app 5 sent · email 10 sent, 2 failed" — counts only. */
+export function deliveryLine(m: Pick<SentMessage, "recipientCount" | "delivery">): string {
+  const parts: string[] = [];
+  if (typeof m.recipientCount === "number") parts.push(`${m.recipientCount} ${m.recipientCount === 1 ? "person" : "people"}`);
+  const label: Record<string, string> = { sent: "sent", failed: "failed", queued: "waiting", sending: "sending", held_test_environment: "held (test site)", skipped_no_transport: "not sent (email off)", skipped_no_email: "no email" };
+  for (const [channel, counts] of Object.entries(m.delivery ?? {})) {
+    const bits = Object.entries(counts).map(([st, n]) => `${n} ${label[st] ?? st}`);
+    if (bits.length) parts.push(`${channel === "in_app" ? "in the app" : "email"} ${bits.join(", ")}`);
+  }
+  return parts.join(" · ");
+}
+
+/** Listing (unless locked), audience, template, subject, message, preview, test and send. */
 function ComposerFields({ options, locked, onSent }: { options: ListingOption[]; locked: boolean; onSent: (summary: string) => void }) {
+  const [extra, setExtra] = useState<ListingOption[]>([]);
+  const [extraLoaded, setExtraLoaded] = useState(locked);
+  const all = useMemo(() => [...options, ...extra], [options, extra]);
   const [target, setTarget] = useState(options[0] ? `${options[0].listingType}:${options[0].listingId}` : "");
+  const [templates, setTemplates] = useState<MessageTemplate[]>([]);
+  const [templateKey, setTemplateKey] = useState("custom");
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
-  const [sending, setSending] = useState(false);
+  const [sessions, setSessions] = useState<{ id: string; label: string }[]>([]);
+  const [sessionId, setSessionId] = useState("");
+  const [date, setDate] = useState("");
+  const [filter, setFilter] = useState<NonNullable<MessageAudience["filter"]>>("all");
+  const [preview, setPreview] = useState<MessagePreview | null>(null);
+  const [previewError, setPreviewError] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState<"test" | null>(null);
+  const [note, setNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const targetOption = options.find((o) => `${o.listingType}:${o.listingId}` === target);
+  const [idemKey, setIdemKey] = useState(newKey);
+  const targetOption = all.find((o) => `${o.listingType}:${o.listingId}` === target);
+
+  // The organisation's programmes and experiences/events (the dashboard list holds halls and clubs only).
+  useEffect(() => {
+    if (locked) return;
+    Promise.all([fetchVendorPrograms().catch(() => []), fetchVendorExperiences().catch(() => [])]).then(([programs, experiences]) => {
+      setExtra([
+        ...programs.filter((p) => p.status !== "archived").map((p) => ({ listingType: "program" as const, listingId: p.id, name: p.title })),
+        ...experiences.filter((e) => e.status !== "deleted").map((e) => ({ listingType: "experience" as const, listingId: e.id, name: e.title })),
+      ]);
+      setExtraLoaded(true);
+    });
+  }, [locked]);
+  // With no hall or club, start on the first programme or event once they load.
+  useEffect(() => {
+    if (!target && all[0]) setTarget(`${all[0].listingType}:${all[0].listingId}`);
+  }, [all, target]);
+  useEffect(() => {
+    fetchMessageTemplates().then((r) => setTemplates(r.templates)).catch(() => setTemplates([]));
+  }, []);
+  // Sessions to narrow to, for events/experiences and programmes.
+  useEffect(() => {
+    setSessions([]);
+    setSessionId("");
+    setDate("");
+    if (!targetOption) return;
+    const label = (d: { date: string; time: string }) => `${formatDate(d.date)} · ${d.time}`;
+    if (targetOption.listingType === "experience")
+      fetchVendorExperienceSessions(targetOption.listingId).then((rows) => setSessions(rows.map((x) => ({ id: x.id, label: label(x) })))).catch(() => undefined);
+    if (targetOption.listingType === "program")
+      fetchVendorProgram(targetOption.listingId).then((p) => setSessions((p.sessions ?? []).map((x) => ({ id: x.id, label: label(x) })))).catch(() => undefined);
+  }, [target]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const audience = (): MessageAudience | null =>
+    targetOption ? { listingType: targetOption.listingType, listingId: targetOption.listingId, sessionId: sessionId || null, date: date || null, filter } : null;
+  useEffect(() => {
+    const a = audience();
+    setPreview(null);
+    setPreviewError(false);
+    if (!a) return;
+    previewVendorMessage(a).then(setPreview).catch(() => setPreviewError(true));
+  }, [target, sessionId, date, filter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const applyTemplate = (key: string) => {
-    const template = MESSAGE_TEMPLATES.find((t) => t.key === key);
-    if (!template || !targetOption) return;
-    setSubject(template.subject(targetOption.name));
-    setBody(template.body(targetOption.name));
+    setTemplateKey(key);
+    const t = templates.find((x) => x.key === key);
+    if (!t || key === "custom") return;
+    setSubject(t.subject);
+    setBody(t.body);
   };
 
-  const send = async () => {
-    const [listingType, listingId] = target.split(":") as ["centre" | "club", string];
-    if (!listingType || !listingId || !subject.trim() || !body.trim()) return;
-    setSending(true);
+  const test = async () => {
+    const a = audience();
+    if (!a) return;
+    setBusy("test");
     setError(null);
     try {
-      const res = await sendVendorMessage({ listingType, listingId, subject: subject.trim(), body: body.trim() });
-      setSubject("");
-      setBody("");
-      onSent(`Sent to ${res.recipientCount} ${res.recipientCount === 1 ? "person" : "people"}.`);
-    } catch {
-      setError("You don't have permission to send messages — this needs the communications role.");
+      const r = await sendTestVendorMessage({ audience: a, subject, body });
+      setNote(r.sent === "sent" ? `Test sent to ${r.to} only.` : `Test prepared for ${r.to} — email isn't switched on here, so nothing was delivered.`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't send the test");
     } finally {
-      setSending(false);
+      setBusy(null);
     }
   };
 
+  const send = async () => {
+    const a = audience();
+    if (!a) return;
+    const r = await sendVendorMessage({ audience: a, templateKey, subject: subject.trim(), body: body.trim(), idempotencyKey: idemKey });
+    setConfirming(false);
+    setSubject("");
+    setBody("");
+    setTemplateKey("custom");
+    setIdemKey(newKey());
+    onSent(`${r.duplicate ? "Already sent" : "Sent"}: ${deliveryLine({ recipientCount: r.recipientCount, delivery: r.delivery })}.`);
+  };
+
+  const ready = !!targetOption && subject.trim() && body.trim();
+  if (extraLoaded && all.length === 0) return <p className="adm-note">You need an approved listing before you can message participants.</p>;
+  const listingName = targetOption?.name ?? "";
   return (
     <form
       noValidate
       onSubmit={(e) => {
         e.preventDefault();
-        send();
+        if (ready && preview && preview.recipients > 0) setConfirming(true);
       }}
       style={{ display: "flex", flexDirection: "column", gap: 14 }}
     >
@@ -108,41 +195,94 @@ function ComposerFields({ options, locked, onSent }: { options: ListingOption[];
         <FormField label="Listing">
           {(p) => (
             <select {...p} className="adm-select" value={target} onChange={(e) => setTarget(e.target.value)}>
-              {options.map((o) => (
+              {all.map((o) => (
                 <option key={`${o.listingType}:${o.listingId}`} value={`${o.listingType}:${o.listingId}`}>
-                  {o.name}
+                  {TYPE_NOUN[o.listingType]}: {o.name}
                 </option>
               ))}
             </select>
           )}
         </FormField>
       )}
-      <div className="adm-field">
-        <span>Start from a template</span>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-          {MESSAGE_TEMPLATES.map((t) => (
-            <button key={t.key} type="button" className="adm-chip ws-fchip" onClick={() => applyTemplate(t.key)}>
-              {t.label}
-            </button>
-          ))}
-        </div>
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+        {targetOption?.listingType === "centre" && (
+          <FormField label="Booking date (optional)">
+            {(p) => <input {...p} type="date" className="adm-input" value={date} onChange={(e) => setDate(e.target.value)} />}
+          </FormField>
+        )}
+        {sessions.length > 0 && (
+          <FormField label="Date (optional)">
+            {(p) => (
+              <select {...p} className="adm-select" value={sessionId} onChange={(e) => setSessionId(e.target.value)}>
+                <option value="">All dates</option>
+                {sessions.map((x) => (
+                  <option key={x.id} value={x.id}>{x.label}</option>
+                ))}
+              </select>
+            )}
+          </FormField>
+        )}
+        <FormField label="Who">
+          {(p) => (
+            <select {...p} className="adm-select" value={filter} onChange={(e) => setFilter(e.target.value as typeof filter)}>
+              <option value="all">Everyone with a confirmed booking</option>
+              <option value="checked_in">Only people checked in</option>
+              <option value="not_checked_in">Only people not checked in</option>
+              <option value="waiting_answers">Only people we're waiting on for answers</option>
+            </select>
+          )}
+        </FormField>
       </div>
+      <p role="status" className="adm-note" style={{ margin: 0 }} data-testid="message-preview">
+        {previewError
+          ? "Couldn't work out who this goes to."
+          : !preview
+            ? "Working out who this goes to…"
+            : preview.recipients === 0
+              ? "Nobody matches yet."
+              : `Goes to ${preview.recipients} ${preview.recipients === 1 ? "person" : "people"} (${preview.inApp} also in the app): ${preview.sample.join(", ")}${preview.more ? ` and ${preview.more} more` : ""}.${preview.emailHeldBack ? ` On this test site, ${preview.emailHeldBack} email${preview.emailHeldBack === 1 ? " is" : "s are"} held back.` : ""}`}
+      </p>
+      {templates.length > 0 && (
+        <FormField label="Template">
+          {(p) => (
+            <select {...p} className="adm-select" value={templateKey} onChange={(e) => applyTemplate(e.target.value)}>
+              {templates.map((t) => (
+                <option key={t.key} value={t.key}>{t.label}</option>
+              ))}
+            </select>
+          )}
+        </FormField>
+      )}
       <FormField label="Subject" required>
         {(p) => <input {...p} className="adm-input" value={subject} onChange={(e) => setSubject(e.target.value)} />}
       </FormField>
       <FormField label="Message" required>
-        {(p) => <textarea {...p} className="adm-input" rows={5} value={body} onChange={(e) => setBody(e.target.value)} style={{ resize: "vertical" }} />}
+        {(p) => <textarea {...p} className="adm-input" rows={7} value={body} onChange={(e) => setBody(e.target.value)} style={{ resize: "vertical" }} />}
       </FormField>
+      <p className="adm-note" style={{ margin: 0 }}>{"{name}"} becomes each person's first name and {"{listing}"} becomes {listingName || "the listing name"}. Replace anything in [brackets]. Email addresses are never shown to you or to other participants.</p>
+      {note && <p role="status" className="adm-note" style={{ margin: 0 }}>{note}</p>}
       {error && (
         <p role="alert" className="adm-field-error" style={{ margin: 0 }}>
           {error}
         </p>
       )}
-      <div>
-        <AdminButton type="submit" variant="primary" disabled={sending || !subject.trim() || !body.trim()}>
-          {sending ? "Sending…" : "Send to everyone with a paid booking"}
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <AdminButton type="submit" variant="primary" disabled={!ready || !preview || preview.recipients === 0}>
+          Review and send
+        </AdminButton>
+        <AdminButton onClick={test} disabled={!ready || busy === "test"} aria-busy={busy === "test" || undefined}>
+          {busy === "test" ? "Sending test…" : "Send me a test"}
         </AdminButton>
       </div>
+      <ConfirmDialog
+        open={confirming}
+        title={`Send to ${preview?.recipients ?? 0} ${preview?.recipients === 1 ? "person" : "people"}?`}
+        message={`"${subject.trim()}" goes to the people booked on ${listingName}${preview?.inApp ? `, ${preview.inApp} of them also in the app` : ""}. This can't be undone.`}
+        confirmLabel="Send"
+        cancelLabel="Not yet"
+        onConfirm={send}
+        onCancel={() => setConfirming(false)}
+      />
     </form>
   );
 }
@@ -159,14 +299,14 @@ function SentList({ sent, failed, onRetry, names }: { sent: SentMessage[]; faile
     );
   return (
     <ul className="adm-ov-list">
-      {sent.slice(0, 10).map((m) => (
+      {sent.slice(0, 20).map((m) => (
         <li key={m.id} className="adm-ov-row ws-q-row">
           <span className="adm-ov-tile">
             <Send size={17} strokeWidth={1.9} aria-hidden="true" />
           </span>
           <div className="adm-ov-main">
             <div className="adm-ov-title">{m.subject}</div>
-            <div className="adm-ov-detail">{[names?.get(`${m.listingType}:${m.listingId}`), m.body].filter(Boolean).join(" · ")}</div>
+            <div className="adm-ov-detail">{[names?.get(`${m.listingType}:${m.listingId}`), deliveryLine(m)].filter(Boolean).join(" · ")}</div>
           </div>
           <span className="adm-ov-kind">{formatDate(m.createdAt)}</span>
         </li>
@@ -400,20 +540,18 @@ export function MessagesTab({
         </Box>
       )}
 
-      <AdminModal open={composeOpen} onClose={onCloseCompose} title="New message" subtitle="Goes by email to everyone with a paid booking or registration on the listing you pick." wide>
-        {options.length === 0 ? (
-          <p className="adm-note">You need an approved listing before you can message participants.</p>
-        ) : (
-          <ComposerFields
-            options={options}
-            locked={false}
-            onSent={(summary) => {
-              toast.success(summary);
-              loadSent();
-              onCloseCompose();
-            }}
-          />
-        )}
+      <AdminModal open={composeOpen} onClose={onCloseCompose} title="New message" subtitle="Goes to the people booked on the listing you choose — in the app for signed-in residents, and by email." wide>
+        {/* Final validation: halls and clubs come from the dashboard; programmes and
+            events/experiences load inside the composer, so it renders either way. */}
+        <ComposerFields
+          options={options}
+          locked={false}
+          onSent={(summary) => {
+            toast.success(summary);
+            loadSent();
+            onCloseCompose();
+          }}
+        />
       </AdminModal>
     </div>
   );

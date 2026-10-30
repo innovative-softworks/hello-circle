@@ -1,0 +1,408 @@
+import { Router, type Request, type Response } from "express";
+import { requirePlatformRole } from "../auth.js";
+import { assertCapability, capabilityLimit } from "../capabilities.js";
+import { CLASS_LABELS, DATA_CLASSES, fieldPolicy, INPUT_TYPES, LIBRARY } from "../fieldRegistry.js";
+import { writeAudit } from "../audit.js";
+import { db } from "../db/index.js";
+import { ROSTER_ROLES } from "./vendorHelpers.js";
+import { readAttendeesFor, reconcile } from "../participation/attendees.js";
+import { readOrderLinesFor } from "../participation/lines.js";
+import { attendeesOn, checkinOn, specialCategoryQuestionsOn } from "../participation/options.js";
+import { activeQuestions, cleanQuestionSet, questionsVersion, QuestionError, readAnswersFor, replaceQuestions } from "../participation/questions.js";
+import { attendanceSummary, checkinsFor } from "../participation/checkin.js";
+import { cleanDraft, cleanTemplateMeta, createTemplate, discardDraft, findTemplate, getDraft, listTemplates, publishDraft, saveDraft, setTemplateStatus, usableTemplateQuestions, versionHistory, versionQuestions } from "../participation/forms.js";
+
+// Participation Phase 2 (docs/participation-expansion/11 X2–X3, 12) — the
+// partner side of attendees, registration questions and check-in staff for
+// an experience or event. Mounted under routes/vendor.ts (requireVendor +
+// attachVendorIds already ran). Each route names its role group, reusing the
+// existing ones:
+//   attendee list (names, contacts, answers) — ROSTER_ROLES, like the roster
+//   attendance summary (counts only)        — ROSTER_ROLES + read_only_analyst
+//   question set / check-in staff edits     — EXPERIENCE_ROLES (same two managers)
+// Finance and communications get nothing new here.
+
+export const vendorAttendeesRouter = Router();
+
+const EDIT_ROLES = ["centre_manager", "facility_manager"] as const;
+
+async function ownedExperience(req: Request, res: Response): Promise<{ id: string; title: string; vendorId: string } | null> {
+  const row = (await db.prepare(`SELECT id, title, vendor_id AS vendorId FROM experiences WHERE id = ?`).get(req.params.id)) as { id: string; title: string; vendorId: string } | undefined;
+  if (!row || !req.vendorIds!.includes(row.vendorId)) {
+    res.status(403).json({ error: "Not your listing" });
+    return null;
+  }
+  return row;
+}
+
+// --- attendees ---------------------------------------------------------------
+
+vendorAttendeesRouter.get("/experiences/:id/attendees", requirePlatformRole(...ROSTER_ROLES), async (req, res) => {
+  const exp = await ownedExperience(req, res);
+  if (!exp) return;
+  const sessionId = typeof req.query.sessionId === "string" && req.query.sessionId ? req.query.sessionId : null;
+  // Paid and refunded/cancelled ones too, so the partner sees why someone isn't on the door list.
+  const rows = (await db
+    .prepare(
+      `SELECT eb.ref, eb.session_id AS sessionId, eb.participant_name AS participantName, eb.email, eb.phone, eb.party_size AS partySize,
+              eb.status, eb.payment_status AS paymentStatus, eb.created_at AS createdAt, es.date, es.time
+       FROM experience_bookings eb JOIN experience_sessions es ON es.id = eb.session_id
+       WHERE eb.experience_id = ? AND eb.payment_status IN ('paid', 'refunded')${sessionId ? " AND eb.session_id = ?" : ""}
+       ORDER BY es.date, es.time, eb.participant_name`
+    )
+    .all(...(sessionId ? [exp.id, sessionId] : [exp.id]))) as {
+    ref: string;
+    sessionId: string;
+    participantName: string;
+    email: string;
+    phone: string;
+    partySize: number;
+    status: string;
+    paymentStatus: string;
+    createdAt: string;
+    date: string;
+    time: string;
+  }[];
+  const refs = rows.map((r) => r.ref);
+  const people = await readAttendeesFor("experience", rows.map((r) => ({ ref: r.ref, partySize: Number(r.partySize), participantName: r.participantName })));
+  const answers = await readAnswersFor("experience", refs);
+  const lines = await readOrderLinesFor("experience", refs);
+  const checks = await checkinsFor(refs);
+  res.json({
+    questions: await activeQuestions("experience", exp.id),
+    bookings: rows.map((r) => {
+      const ps = people.get(r.ref) ?? [];
+      const c = checks.get(r.ref) ?? [];
+      return {
+        ...r,
+        partySize: Number(r.partySize),
+        lines: (lines.get(r.ref) ?? []).map((l) => ({ lineNo: l.lineNo, kind: l.kind, label: l.label, quantity: l.quantity, heads: l.heads })),
+        attendees: ps.map((p) => {
+          const hit = c.find((x) => Number(x.attendee_no) === p.attendeeNo);
+          return { ...p, checkedInAt: hit ? new Date(hit.checked_in_at).toISOString() : null, checkinMethod: hit?.method ?? null };
+        }),
+        answers: answers.get(r.ref) ?? [],
+        issues: reconcile(ps, Number(r.partySize), lines.get(r.ref) ?? []),
+      };
+    }),
+  });
+});
+
+vendorAttendeesRouter.get("/experiences/:id/attendance-summary", requirePlatformRole(...ROSTER_ROLES, "read_only_analyst"), async (req, res) => {
+  const exp = await ownedExperience(req, res);
+  if (!exp) return;
+  res.json({ sessions: await attendanceSummary(exp.id) });
+});
+
+// --- registration questions ---------------------------------------------------
+
+vendorAttendeesRouter.get("/experiences/:id/questions", async (req, res) => {
+  const exp = await ownedExperience(req, res);
+  if (!exp) return;
+  const policy = await fieldPolicy();
+  res.json({
+    questions: await activeQuestions("experience", exp.id),
+    version: await questionsVersion(exp.id),
+    enabled: await attendeesOn(),
+    specialCategoryEnabled: await specialCategoryQuestionsOn(),
+    // Phase F — what the builder may offer: ready-made fields, allowed answer types, data classes.
+    library: LIBRARY.filter((f) => policy.library[f.key]),
+    allowedTypes: INPUT_TYPES.filter((t) => policy.customTypes[t]),
+    classes: DATA_CLASSES.map((c) => ({ key: c, label: CLASS_LABELS[c], exportable: policy.classes[c].exportable, retentionDays: policy.classes[c].retentionDays })),
+    // Phase G — the listing's category may suggest a form (Phase E), and any draft in progress.
+    suggestedFormType: await suggestedFormFor(exp.id),
+    draft: await getDraft(exp.id, await specialCategoryQuestionsOn()),
+  });
+});
+
+vendorAttendeesRouter.put("/experiences/:id/questions", requirePlatformRole(...EDIT_ROLES), async (req, res) => {
+  const exp = await ownedExperience(req, res);
+  if (!exp) return;
+  if (!(await attendeesOn())) return res.status(404).json({ error: "Registration questions aren't available yet" });
+  if (!(await assertCapability(req, res, "registration_questions", exp.vendorId))) return;
+  const { questions, version } = (req.body ?? {}) as { questions?: unknown; version?: unknown };
+  if (typeof version !== "number" || !Number.isInteger(version) || version < 0) return res.status(400).json({ error: "Send the version you edited" });
+  try {
+    const before = await activeQuestions("experience", exp.id);
+    const set = cleanQuestionSet(questions, await specialCategoryQuestionsOn(), await fieldPolicy());
+    const max = await capabilityLimit(exp.vendorId, "registration_questions", "max_questions");
+    if (set.length > max) return res.status(400).json({ error: `Your organisation can ask at most ${max} questions per listing` });
+    const saved = await replaceQuestions(exp.id, set, version, req.user!.id);
+    await writeAudit({
+      actorUserId: req.user!.id,
+      action: "experience.questions_saved",
+      objectType: "experience",
+      objectId: exp.id,
+      previousValue: { version, questions: before.map((q) => ({ key: q.key, label: q.label, inputType: q.inputType, required: q.required, doorVisible: q.doorVisible })) },
+      newValue: { version: saved.version, questions: saved.questions.map((q) => ({ key: q.key, label: q.label, inputType: q.inputType, required: q.required, doorVisible: q.doorVisible })) },
+    });
+    res.json({ questions: saved.questions, version: saved.version });
+  } catch (e) {
+    if (e instanceof QuestionError) return res.status(e.status).json({ error: e.message, code: e.code });
+    throw e;
+  }
+});
+
+// --- check-in staff for this listing -----------------------------------------
+// Members with the check-in-only role, assigned to the whole listing or to one
+// date. Managers and the owner already check in for every listing.
+
+vendorAttendeesRouter.get("/experiences/:id/checkin-staff", requirePlatformRole(...ROSTER_ROLES), async (req, res) => {
+  const exp = await ownedExperience(req, res);
+  if (!exp) return;
+  const orgId = req.user!.orgId ?? "";
+  const assignments = await db
+    .prepare(
+      `SELECT a.id, a.user_id AS userId, u.name, u.email, a.session_id AS sessionId, es.date, es.time, a.created_at AS createdAt
+       FROM listing_staff_assignments a JOIN users u ON u.id = a.user_id LEFT JOIN experience_sessions es ON es.id = a.session_id
+       WHERE a.org_id = ? AND a.listing_type = 'experience' AND a.listing_id = ? AND a.revoked_at IS NULL ORDER BY u.name, es.date`
+    )
+    .all(orgId, exp.id);
+  const members = await db
+    .prepare(`SELECT id, name, email FROM users WHERE org_id = ? AND role = 'vendor' AND invited_staff = 1 AND platform_role = 'checkin_staff' AND status = 'approved' ORDER BY name`)
+    .all(orgId);
+  res.json({ assignments, members, enabled: await checkinOn() });
+});
+
+vendorAttendeesRouter.post("/experiences/:id/checkin-staff", requirePlatformRole(...EDIT_ROLES), async (req, res) => {
+  const exp = await ownedExperience(req, res);
+  if (!exp) return;
+  if (!(await checkinOn())) return res.status(404).json({ error: "Door check-in isn't available yet" });
+  if (!(await assertCapability(req, res, "checkin", exp.vendorId))) return;
+  const { userId, sessionId } = (req.body ?? {}) as { userId?: unknown; sessionId?: unknown };
+  if (typeof userId !== "string" || !userId) return res.status(400).json({ error: "Choose a team member" });
+  const orgId = req.user!.orgId;
+  if (!orgId) return res.status(403).json({ error: "No organisation" });
+  const member = (await db
+    .prepare(`SELECT id, name FROM users WHERE id = ? AND org_id = ? AND role = 'vendor' AND invited_staff = 1 AND platform_role = 'checkin_staff' AND status = 'approved'`)
+    .get(userId, orgId)) as { id: string; name: string } | undefined;
+  if (!member) return res.status(400).json({ error: "Only members of your organisation with the Check-in only role can be assigned" });
+  let session: string | null = null;
+  if (sessionId !== undefined && sessionId !== null && sessionId !== "") {
+    if (typeof sessionId !== "string") return res.status(400).json({ error: "Choose a date" });
+    const s = await db.prepare(`SELECT id FROM experience_sessions WHERE id = ? AND experience_id = ?`).get(sessionId, exp.id);
+    if (!s) return res.status(400).json({ error: "That date isn't on this listing" });
+    session = sessionId;
+  }
+  const max = await capabilityLimit(exp.vendorId, "checkin", "max_staff");
+  const live = (await db.prepare(`SELECT COUNT(*) AS n FROM listing_staff_assignments WHERE listing_type = 'experience' AND listing_id = ? AND revoked_at IS NULL`).get(exp.id)) as { n: number };
+  if (Number(live.n) >= max) return res.status(409).json({ error: `This listing already has the most check-in assignments your organisation allows (${max})` });
+  const activeKey = `${member.id}:experience:${exp.id}:${session ?? "*"}`;
+  const ins = await db
+    .prepare(
+      `INSERT IGNORE INTO listing_staff_assignments (org_id, listing_type, listing_id, session_id, user_id, duty, active_key, created_by) VALUES (?, 'experience', ?, ?, ?, 'checkin', ?, ?)`
+    )
+    .run(orgId, exp.id, session, member.id, activeKey, req.user!.id);
+  if (ins.changes !== 1) return res.status(409).json({ error: `${member.name} is already assigned${session ? " to that date" : " to this listing"}` });
+  await writeAudit({ actorUserId: req.user!.id, action: "experience.checkin_staff_assigned", objectType: "experience", objectId: exp.id, newValue: { userId: member.id, sessionId: session } });
+  res.status(201).json({ ok: true });
+});
+
+vendorAttendeesRouter.delete("/experiences/:id/checkin-staff/:assignmentId", requirePlatformRole(...EDIT_ROLES), async (req, res) => {
+  const exp = await ownedExperience(req, res);
+  if (!exp) return;
+  const r = await db
+    .prepare(
+      `UPDATE listing_staff_assignments SET revoked_at = NOW(), revoked_by = ?, active_key = NULL
+       WHERE id = ? AND org_id = ? AND listing_type = 'experience' AND listing_id = ? AND revoked_at IS NULL`
+    )
+    .run(req.user!.id, req.params.assignmentId, req.user!.orgId ?? "", exp.id);
+  if (r.changes !== 1) return res.status(404).json({ error: "Assignment not found" });
+  await writeAudit({ actorUserId: req.user!.id, action: "experience.checkin_staff_revoked", objectType: "experience", objectId: exp.id, newValue: { assignmentId: req.params.assignmentId } });
+  res.json({ ok: true });
+});
+
+// --- export (configuration Phase F) ------------------------------------------------
+// The attendee list as CSV for the roster roles. Only answers to questions the
+// partner marked exportable AND whose data class the platform policy allows to
+// be exported; contact details and special categories are never included.
+// Every export is audited (who, which listing, how many rows).
+
+const csvCell = (v: unknown) => {
+  const t = v === null || v === undefined ? "" : String(v);
+  // Neutralise spreadsheet formulas and quote everything.
+  const safe = /^[=+\-@\t\r]/.test(t) ? `'${t}` : t;
+  return `"${safe.replace(/"/g, '""')}"`;
+};
+
+vendorAttendeesRouter.get("/experiences/:id/attendees.csv", requirePlatformRole(...ROSTER_ROLES), async (req, res) => {
+  const exp = await ownedExperience(req, res);
+  if (!exp) return;
+  const policy = await fieldPolicy();
+  const questions = (await activeQuestions("experience", exp.id)).filter((q) => q.exportable && q.inputType !== "info" && (DATA_CLASSES as readonly string[]).includes(q.category) && policy.classes[q.category as (typeof DATA_CLASSES)[number]].exportable);
+  const rows = (await db
+    .prepare(
+      `SELECT eb.ref, eb.participant_name AS participantName, eb.party_size AS partySize, eb.status, eb.payment_status AS paymentStatus, es.date, es.time
+       FROM experience_bookings eb JOIN experience_sessions es ON es.id = eb.session_id
+       WHERE eb.experience_id = ? AND eb.payment_status = 'paid' ORDER BY es.date, es.time, eb.participant_name`
+    )
+    .all(exp.id)) as { ref: string; participantName: string; partySize: number; status: string; paymentStatus: string; date: string; time: string }[];
+  const people = await readAttendeesFor("experience", rows.map((r) => ({ ref: r.ref, partySize: Number(r.partySize), participantName: r.participantName })));
+  const answers = await readAnswersFor("experience", rows.map((r) => r.ref));
+  const checks = await checkinsFor(rows.map((r) => r.ref));
+  const header = ["Date", "Time", "Booking", "Booking status", "Person", "Adult or child", "Option", "Looked after by", "Checked in", ...questions.map((q) => q.label)];
+  const lines = [header.map(csvCell).join(",")];
+  let count = 0;
+  for (const r of rows) {
+    const own = answers.get(r.ref) ?? [];
+    for (const p of (people.get(r.ref) ?? []).filter((x) => x.status === "active")) {
+      const hit = (checks.get(r.ref) ?? []).find((c) => Number(c.attendee_no) === p.attendeeNo);
+      const cell = (key: string, scope: string) => own.find((a) => a.key === key && a.attendeeNo === (scope === "booking" ? 0 : p.attendeeNo))?.display ?? "";
+      lines.push([r.date, r.time, r.ref, r.status === "cancelled" ? "Cancelled" : "Confirmed", p.name, p.personType === "child" ? "Child" : "Adult", p.lineLabel ?? "", p.guardianName ?? "", hit ? new Date(hit.checked_in_at).toISOString() : "", ...questions.map((q) => cell(q.key, q.scope))].map(csvCell).join(","));
+      count++;
+    }
+  }
+  await writeAudit({ actorUserId: req.user!.id, action: "experience.attendees_exported", objectType: "experience", objectId: exp.id, newValue: { rows: count, questions: questions.map((q) => q.key) } });
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="attendees-${exp.id}.csv"`);
+  res.send(lines.join("\r\n"));
+});
+
+// --- form builder: drafts, publish, history, templates (configuration Phase G) ---------
+// Same roles as the question set: anyone in the organisation (bar check-in-only)
+// reads; the two managers change. Writes need participation.attendees and the
+// organisation's registration_questions capability.
+
+async function suggestedFormFor(experienceId: string): Promise<string | null> {
+  const row = (await db
+    .prepare(`SELECT c.suggested_form AS f FROM listing_taxonomy lt JOIN taxonomy_categories c ON c.id = lt.category_id WHERE lt.listing_type = 'experience' AND lt.listing_id = ?`)
+    .get(experienceId)) as { f: string | null } | undefined;
+  return row?.f ?? null;
+}
+
+async function canEditForm(req: Request, res: Response, exp: { vendorId: string }): Promise<boolean> {
+  if (!(await attendeesOn())) {
+    res.status(404).json({ error: "Registration questions aren't available yet" });
+    return false;
+  }
+  return assertCapability(req, res, "registration_questions", exp.vendorId);
+}
+
+function formError(res: Response, e: unknown): boolean {
+  if (e instanceof QuestionError) {
+    res.status(e.status).json({ error: e.message, code: e.code });
+    return true;
+  }
+  return false;
+}
+
+vendorAttendeesRouter.put("/experiences/:id/questions/draft", requirePlatformRole(...EDIT_ROLES), async (req, res) => {
+  const exp = await ownedExperience(req, res);
+  if (!exp || !(await canEditForm(req, res, exp))) return;
+  try {
+    const questions = cleanDraft((req.body ?? {}).questions);
+    const base = await getDraft(exp.id, false);
+    await saveDraft(exp.id, questions, base?.baseVersion ?? (await questionsVersion(exp.id)), req.user!.id);
+    res.json({ draft: await getDraft(exp.id, await specialCategoryQuestionsOn()) });
+  } catch (e) {
+    if (!formError(res, e)) throw e;
+  }
+});
+
+vendorAttendeesRouter.delete("/experiences/:id/questions/draft", requirePlatformRole(...EDIT_ROLES), async (req, res) => {
+  const exp = await ownedExperience(req, res);
+  if (!exp) return;
+  res.json({ discarded: await discardDraft(exp.id) });
+});
+
+vendorAttendeesRouter.post("/experiences/:id/questions/publish", requirePlatformRole(...EDIT_ROLES), async (req, res) => {
+  const exp = await ownedExperience(req, res);
+  if (!exp || !(await canEditForm(req, res, exp))) return;
+  try {
+    const draft = await getDraft(exp.id, false);
+    const max = await capabilityLimit(exp.vendorId, "registration_questions", "max_questions");
+    if (draft && draft.questions.length > max) return res.status(400).json({ error: `Your organisation can ask at most ${max} questions per listing` });
+    const result = await publishDraft(exp.id, await specialCategoryQuestionsOn(), req.user!.id);
+    await writeAudit({
+      actorUserId: req.user!.id,
+      action: "experience.questions_published",
+      objectType: "experience",
+      objectId: exp.id,
+      previousValue: { questions: result.before.map((q) => ({ key: q.key, label: q.label })) },
+      newValue: { version: result.version, questions: result.questions.map((q) => ({ key: q.key, label: q.label, section: q.section, showIf: q.showIf })) },
+    });
+    res.json({ version: result.version, questions: result.questions });
+  } catch (e) {
+    if (!formError(res, e)) throw e;
+  }
+});
+
+vendorAttendeesRouter.get("/experiences/:id/questions/versions", async (req, res) => {
+  const exp = await ownedExperience(req, res);
+  if (!exp) return;
+  res.json({ versions: await versionHistory(exp.id) });
+});
+
+vendorAttendeesRouter.get("/experiences/:id/questions/versions/:version", async (req, res) => {
+  const exp = await ownedExperience(req, res);
+  if (!exp) return;
+  const v = Number(req.params.version);
+  if (!Number.isInteger(v) || v < 1) return res.status(400).json({ error: "Unknown version" });
+  res.json({ version: v, questions: await versionQuestions(exp.id, v) });
+});
+
+/** Fills the draft from a template or an older version (nothing goes live until publish). */
+vendorAttendeesRouter.post("/experiences/:id/questions/draft/from", requirePlatformRole(...EDIT_ROLES), async (req, res) => {
+  const exp = await ownedExperience(req, res);
+  if (!exp || !(await canEditForm(req, res, exp))) return;
+  const { templateId, version } = (req.body ?? {}) as { templateId?: unknown; version?: unknown };
+  let questions;
+  if (typeof templateId === "string") {
+    const t = await findTemplate(templateId, req.user!.orgId ?? null, await fieldPolicy());
+    if (!t || t.status !== "active") return res.status(404).json({ error: "Template not found" });
+    questions = t.scope === "platform" ? usableTemplateQuestions(t.questions, await fieldPolicy()) : t.questions;
+  } else if (typeof version === "number" && Number.isInteger(version)) {
+    questions = await versionQuestions(exp.id, version);
+    if (!questions.length && version !== 0) return res.status(404).json({ error: "Unknown version" });
+  } else {
+    return res.status(400).json({ error: "Choose a template or a version" });
+  }
+  await saveDraft(exp.id, questions, await questionsVersion(exp.id), req.user!.id);
+  res.json({ draft: await getDraft(exp.id, await specialCategoryQuestionsOn()) });
+});
+
+vendorAttendeesRouter.get("/form-templates", async (req, res) => {
+  res.json({ templates: await listTemplates(req.user!.orgId ?? null, req.query.archived === "1", await fieldPolicy()) });
+});
+
+/** Saves a set of questions (usually the current draft or live form) as an organisation template. */
+vendorAttendeesRouter.post("/form-templates", requirePlatformRole(...EDIT_ROLES), async (req, res) => {
+  const orgId = req.user!.orgId;
+  if (!orgId) return res.status(403).json({ error: "No organisation" });
+  try {
+    const meta = cleanTemplateMeta(req.body);
+    const set = cleanQuestionSet((req.body ?? {}).questions, await specialCategoryQuestionsOn(), await fieldPolicy());
+    const id = await createTemplate(orgId, meta, set, req.user!.id);
+    await writeAudit({ actorUserId: req.user!.id, action: "form_template.created", objectType: "form_template", objectId: id, newValue: { name: meta.name, formType: meta.formType, questions: set.length } });
+    res.status(201).json({ id });
+  } catch (e) {
+    if (!formError(res, e)) throw e;
+  }
+});
+
+vendorAttendeesRouter.post("/form-templates/:templateId/duplicate", requirePlatformRole(...EDIT_ROLES), async (req, res) => {
+  const orgId = req.user!.orgId;
+  if (!orgId) return res.status(403).json({ error: "No organisation" });
+  const policy = await fieldPolicy();
+  const t = await findTemplate(req.params.templateId, orgId, policy);
+  if (!t) return res.status(404).json({ error: "Template not found" });
+  try {
+    const set = cleanQuestionSet(t.scope === "platform" ? usableTemplateQuestions(t.questions, policy) : t.questions, await specialCategoryQuestionsOn(), policy);
+    const id = await createTemplate(orgId, { name: `${t.name} (copy)`.slice(0, 120), description: t.description, formType: t.formType }, set, req.user!.id);
+    await writeAudit({ actorUserId: req.user!.id, action: "form_template.duplicated", objectType: "form_template", objectId: id, newValue: { from: t.id } });
+    res.status(201).json({ id });
+  } catch (e) {
+    if (!formError(res, e)) throw e;
+  }
+});
+
+for (const [path, status] of [["archive", "archived"], ["restore", "active"]] as const) {
+  vendorAttendeesRouter.post(`/form-templates/:templateId/${path}`, requirePlatformRole(...EDIT_ROLES), async (req, res) => {
+    const orgId = req.user!.orgId;
+    if (!orgId || req.params.templateId.startsWith("platform:")) return res.status(403).json({ error: "HelloCircle's templates can't be changed — duplicate one instead" });
+    if (!(await setTemplateStatus(req.params.templateId, orgId, status))) return res.status(404).json({ error: "Template not found" });
+    await writeAudit({ actorUserId: req.user!.id, action: `form_template.${status}`, objectType: "form_template", objectId: req.params.templateId });
+    res.json({ ok: true });
+  });
+}
+

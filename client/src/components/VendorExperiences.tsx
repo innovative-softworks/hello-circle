@@ -863,7 +863,15 @@ export function BookingsPanel({ experienceId }: { experienceId: string }) {
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {bookings.map((b) => (
             <div key={b.id} style={{ fontSize: 13.5, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", background: colors.bg, borderRadius: radius.control, padding: "8px 12px" }}>
-              <span>{b.participantName} · party of {b.partySize} · {b.date} {b.time}</span>
+              <span>
+                {b.participantName} · party of {b.partySize} · {b.date} {b.time}
+                {/* Participation Phase 1 — what this booking bought (frozen at purchase). */}
+                {b.lines && b.lines.length > 0 && (
+                  <span style={{ display: "block", fontSize: 12.5, color: colors.muted }}>
+                    {b.lines.filter((l) => l.quantity > 0).map((l) => `${l.label} × ${l.quantity}`).join(" · ")}
+                  </span>
+                )}
+              </span>
               <span style={{ display: "flex", alignItems: "center", gap: 12 }}>
                 {b.status !== "cancelled" && b.date <= today && (
                   <ExperienceAttendance
@@ -923,11 +931,11 @@ export function VendorExperiencesTab({ onOpenExperience }: { onOpenExperience: (
     state.reload();
   };
 
-  const KIND_LABEL = { adventure: "Adventure", volunteer: "Volunteer", experience: "Experience" } as Record<string, string>;
+  const KIND_LABEL = { adventure: "Adventure", volunteer: "Volunteer", experience: "Experience", event: "Community event" } as Record<string, string>;
   const filters = useListFilters<VendorExperienceSummary>({
     search: (e) => [e.title],
     selects: [
-      { param: "kind", label: "Type", options: [{ value: "adventure", label: "Adventures" }, { value: "experience", label: "Experiences" }, { value: "volunteer", label: "Volunteering" }], get: (e) => e.kind },
+      { param: "kind", label: "Type", options: [{ value: "adventure", label: "Adventures" }, { value: "experience", label: "Experiences" }, { value: "volunteer", label: "Volunteering" }, { value: "event", label: "Community events" }], get: (e) => e.kind },
       { param: "status", label: "Status", options: [{ value: "draft", label: "Draft" }, { value: "pending", label: "Pending review" }, { value: "approved", label: "Live" }, { value: "rejected", label: "Rejected" }], get: (e) => e.status },
     ],
   });

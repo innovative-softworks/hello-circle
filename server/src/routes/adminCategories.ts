@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { categoryAccessIssues, FORM_TYPES, isFormType, isModerationPolicy, MODERATION_POLICIES, policyOf } from "../categoryPolicy.js";
 import { requireAdminPermission } from "../adminPermissions.js";
 import { writeAudit } from "../audit.js";
 import { db, getSetting, setSetting } from "../db/index.js";
@@ -52,6 +53,8 @@ function toJson(r: CategoryRow) {
     archivedAt: r.archived_at,
     seoTitle: r.seo_title,
     seoDescription: r.seo_description,
+    moderationPolicy: policyOf(r),
+    suggestedForm: r.suggested_form ?? null,
     rowVersion: r.row_version,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
@@ -99,6 +102,8 @@ adminCategoriesRouter.get("/", requireAdminPermission("taxonomy.view"), async (_
   }
   res.json({
     families: FAMILIES,
+    moderationPolicies: MODERATION_POLICIES,
+    formTypes: FORM_TYPES,
     categories: rows
       .filter((r) => !r.parent_id)
       .map((c) => ({
@@ -148,7 +153,33 @@ adminCategoriesRouter.get("/uncategorised", requireAdminPermission("taxonomy.vie
 });
 
 adminCategoriesRouter.get("/integrity", requireAdminPermission("taxonomy.view"), async (_req, res) => {
-  res.json(await integrityIssues());
+  // Phase E (D-A1) — organisation grants and suggested forms are checked too.
+  res.json([...(await integrityIssues()), ...(await categoryAccessIssues())]);
+});
+
+/** Phase E — live listings a partner moved into a review_required category. */
+adminCategoriesRouter.get("/review", requireAdminPermission("taxonomy.view"), async (_req, res) => {
+  const index = await loadTaxonomy();
+  const rows = (await db.prepare(`SELECT listing_type, listing_id, category_id, subcategory_id, assigned_at FROM listing_taxonomy WHERE needs_review = 1 ORDER BY assigned_at`).all()) as {
+    listing_type: TaxonomyListingType;
+    listing_id: string;
+    category_id: string;
+    subcategory_id: string | null;
+    assigned_at: string;
+  }[];
+  const out = [];
+  for (const r of rows) {
+    const t = (await titlesFor(r.listing_type, [r.listing_id])).get(String(r.listing_id));
+    out.push({ listingType: r.listing_type, listingId: r.listing_id, title: t?.title ?? "(removed)", status: t?.status ?? null, categoryId: r.category_id, categoryName: index.byId.get(r.category_id)?.name ?? r.category_id, subcategoryName: r.subcategory_id ? index.byId.get(r.subcategory_id)?.name ?? null : null, assignedAt: r.assigned_at });
+  }
+  res.json(out);
+});
+
+adminCategoriesRouter.post("/review/:type/:id/accept", requireAdminPermission("taxonomy.manage"), async (req, res) => {
+  const r = await db.prepare(`UPDATE listing_taxonomy SET needs_review = 0 WHERE listing_type = ? AND listing_id = ? AND needs_review = 1`).run(req.params.type, req.params.id);
+  if (r.changes !== 1) return res.status(404).json({ error: "Nothing to review" });
+  await writeAudit({ actorUserId: req.user!.id, action: "taxonomy.assignment_accepted", objectType: req.params.type, objectId: req.params.id });
+  res.json({ ok: true });
 });
 
 adminCategoriesRouter.get("/:id", requireAdminPermission("taxonomy.view"), async (req, res) => {
@@ -209,10 +240,20 @@ interface CategoryBody {
   featured?: boolean;
   seoTitle?: string | null;
   seoDescription?: string | null;
+  /** Configuration Phase E. */
+  moderationPolicy?: string;
+  suggestedForm?: string | null;
   rowVersion?: number;
 }
 
 const trimOrNull = (v: unknown, max: number) => (typeof v === "string" && v.trim() ? v.trim().slice(0, max) : null);
+
+/** Phase E fields: a known moderation policy and a known form type (or none). */
+function policyFieldsError(b: CategoryBody): { error: string; field: string } | null {
+  if (b.moderationPolicy !== undefined && !isModerationPolicy(b.moderationPolicy)) return { error: "Choose a review rule", field: "moderationPolicy" };
+  if (b.suggestedForm !== undefined && b.suggestedForm !== null && !isFormType(b.suggestedForm)) return { error: "Choose a registration form type", field: "suggestedForm" };
+  return null;
+}
 
 function validateFamilies(v: unknown): string[] | string {
   if (!Array.isArray(v) || v.length === 0) return "Choose at least one listing type";
@@ -239,6 +280,8 @@ adminCategoriesRouter.post("/", requireAdminPermission("taxonomy.manage"), async
   // A subcategory always applies to exactly its category's listing types.
   const families = parent ? familiesOf(parent) : validateFamilies(b.families);
   if (typeof families === "string") return res.status(400).json({ error: families, field: "families" });
+  const policyError = policyFieldsError(b);
+  if (policyError) return res.status(400).json(policyError);
   const siblings = [...index.byId.values()].filter((r) => (r.parent_id ?? null) === (parent?.id ?? null));
   const sortOrder = Number.isInteger(b.sortOrder) ? b.sortOrder! : Math.max(0, ...siblings.map((s) => s.sort_order)) + 10;
   await db
@@ -262,6 +305,9 @@ adminCategoriesRouter.post("/", requireAdminPermission("taxonomy.manage"), async
       trimOrNull(b.seoTitle, 120),
       trimOrNull(b.seoDescription, 300)
     );
+  if (b.moderationPolicy !== undefined || b.suggestedForm !== undefined) {
+    await db.prepare(`UPDATE taxonomy_categories SET moderation_policy = COALESCE(?, moderation_policy), suggested_form = ? WHERE id = ?`).run(b.moderationPolicy ?? null, b.suggestedForm ?? null, id);
+  }
   for (const alias of [normalizeAlias(name), normalizeAlias(id)]) {
     await db.prepare(`INSERT INTO taxonomy_aliases (alias_norm, category_id, source) VALUES (?, ?, 'slug') ON DUPLICATE KEY UPDATE alias_norm = alias_norm`).run(alias, id);
   }
@@ -292,6 +338,8 @@ adminCategoriesRouter.put("/:id", requireAdminPermission("taxonomy.manage"), asy
     }
     families = f;
   }
+  const policyError = policyFieldsError(b);
+  if (policyError) return res.status(400).json(policyError);
   const bool = (v: unknown, cur: number) => (typeof v === "boolean" ? (v ? 1 : 0) : Number(cur));
   const str = (v: unknown, cur: string | null, max: number) => (v === undefined ? cur : trimOrNull(v, max));
   const next = {
@@ -309,10 +357,17 @@ adminCategoriesRouter.put("/:id", requireAdminPermission("taxonomy.manage"), asy
   const info = await db
     .prepare(
       `UPDATE taxonomy_categories SET name = ?, description = ?, icon = ?, image_url = ?, sort_order = ?, active = ?, discoverable = ?, featured = ?, seo_title = ?, seo_description = ?,
-              families = COALESCE(?, families), row_version = row_version + 1
+              families = COALESCE(?, families), moderation_policy = ?, suggested_form = ?, row_version = row_version + 1
        WHERE id = ? AND row_version = ?`
     )
-    .run(next.name, next.description, next.icon, next.image_url, next.sort_order, next.active, next.discoverable, next.featured, next.seo_title, next.seo_description, families ? families.join(",") : null, row.id, row.row_version);
+    .run(
+      next.name, next.description, next.icon, next.image_url, next.sort_order, next.active, next.discoverable, next.featured, next.seo_title, next.seo_description,
+      families ? families.join(",") : null,
+      b.moderationPolicy ?? policyOf(row),
+      b.suggestedForm === undefined ? (row.suggested_form ?? null) : b.suggestedForm,
+      row.id,
+      row.row_version
+    );
   if (info.changes === 0) return res.status(409).json({ error: "Someone else changed this category. Reload to see their changes.", stale: true });
   // Subcategories follow their category's listing types.
   if (families) await db.prepare(`UPDATE taxonomy_categories SET families = ? WHERE parent_id = ?`).run(families.join(","), row.id);

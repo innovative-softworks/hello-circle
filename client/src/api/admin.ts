@@ -1368,3 +1368,73 @@ export function fetchAdminListingPage(f: { q?: string; type?: string; view?: str
 export function fetchAdminListingSummary(type: string, id: string): Promise<AdminListingRowData> {
   return request(`/admin/listings/${encodeURIComponent(type)}/${encodeURIComponent(id)}/summary`);
 }
+
+// Configuration framework Phase C — organisation capabilities (orgs.view / orgs.manage).
+export function fetchOrgCapabilities(orgId: string): Promise<import("../types").OrgCapabilityView> {
+  return request(`/admin/organisations/${orgId}/capabilities`);
+}
+/** Validates a change and says what it affects, without saving. Errors come back as { ok: false }. */
+export async function previewOrgCapabilities(orgId: string, change: import("../types").CapabilityChangeInput): Promise<import("../types").CapabilityPreview> {
+  try {
+    return await request(`/admin/organisations/${orgId}/capabilities/preview`, { method: "POST", body: JSON.stringify(change) });
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Couldn't check this change" };
+  }
+}
+export function saveOrgCapabilities(orgId: string, change: import("../types").CapabilityChangeInput & { configVersion: number; reason?: string }): Promise<import("../types").OrgCapabilityView> {
+  return request(`/admin/organisations/${orgId}/capabilities`, { method: "PUT", body: JSON.stringify(change) });
+}
+
+// Configuration framework Phase F — field registry and admin field policy.
+export type FieldInputType = "text" | "long_text" | "number" | "email" | "tel" | "date" | "select" | "multi_select" | "radio" | "checkbox" | "info";
+export type FieldDataClass = "general" | "logistics" | "dietary_preference" | "contact" | "personal";
+export interface FieldPolicyView {
+  version: number;
+  library: Record<string, boolean>;
+  customTypes: Record<FieldInputType, boolean>;
+  classes: Record<FieldDataClass, { retentionDays: number | null; exportable: boolean }>;
+}
+export interface LibraryFieldDef {
+  key: string;
+  fieldClass: "admin_configurable" | "vendor_configurable";
+  label: string;
+  purpose: string;
+  help: string;
+  scope: "booking" | "attendee";
+  inputType: FieldInputType;
+  choices: string[];
+  appliesTo: "all" | "adult" | "child";
+  dataClass: FieldDataClass;
+  enabledByDefault: boolean;
+}
+export interface AdminFieldsView {
+  policy: FieldPolicyView;
+  platformLocked: { key: string; label: string; scope: string; dataClass: string }[];
+  library: LibraryFieldDef[];
+  types: { key: FieldInputType; label: string }[];
+  classes: { key: FieldDataClass; label: string }[];
+  specialCategoryQuestions: boolean;
+  pastRetention: Record<string, number>;
+}
+export function fetchAdminFields(): Promise<AdminFieldsView> {
+  return request(`/admin/fields`);
+}
+export function saveFieldPolicy(input: { version: number; library?: Record<string, boolean>; customTypes?: Partial<Record<FieldInputType, boolean>>; classes?: Partial<Record<FieldDataClass, { retentionDays?: number | null; exportable?: boolean }>>; reason?: string }): Promise<{ policy: FieldPolicyView }> {
+  return request(`/admin/fields/policy`, { method: "PUT", body: JSON.stringify(input) });
+}
+
+
+// --- Phase L: governance summary (audit log by theme, retention counts, open privacy decisions) ---
+export interface GovernanceSummary {
+  days: number;
+  themes: { key: string; label: string; count: number; latest: { action: string; objectType: string; objectId: string; actorKind: string | null; actorEmail: string | null; at: string }[] }[];
+  indicators: { kind: string; text: string }[];
+  retention: {
+    medical: { columnPresent: boolean; registrations: number; withNote: number; byYear: { year: number; withNote: number }[]; firstMonth: string | null; lastMonth: string | null };
+    answersPastRetention: { class: string; retentionDays: number; answers: number }[] | string;
+  };
+  privacyReview: { key: string; label: string; status: string }[];
+}
+export function fetchGovernance(days: number): Promise<GovernanceSummary> {
+  return request(`/admin/governance?days=${days}`);
+}

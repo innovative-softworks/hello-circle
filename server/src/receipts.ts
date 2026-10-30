@@ -1,4 +1,5 @@
 // Commercial UX R3A — a resident's receipts: the list (every kind of paid
+import { readOrderLines, type OrderLineView } from "./participation/lines.js";
 // participation they own) and one receipt's detail.
 //
 // Rules (plan §5, R3A brief):
@@ -153,6 +154,8 @@ export interface ReceiptDetail {
   paidOnline: boolean;
   /** Never an invoice until the VAT model is confirmed. */
   isTaxInvoice: false;
+  /** Participation Phase 1 — what was bought, as frozen at purchase (experiences with options; [] otherwise). */
+  lines: OrderLineView[];
 }
 
 const n = (v: unknown) => Number(v ?? 0);
@@ -295,5 +298,6 @@ export async function receiptDetail(residentId: string, ref: string): Promise<Re
     netPaidCents: settled ? total + creditUsed - refundedCard - restoredCredit : null,
     paidOnline,
     isTaxInvoice: false,
+    lines: kind === "experience" ? await readOrderLines("experience", ref) : [],
   };
 }

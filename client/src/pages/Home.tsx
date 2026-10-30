@@ -1,4 +1,5 @@
 import { CtaBand } from "../components/CtaBand";
+import { experienceHref, experienceKindWord } from "../experienceKind";
 import { FeaturedPicks } from "../components/FeaturedPicks";
 import { fetchCategories, type PublicCategory } from "../api";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
@@ -577,7 +578,7 @@ export function Home() {
     const card = el.querySelector("li");
     el.scrollBy({ left: dir * ((card?.getBoundingClientRect().width ?? 300) + 16), behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
   };
-  const featuredHref = featuredExp ? `/${featuredExp.kind === "adventure" ? "adventures" : "experiences"}/${featuredExp.slug ?? featuredExp.id}` : "/experiences";
+  const featuredHref = featuredExp ? experienceHref(featuredExp.kind, featuredExp.slug ?? featuredExp.id) : "/experiences";
 
   return (
     <div ref={revealRef} className="hx">
@@ -1198,7 +1199,7 @@ export function Home() {
               <a className="hx-ocard" href={featuredHref} onClick={go(featuredHref)}>
                 <span className="hx-img">{featuredExp ? <img src={getMediaUrl(featuredExp.imageUrl, "card")} alt="" loading="lazy" decoding="async" /> : <Img k="outside" w={900} sizes="(max-width: 640px) 80vw, 31vw" />}</span>
                 <span className="hx-ocard-cap">
-                  <span className="hx-ocard-k">{featuredExp ? `Featured ${featuredExp.kind === "adventure" ? "adventure" : "experience"}` : "Experiences"}</span>
+                  <span className="hx-ocard-k">{featuredExp ? `Featured ${experienceKindWord(featuredExp.kind).toLowerCase()}` : "Experiences"}</span>
                   <strong>{featuredExp ? featuredExp.title : "Coastal experiences"}</strong>
                   <small>
                     {featuredExp
@@ -1382,7 +1383,7 @@ function kindLabel(item: DiscoverItem): string {
   if (k === "game") return "Activity";
   if (k === "program_session") return "Programme";
   if (k === "club_session") return "Club";
-  if (item.listingType === "experience") return item.experienceKind === "adventure" ? "Adventure" : "Experience";
+  if (item.listingType === "experience") return item.experienceKind === "adventure" || item.experienceKind === "event" ? experienceKindWord(item.experienceKind) : "Experience";
   return "Activity";
 }
 

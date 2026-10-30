@@ -84,7 +84,8 @@ test("HC-QA-043: a keyboard-focused control is never hidden behind the mobile co
       const clientId = await page.evaluate(() => localStorage.getItem("hello_circle_client_id"));
       expect((await page.request.post("/api/bookings/checkout", { headers: { "X-Client-Id": clientId! }, data: bookingBody(centre, "qa_focus@example.test") })).status()).toBe(201);
       await page.reload();
-      await page.getByRole("button", { name: /View full activity/ }).click();
+      // A guest's full list sits behind this expander in My Life 3.0.
+      await page.getByRole("button", { name: /Show all bookings, references and history/ }).click();
       const cancel = page.getByRole("button", { name: "Cancel", exact: true }).first();
       await cancel.focus();
       const hit = await cancel.evaluate((el) => { const r = el.getBoundingClientRect(); const t = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return !!t && (t === el || el.contains(t)); });

@@ -3,7 +3,7 @@ import { WhatToExpect, centreExpectFacts } from "../components/trust/WhatToExpec
 import { UnavailableListing, isUnavailable, type Unavailable } from "../components/UnavailableListing";
 import { usePageTitle } from "../pageTitle";
 import { useEffect, useState } from "react";
-import { isMinAgeRefusal } from "../gameCta";
+import { isMinAgeRefusal, needsJoinPage } from "../gameCta";
 import { TraderInfo } from "../components/TraderInfo";
 import { useToast } from "../components/Toast";
 import { dateLabel } from "../euro";
@@ -75,7 +75,7 @@ export function CentreDetail() {
       }
       setGames((rows) => rows.map((g) => (g.id === gameId ? { ...g, joined: g.joined + 1, spotsLeft: g.spotsLeft - 1 } : g)));
     } catch (e) {
-      if (isMinAgeRefusal(e)) return void navigate(`/games/${gameId}`);
+      if (needsJoinPage(e)) return void navigate(`/games/${gameId}`);
       toast.error(e instanceof Error ? e.message : "Couldn't join this session");
     } finally {
       setJoiningId(null);

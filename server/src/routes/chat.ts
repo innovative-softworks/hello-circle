@@ -1,6 +1,6 @@
 import { writeAudit } from "../audit.js";
 import { Router, type Request, type Response } from "express";
-import { orgSuspended, orgVendorIds, removedStaff } from "../auth.js";
+import { checkinOnly, orgSuspended, orgVendorIds, removedStaff } from "../auth.js";
 import { db } from "../db/index.js";
 import { ASSUMED_DURATION_MINUTES } from "../db/queries.js";
 import { irelandTodayIso, irelandWallTimeToUtc } from "../irelandTime.js";
@@ -189,7 +189,8 @@ async function hostActor(req: Request): Promise<Actor | null> {
   const u = req.user;
   if (!u || u.role !== "vendor" || u.status !== "approved") return null;
   // D-01 / D-08: no partner messaging while the organisation is suspended or after removal from it.
-  if (orgSuspended(u) || removedStaff(u)) return null;
+  // Participation Phase 2 — check-in-only staff don't message customers.
+  if (orgSuspended(u) || removedStaff(u) || checkinOnly(u)) return null;
   return { kind: "host", userId: u.id, vendorIds: await orgVendorIds(u), name: u.businessName || u.name };
 }
 

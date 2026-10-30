@@ -1,5 +1,5 @@
 import { getClientId } from "../clientId";
-import type { BookingConfirmation, Centre, Club, ExperienceKind, ProgramSummary, DiscoverFeed, DiscoverItem, ForYouSection, NewHereCircle, Experience, ExperienceBookingConfirmation, ExperienceSearchResult, IntentCount, LocalMomentumSignal, MapMarker, MapMarkerType, MyBooking, MyExperienceBooking, MyIntent, MyProgramEnrollment, MyRegistration, Program, ProgramEnrollmentConfirmation, ProviderProfile, RegistrationConfirmation, Review, SearchParsed, SearchResult } from "../types";
+import type { BookingConfirmation, Centre, Club, ExperienceKind, ProgramSummary, DiscoverFeed, DiscoverItem, ForYouSection, NewHereCircle, Experience, ExperienceBookingConfirmation, ExperienceSearchResult, IntentCount, LocalMomentumSignal, MapMarker, MapMarkerType, MyBooking, MyExperienceBooking, MyIntent, MyProgramEnrollment, MyRegistration, Program, QuotedLine, ProgramEnrollmentConfirmation, ProviderProfile, RegistrationConfirmation, Review, SearchParsed, SearchResult } from "../types";
 import { downloadIcs, request } from "./core";
 
 // Guest-facing browsing + transactions — no account needed. Centres/clubs,
@@ -48,6 +48,9 @@ export function fetchAvailabilityRange(centreId: string, roomId: string, from: s
 }
 
 export interface CreateBookingInput {
+  /** Phase H — answers to the organiser's form, with the version the page showed. */
+  answers?: import("../types").RegistrationAnswersInput;
+  questionsVersion?: number;
   centreId: string;
   roomId: string;
   date: string;
@@ -233,6 +236,9 @@ export function logReferralLand(ref: string, source?: string): Promise<{ ok: boo
 }
 
 export interface CreateRegistrationInput {
+  /** Phase H — answers to the organiser's form, with the version the page showed. */
+  answers?: import("../types").RegistrationAnswersInput;
+  questionsVersion?: number;
   clubId: string;
   /** Defaults server-side to "child" when omitted. */
   registrantType?: "child" | "adult";
@@ -551,7 +557,7 @@ export function fetchProgram(id: string): Promise<Program> {
 
 export function enrollInProgram(
   id: string,
-  input: { participantName: string; participantDob?: string; email: string; phone?: string; /** Booking UX Phase 4 — recorded with the enrolment. */ acceptedTerms?: boolean; /** R3A — re-validated by the server at enrolment. */ couponCode?: string }
+  input: { participantName: string; participantDob?: string; email: string; phone?: string; /** Booking UX Phase 4 — recorded with the enrolment. */ acceptedTerms?: boolean; /** R3A — re-validated by the server at enrolment. */ couponCode?: string; /** Phase H — the enrolment form. */ answers?: import("../types").RegistrationAnswersInput; questionsVersion?: number }
 ): Promise<{ ref: string; url?: string; totalEuro: number }> {
   return request(`/programs/${id}/enroll`, { method: "POST", body: JSON.stringify(input) });
 }
@@ -601,6 +607,12 @@ export function bookExperienceSession(
     meetsMinAge?: boolean;
     acceptedSafety?: boolean;
     acceptedTerms?: boolean;
+    /** Participation Phase 1 — [{ optionId, quantity }] for a listing with options. */
+    lines?: { optionId: string; quantity: number }[];
+    /** Participation Phase 2 — who is coming and the registration answers. */
+    attendees?: import("../types").AttendeeInput[];
+    answers?: import("../types").RegistrationAnswersInput;
+    questionsVersion?: number;
   }
 ): Promise<{ ref: string; url?: string; totalEuro: number }> {
   return request(`/experiences/${experienceId}/sessions/${sessionId}/checkout`, { method: "POST", body: JSON.stringify(input) });
@@ -631,8 +643,11 @@ export interface BookingQuote {
   couponDiscountCents?: number;
   /** R3A — the resident's credit left after this booking (server-computed). */
   creditBalanceAfterCents?: number | null;
+  /** Participation Phase 1 — the priced options (present when the listing sells options). */
+  lines?: QuotedLine[];
 }
-export function quoteExperienceSession(experienceId: string, sessionId: string, input: { partySize: number; couponCode?: string; useCredits?: boolean }): Promise<BookingQuote> {
+/** Participation Phase 1 — with options, send `lines` (partySize is then ignored). */
+export function quoteExperienceSession(experienceId: string, sessionId: string, input: { partySize: number; couponCode?: string; useCredits?: boolean; lines?: { optionId: string; quantity: number }[] }): Promise<BookingQuote> {
   return request(`/experiences/${experienceId}/sessions/${sessionId}/quote`, { method: "POST", body: JSON.stringify(input) });
 }
 
@@ -883,4 +898,24 @@ export function fetchBookingChange(token: string): Promise<BookingChangeView> {
 }
 export function respondToBookingChange(token: string, accept: boolean, note?: string): Promise<{ status: string; date: string; time: string }> {
   return request(`/booking-changes/respond`, { method: "POST", body: JSON.stringify({ token, accept, note }) });
+}
+
+// --- Participation Phase 2: the booker's own attendees and answers -------------
+
+/** Who is coming, their answers and check-in (the booker's device or resident account only). */
+/** Phase I — the booker's registration on any booking type (their own booking only). */
+export function fetchOrderRegistration(source: import("../types").OrderSource, ref: string): Promise<import("../types").OrderRegistration> {
+  return request(`/orders/${source}/${encodeURIComponent(ref)}/registration`);
+}
+export function saveOrderAnswers(source: import("../types").OrderSource, ref: string, answers: import("../types").RegistrationAnswersInput, questionsVersion: number): Promise<import("../types").OrderRegistration> {
+  return request(`/orders/${source}/${encodeURIComponent(ref)}/answers`, { method: "PUT", body: JSON.stringify({ answers, questionsVersion }) });
+}
+
+export function fetchBookingPeople(ref: string): Promise<import("../types").BookingPeopleDetails> {
+  return request(`/experiences/bookings/${encodeURIComponent(ref)}/details`);
+}
+
+/** Edit answers before the start; 409 `questions_changed` when the organiser changed them. */
+export function saveBookingAnswers(ref: string, answers: import("../types").RegistrationAnswersInput, questionsVersion: number): Promise<import("../types").BookingPeopleDetails> {
+  return request(`/experiences/bookings/${encodeURIComponent(ref)}/answers`, { method: "PUT", body: JSON.stringify({ answers, questionsVersion }) });
 }

@@ -205,9 +205,14 @@ test("CAT-PUBLIC: chips filter by category and subcategory, URL state, breadcrum
         const group = page.getByRole("group", { name: "Filter by category" });
         await group.getByRole("button", { name: /Racket sports/ }).click();
         await expect(page).toHaveURL(/category=racket-sports/);
-        await page.getByRole("group", { name: "Racket sports types" }).getByRole("button", { name: /Padel/ }).click();
+        // Owner 2026-10-23: a category's types are checkboxes in the "Refine" filter panel (the
+        // sidebar on desktop; the Filters dialog on a phone), not a second chip row.
+        if (viewport === "mobile") await page.locator(".games-filter-trigger").click();
+        await page.getByRole("checkbox", { name: /^Padel/ }).check();
         await expect(page).toHaveURL(/sub=padel/);
-        await expect(page.getByText(c.activityLabel).first()).toBeVisible();
+        if (viewport === "mobile") await page.keyboard.press("Escape");
+        // The card carries its title twice (photo caption and no-photo block); one is always hidden.
+        await expect(page.getByText(c.activityLabel).filter({ visible: true }).first()).toBeVisible();
         await expect(page.getByText(a.activityLabel)).toHaveCount(0);
         expect(await noHorizontalScroll(page), `no overflow (${viewport})`).toBe(true);
         // Back keeps URL state.

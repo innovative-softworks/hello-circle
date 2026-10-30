@@ -71,6 +71,7 @@ export function ListingCategoryFields({
     <div style={{ display: "grid", gap: 14 }}>
       <CategoryPicker
         family={family}
+        scope="partner"
         label={label}
         hint={hint}
         value={value.category}

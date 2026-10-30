@@ -14,6 +14,7 @@
     "seed-card-labels": "tsx src/scripts/seedCardLabels.ts",
     "migrate-legacy-uploads": "tsx src/scripts/migrateLegacyUploads.ts",
     "media-cleanup": "tsx src/scripts/mediaCleanup.ts",
+    "privacy-counts": "tsx src/scripts/privacyCounts.ts",
     "tester": "tsx src/scripts/tester.ts",
     "test": "tsx src/scripts/testIsolated.ts"
   },

@@ -1,4 +1,5 @@
 import { emptyCategoryDraft, ListingCategoryFields, saveListingCategory, useSavedClassification, type ListingCategoryDraft } from "./categories/ListingCategoryFields";
+import { useOrgCapabilities } from "../orgCapabilities";
 import { useEffect, useState } from "react";
 import { useConfirm } from "./ConfirmProvider";
 import type { ExperienceKind } from "../types";
@@ -17,6 +18,7 @@ import { MultiImageUpload } from "./VendorImageUpload";
 import { colors, fonts, radius } from "../theme";
 import type { Experience } from "../types";
 import { PaidClosedPriceNotice } from "./PaidClosedPriceNotice";
+import { useParticipationFeatures } from "../circleFeatures";
 
 // Guided Flow creation wizard for an Adventure/Experience listing (Form
 // System Audit, Phase 5 fast-follow to Centre/Club — same reasoning: this
@@ -73,7 +75,7 @@ function blankForm(): WizardForm {
   // Circles 3.1 — "Create an adventure" from a Circle opens this with ?kind=.
   const asked = new URLSearchParams(window.location.search).get("kind");
   return {
-    kind: asked === "adventure" || asked === "volunteer" ? asked : "experience",
+    kind: asked === "adventure" || asked === "volunteer" || asked === "event" ? asked : "experience",
     skillsRequired: "",
     cause: "",
     minAge: "",
@@ -116,6 +118,8 @@ export function ExperienceCreationWizard({
 }) {
   const navigate = useNavigate();
   const confirm = useConfirm();
+  const participation = useParticipationFeatures();
+  const capabilities = useOrgCapabilities();
   // Release 6 — "Create an experience" from a Host Opportunity prefills the
   // title and county; read once for a new listing only.
   const [searchParams] = useSearchParams();
@@ -360,18 +364,22 @@ export function ExperienceCreationWizard({
               >
                 <option value="experience">Experience</option>
                 <option value="adventure">Adventure</option>
-                <option value="volunteer">Volunteer opportunity</option>
+                {(capabilities?.volunteering !== false || form.kind === "volunteer") && <option value="volunteer">Volunteer opportunity</option>}
+                {/* Participation Phase 1 — only while community events are switched on (and, configuration Phase D, the organisation has them). */}
+                {((participation["participation.events"] && capabilities?.events !== false) || form.kind === "event") && <option value="event">Community event</option>}
               </select>
             </div>
-            <div>
-              <label htmlFor="experience-wizard-difficulty" style={labelStyle}>Difficulty (optional)</label>
-              <select id="experience-wizard-difficulty" value={form.difficulty} onChange={(e) => setForm({ difficulty: e.target.value })} style={inputStyle}>
-                <option value="">— none —</option>
-                <option value="easy">Easy</option>
-                <option value="moderate">Moderate</option>
-                <option value="challenging">Challenging</option>
-              </select>
-            </div>
+            {form.kind !== "event" && (
+              <div>
+                <label htmlFor="experience-wizard-difficulty" style={labelStyle}>Difficulty (optional)</label>
+                <select id="experience-wizard-difficulty" value={form.difficulty} onChange={(e) => setForm({ difficulty: e.target.value })} style={inputStyle}>
+                  <option value="">— none —</option>
+                  <option value="easy">Easy</option>
+                  <option value="moderate">Moderate</option>
+                  <option value="challenging">Challenging</option>
+                </select>
+              </div>
+            )}
           </div>
           <ListingCategoryFields
             key={categoryFamily(form.kind)}
@@ -486,6 +494,11 @@ export function ExperienceCreationWizard({
                 <label htmlFor="experience-wizard-price" style={labelStyle}>Price per person (€)</label>
                 <input id="experience-wizard-price" type="number" value={form.priceCents / 100} onChange={(e) => setForm({ priceCents: Math.round(Number(e.target.value) * 100) })} style={{ ...inputStyle, maxWidth: 140 }} />
                 <PaidClosedPriceNotice amount={form.priceCents} paymentMethod={form.paymentMethod} />
+                {participation["participation.options"] && (
+                  <p style={{ fontSize: 13, color: colors.mutedLight, margin: "6px 0 0" }}>
+                    Selling more than one option (for example a family registration and a single ticket)? Publish first, then add them in the Registration tab.
+                  </p>
+                )}
               </div>
             )}
             <NumberStepper label={form.kind === "volunteer" ? "Volunteers needed per session" : "Capacity per departure"} value={form.capacity} onChange={(n) => setForm({ capacity: n })} min={1} />
@@ -545,10 +558,12 @@ export function ExperienceCreationWizard({
               <label htmlFor="experience-wizard-equipment-required" style={labelStyle}>Equipment required</label>
               <textarea id="experience-wizard-equipment-required" value={form.equipmentRequired} onChange={(e) => setForm({ equipmentRequired: e.target.value })} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
             </div>
-            <div>
-              <label htmlFor="experience-wizard-fitness" style={labelStyle}>Fitness requirements</label>
-              <textarea id="experience-wizard-fitness" value={form.fitnessRequirements} onChange={(e) => setForm({ fitnessRequirements: e.target.value })} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
-            </div>
+            {form.kind !== "event" && (
+              <div>
+                <label htmlFor="experience-wizard-fitness" style={labelStyle}>Fitness requirements</label>
+                <textarea id="experience-wizard-fitness" value={form.fitnessRequirements} onChange={(e) => setForm({ fitnessRequirements: e.target.value })} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
+              </div>
+            )}
             <div>
               <label htmlFor="experience-wizard-eligibility" style={labelStyle}>Eligibility (e.g. minimum age)</label>
               <textarea id="experience-wizard-eligibility" value={form.eligibility} onChange={(e) => setForm({ eligibility: e.target.value })} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
@@ -613,7 +628,7 @@ export function ExperienceCreationWizard({
           {form.blurb && <p style={{ fontSize: 13.5, color: colors.mutedLight, margin: "4px 0 0" }}>{form.blurb}</p>}
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 13.5, color: colors.text }}>
-          <span>{form.kind === "adventure" ? "Adventure" : form.kind === "volunteer" ? "Volunteer opportunity" : "Experience"}{form.difficulty ? ` · ${form.difficulty}` : ""}</span>
+          <span>{form.kind === "adventure" ? "Adventure" : form.kind === "volunteer" ? "Volunteer opportunity" : form.kind === "event" ? "Community event" : "Experience"}{form.difficulty ? ` · ${form.difficulty}` : ""}</span>
           <span>{[form.area, form.county].filter(Boolean).join(", ") || "No location set"}</span>
           <span>{form.kind === "volunteer" ? `Free · ${form.capacity} volunteers needed` : `€${(form.priceCents / 100).toFixed(2)}/person · cap ${form.capacity}`} · {form.durationMinutes} min</span>
           <span>{form.images.length} photo{form.images.length === 1 ? "" : "s"}</span>

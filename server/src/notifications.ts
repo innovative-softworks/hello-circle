@@ -61,6 +61,8 @@ const PREF_KEY_BY_KIND: Partial<Record<NotifyResidentParams["kind"], string>> = 
   intent_match: "intentMatches",
   // Trust & Retention — one invitation per confirmed visit (myLifePlans.ts).
   review_invite: "reviewInvites",
+  // Phase K — the day-before reminder honours the existing "Booking reminders" setting.
+  reminder: "bookingReminders",
 };
 
 /** `residents.notification_prefs` was previously collected
@@ -83,7 +85,7 @@ export async function residentAllows(residentId: string, prefKey: string): Promi
 
 interface NotifyResidentParams {
   residentId: string;
-  kind: "booking" | "registration" | "program" | "experience" | "waitlist" | "game" | "intent_match" | "circle" | "provider_update" | "host_update" | "centre_update" | "invite" | "share" | "moderation" | "payment" | "mylife" | "review_invite";
+  kind: "booking" | "registration" | "program" | "experience" | "waitlist" | "game" | "intent_match" | "circle" | "provider_update" | "host_update" | "centre_update" | "invite" | "share" | "moderation" | "payment" | "mylife" | "review_invite" | "reminder" | "organiser_message";
   title: string;
   body: string;
   listingType: "centre" | "club" | "game" | "intent" | "circle" | "vendor" | "host" | "experience" | "program" | "place_suggestion" | "account";
@@ -121,7 +123,7 @@ function pushPathFor(params: NotifyResidentParams): string | undefined {
   // OG-05 — a payout or Pro payment problem opens the host's Earnings.
   if (params.kind === "payment") return "/manage?tab=earnings";
   // Trust & Retention — ref is "<kind>/<ref>" of the booking page, which shows the live attendance/review state.
-  if (params.kind === "review_invite") return `/bookings/${params.ref}`;
+  if (params.kind === "review_invite" || params.kind === "reminder" || params.kind === "organiser_message") return `/bookings/${params.ref}`;
   if (params.kind === "moderation") return params.listingType === "place_suggestion" ? "/suggest-place" : "/profile?tab=hosting";
   const base = DETAIL_PATH_BY_LISTING_TYPE[params.listingType];
   return base ? `${base}${params.listingId}` : undefined;
@@ -141,30 +143,35 @@ function pushPathFor(params: NotifyResidentParams): string | undefined {
  * PREF_KEY_BY_KIND). */
 export async function notifyResident(params: NotifyResidentParams) {
   try {
-    const prefKey = PREF_KEY_BY_KIND[params.kind];
-    if (prefKey && !(await residentAllows(params.residentId, prefKey))) return;
-    await insertResidentNotification.run({
-      residentId: params.residentId,
-      kind: params.kind,
-      title: params.title,
-      body: params.body,
-      listingType: params.listingType,
-      listingId: params.listingId,
-      ref: params.ref,
-    });
+    await notifyResidentWithOutcome(params);
   } catch (e) {
     console.error("[notifications] resident notify failed:", e);
   }
-  // Native push (Capacitor migration Phase 5) — same gating as the in-app
-  // notification above, but never allowed to affect it: a push failure
-  // (including an entirely unconfigured Firebase project) must not stop the
-  // in-app notification from having already been written.
+}
+
+/** Same delivery as notifyResident, but tells the caller what happened instead of
+ * swallowing it (the day-before reminder sweep records it). The in-app insert
+ * throws on failure; push stays best-effort and is reported, never thrown. */
+export async function notifyResidentWithOutcome(params: NotifyResidentParams): Promise<{ inApp: "sent" | "skipped_preference"; push: "sent" | "failed" | "skipped" }> {
+  const prefKey = PREF_KEY_BY_KIND[params.kind];
+  if (prefKey && !(await residentAllows(params.residentId, prefKey))) return { inApp: "skipped_preference", push: "skipped" };
+  await insertResidentNotification.run({
+    residentId: params.residentId,
+    kind: params.kind,
+    title: params.title,
+    body: params.body,
+    listingType: params.listingType,
+    listingId: params.listingId,
+    ref: params.ref,
+  });
+  // Native push (Capacitor migration Phase 5) — never allowed to affect the in-app
+  // notification above (including an entirely unconfigured Firebase project).
   try {
-    const prefKey = PREF_KEY_BY_KIND[params.kind];
-    if (prefKey && !(await residentAllows(params.residentId, prefKey))) return;
     await sendPush(params.residentId, { title: params.title, body: params.body, path: pushPathFor(params) });
+    return { inApp: "sent", push: "sent" };
   } catch (e) {
     console.error("[notifications] resident push failed:", e);
+    return { inApp: "sent", push: "failed" };
   }
 }
 
@@ -386,5 +393,28 @@ export async function notifyRefund(params: NotifyParams & { refundedCents: numbe
       subject: `Refund issued — ${listingName} (${ref})`,
       text: `A refund of ${amount} was issued for the ${noun} at ${listingName}.\nReference: ${ref}\n\n${detailsText}\n\nGuest: ${guestName} (${guestEmail})`,
     });
+  }
+}
+
+/**
+ * Phase K (docs/participation-expansion/20) — a resident changed their
+ * registration answers: the listing's partner gets an in-app note (never the
+ * answers themselves, which stay behind the roster roles on the record page).
+ * In-app only; never throws.
+ */
+export async function notifyAnswersChanged(params: { kind: NotifyParams["kind"]; listingType: string; listingId: string; listingName: string; vendorId: string | null; ref: string; changed: number }) {
+  if (!params.vendorId || params.changed === 0) return;
+  try {
+    await insertNotification.run({
+      recipientId: params.vendorId,
+      kind: params.kind,
+      title: `Registration answers updated: ${params.listingName}`,
+      body: `${params.ref}: ${params.changed} ${params.changed === 1 ? "answer was" : "answers were"} updated by the person who booked.`,
+      listingType: params.listingType,
+      listingId: params.listingId,
+      ref: params.ref,
+    });
+  } catch (e) {
+    console.error("[notifications] answers-changed notify failed:", e);
   }
 }

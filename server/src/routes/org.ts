@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { orgCapabilityStates } from "../capabilities.js";
 import { Router } from "express";
 import { requireVendor } from "../auth.js";
 import { writeAudit } from "../audit.js";
@@ -11,7 +12,7 @@ import { isValidEmail } from "../util.js";
 export const orgRouter = Router();
 orgRouter.use(requireVendor);
 
-const PLATFORM_ROLES = ["centre_manager", "facility_manager", "finance", "communications", "read_only_analyst"];
+const PLATFORM_ROLES = ["centre_manager", "facility_manager", "finance", "communications", "read_only_analyst", "checkin_staff"];
 
 // Organisation-as-entity + Staff (Phase C — Gate 2 from the plan doc). Every
 // vendor already has an org_id (backfilled 1:1 at boot for pre-existing
@@ -60,6 +61,8 @@ orgRouter.get("/", async (req, res) => {
   // proactively hide/disable a create button rather than only ever failing
   // server-side after the fact.
   const flags = await orgFeatureFlagsById(orgId);
+  // Configuration framework Phase B/D — what the organisation can use (effective).
+  const capabilities = Object.fromEntries((await orgCapabilityStates(orgId)).map((c) => [c.key, c.effective]));
 
   res.json({
     org,
@@ -69,6 +72,7 @@ orgRouter.get("/", async (req, res) => {
     locations,
     isOwner: !req.user!.invitedStaff,
     flags,
+    capabilities,
     logo: owner?.logo || null,
     description: owner?.description || null,
     website: owner?.website || null,

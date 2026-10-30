@@ -844,46 +844,9 @@ vendorOperationsRouter.post("/clubs/:id/waitlist/:entryId/offer", requirePlatfor
 // the rest of these vendor* files: any org member can see the org's sent
 // messages.
 
-interface MessageInput {
-  listingType: "centre" | "club";
-  listingId: string;
-  subject: string;
-  body: string;
-}
-
-vendorOperationsRouter.post("/messages", requirePlatformRole("communications"), async (req, res) => {
-  const b = req.body as MessageInput;
-  if (!b.listingType || !b.listingId || !b.subject || !b.body) return res.status(400).json({ error: "Missing required fields" });
-  const owns = b.listingType === "centre" ? await ownsCentre(req.vendorIds!, b.listingId) : await ownsClub(req.vendorIds!, b.listingId);
-  if (!owns) return res.status(403).json({ error: "Not your listing" });
-
-  const recipients = (
-    b.listingType === "centre"
-      ? await db.prepare(`SELECT DISTINCT email FROM bookings WHERE centre_id = ? AND payment_status = 'paid' AND status != 'cancelled'`).all(b.listingId)
-      : await db.prepare(`SELECT DISTINCT email FROM registrations WHERE club_id = ? AND payment_status = 'paid' AND status != 'cancelled'`).all(b.listingId)
-  ) as { email: string }[];
-
-  await db
-    .prepare(`INSERT INTO vendor_messages (vendor_id, listing_type, listing_id, subject, body) VALUES (?, ?, ?, ?, ?)`)
-    .run(req.user!.id, b.listingType, b.listingId, b.subject, b.body);
-
-  for (const r of recipients) {
-    await sendMail({ to: r.email, subject: b.subject, text: b.body }).catch((e) => console.error("[vendor messages] send failed:", e));
-  }
-
-  res.status(201).json({ ok: true, recipientCount: recipients.length });
-});
-
-vendorOperationsRouter.get("/messages", async (req, res) => {
-  const ids = req.vendorIds!;
-  const rows = await db
-    .prepare(
-      `SELECT id, listing_type as listingType, listing_id as listingId, subject, body, created_at as createdAt
-       FROM vendor_messages WHERE vendor_id IN (${inClause(ids)}) ORDER BY created_at DESC`
-    )
-    .all(...ids);
-  res.json(rows);
-});
+// Phase K — POST/GET /messages moved to routes/vendorMessages.ts (same paths,
+// same "communications" role for sending), with templates, audiences,
+// preview, idempotent sends and delivery status.
 
 // --- reviews reply (Host Manage spec §16) ---------------------------------
 // The organisation's own reviews and a reply. Trust & Retention batch 1:

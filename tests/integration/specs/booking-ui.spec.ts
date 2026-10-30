@@ -66,7 +66,10 @@ for (const viewport of ["desktop", "mobile"] as const) {
         await page.goto("/bookings");
         await expect(page.getByText(exp.title).first()).toBeVisible();
         await expect(page.getByText(hallRef).first()).toBeVisible();
-        await page.getByRole("button", { name: /View full activity/ }).click(); // bookings, references and history
+        // A guest's full list (bookings, references, history) sits behind this expander in My Life 3.0.
+        const all = page.getByRole("button", { name: /Show all bookings, references and history/ });
+        await all.click();
+        await expect(page.getByRole("button", { name: /Hide all bookings, references and history/ })).toHaveAttribute("aria-expanded", "true");
         const row = page.locator("div").filter({ hasText: hallRef }).filter({ has: page.getByRole("button", { name: "Cancel", exact: true }) }).last();
         const cancel = row.getByRole("button", { name: "Cancel", exact: true });
         await cancel.evaluate((el) => el.scrollIntoView({ block: "center" })); // a user scrolls the row into view
@@ -77,7 +80,7 @@ for (const viewport of ["desktop", "mobile"] as const) {
         await page.getByRole("alertdialog").getByRole("button", { name: "Cancel booking" }).click();
         await expect.poll(async () => (await rows(f, "SELECT status FROM bookings WHERE ref = ?", [hallRef]))[0].status).toBe("cancelled");
         await page.reload();
-        await page.getByRole("button", { name: /View full activity/ }).click();
+        await page.getByRole("button", { name: /Show all bookings, references and history/ }).click();
         await expect(page.getByText(hallRef).first()).toBeVisible(); // stays in history, marked cancelled
         expect(user.consoleErrors).toEqual([]);
         await evidence(`bk-ui-${viewport}`, { adventureBooked: true, partySize: booked.party_size, storedTotalCents: booked.total_cents, shownTotal: shownTotal ?? "n/a", hallViewedAndCancelled: true });

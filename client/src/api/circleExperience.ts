@@ -98,10 +98,12 @@ export function liftCircleRestriction(circleId: string, residentId: string): Pro
 // --- Admin: the five switches ---
 export interface CircleFeatureSetting {
   key: string;
-  group: "circles" | "experience";
+  group: "circles" | "experience" | "participation";
   label: string;
   description: string;
   enabled: boolean;
+  /** Can't be switched on until the owner approves it. */
+  locked?: boolean;
 }
 
 export function fetchCircleFeatureSettings(): Promise<{ features: CircleFeatureSetting[] }> {

@@ -12,7 +12,7 @@ test("REAL-AUTH-001: resident UI login, refresh, permission boundaries and logou
   const resident = async () => (await (await page.request.get("/api/residents/me")).json()).resident;
   expect((await resident()).id).toBe(personas.QA_USER.id);
   await page.reload();
-  await expect(page.getByRole("heading", { name: "Sign in to edit your profile." })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Sign in to see your account." })).toHaveCount(0);
   expect((await resident()).id).toBe(personas.QA_USER.id);
   expect((await page.request.get("/api/admin/stats")).status()).toBe(401);
   expect((await page.request.get("/api/vendor/listings")).status()).toBe(401);
@@ -27,7 +27,7 @@ test("REAL-AUTH-001: resident UI login, refresh, permission boundaries and logou
   await expect.poll(resident).toBeNull();
   expect((await page.request.get("/api/residents/me/receipts")).status()).toBe(401);
   await page.goto("/profile");
-  await expect(page.getByRole("heading", { name: "Sign in to edit your profile." })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Sign in to see your account." })).toBeVisible();
 });
 
 for (const persona of ["QA_HOST", "QA_VENDOR", "QA_ADMIN"] as const) {
@@ -88,7 +88,7 @@ test("REAL-AUTH-GUEST: guest and invalid session cannot access protected resourc
   await context.addCookies([{ name: "hello_circle_guest_session", value: "invalid-qa-session", url: env.E2E_BASE_URL }]);
   expect((await page.request.get("/api/residents/me/receipts")).status()).toBe(401);
   await page.goto("/profile");
-  await expect(page.getByRole("heading", { name: "Sign in to edit your profile." })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Sign in to see your account." })).toBeVisible();
 });
 
 test("REAL-AUTH-FORM: empty submit disabled and malformed email rejected in browser", async ({ page }) => {

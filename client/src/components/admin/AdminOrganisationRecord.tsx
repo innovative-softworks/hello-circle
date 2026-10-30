@@ -18,7 +18,7 @@ import { AdminButton, Badge, OverflowMenu, StatusTag, formatDate, useAdminData }
 const TYPE_LABEL: Record<string, string> = { centre: "Community centres", club: "Sports clubs", experience: "Experiences", programme: "Programmes" };
 const LIVE: Record<string, string> = { centre: "approved", club: "approved", experience: "approved", programme: "published" };
 
-export function OrganisationRecord({ orgId, backLabel, onBack, onOpenVendor, onChanged, flags }: { orgId: string; backLabel: string; onBack: () => void; onOpenVendor: (id: string) => void; onChanged: () => void; flags?: React.ReactNode }) {
+export function OrganisationRecord({ orgId, backLabel, onBack, onOpenVendor, onChanged, flags, categories }: { orgId: string; backLabel: string; onBack: () => void; onOpenVendor: (id: string) => void; onChanged: () => void; flags?: React.ReactNode; categories?: React.ReactNode }) {
   const state = useAdminData(() => fetchAdminOrganisation(orgId), [orgId]);
   const can = useAdminCan();
   const toast = useToast();
@@ -157,12 +157,13 @@ export function OrganisationRecord({ orgId, backLabel, onBack, onOpenVendor, onC
           })}
         />
       </DetailSection>
-      {flags && <DetailSection title="Feature flags">{flags}</DetailSection>}
+      {flags && <DetailSection title="Capabilities" note="What this organisation may use. HelloCircle-wide switches and payment rules still apply on top.">{flags}</DetailSection>}
+      {categories && <DetailSection title="Allowed categories" note="Which categories this organisation's partners can choose for new listings. Listings keep the category they already have.">{categories}</DetailSection>}
       <DetailSection title="Decisions">
         <DecisionHistory objectType="organisation" objectId={org.id} currentNeedsReason={suspended} refreshKey={org.status} />
       </DetailSection>
       <DetailSection title="Activity">
-        <ObjectActivity objectIds={[org.id]} note="Suspensions, reinstatements and feature-flag changes are recorded." />
+        <ObjectActivity objectIds={[org.id]} note="Suspensions, reinstatements and capability changes are recorded." />
       </DetailSection>
 
       <ConfirmDialog

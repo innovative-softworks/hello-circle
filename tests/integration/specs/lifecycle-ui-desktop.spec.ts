@@ -36,6 +36,8 @@ test("LC-UI-DESKTOP-HOST: create Circle, create official plan, draft activity, p
       await page.locator("#game-location").fill("QA UI meeting point");
       await page.locator("#game-date").fill("2030-09-20");
       await page.locator("#game-time").fill("18:00");
+      // Free or paid is a required choice on step 1 ("Say whether it's free or paid").
+      await page.getByRole("radio", { name: "Free", exact: true }).check();
       await page.getByRole("button", { name: "Continue →" }).click();
       await page.getByRole("button", { name: "Create session", exact: true }).click();
       await expect(page).toHaveURL(new RegExp(`/manage/circles/${circle.id}`));
@@ -55,6 +57,8 @@ test("LC-UI-DESKTOP-HOST: create Circle, create official plan, draft activity, p
       await page.locator("#game-location").fill("QA UI park");
       await page.locator("#game-date").fill("2030-09-21");
       await page.locator("#game-time").fill("09:30");
+      // Free or paid is a required choice on step 1 ("Say whether it's free or paid").
+      await page.getByRole("radio", { name: "Free", exact: true }).check();
       await page.getByRole("button", { name: "Continue →" }).click();
       await page.getByRole("radio", { name: /Save as draft/ }).check();
       await page.getByRole("button", { name: "Create session", exact: true }).click();
@@ -112,13 +116,14 @@ test("LC-UI-DESKTOP-PARTICIPANT: discover, join, refresh persistence, leave, Cir
       await cardLink.click({ position: { x: 30, y: hit.height - 30 } }); // where a real click reaches the link
       await expect(page).toHaveURL(new RegExp(`/games/${game.id}`));
       await page.getByRole("button", { name: "Join activity", exact: true }).click();
-      await page.getByRole("button", { name: "Confirm I'm in" }).click();
-      await expect(page.getByRole("button", { name: "View activity" })).toBeVisible(); // joined confirmation state
+      // One tap for a free, open activity (owner 2026-10-27): no confirm step, an Undo instead.
+      await expect(page.locator(".booking-undo").filter({ hasText: "You're in" })).toBeVisible();
+      await expect(page.getByRole("article", { name: "Activity pass: You're going" })).toBeVisible(); // joined state
       mark("reload"); await page.reload(); // refresh/session persistence
-      await expect(page.getByRole("button", { name: "Leave session" }).first()).toBeVisible();
+      await expect(page.getByRole("button", { name: "Can't make it? Leave this activity" }).first()).toBeVisible();
       expect((await rows(f, "SELECT status FROM game_participants WHERE game_id = ? AND resident_id = ?", [game.id, personas.QA_USER.id]))).toEqual([{ status: "joined" }]);
       mark("leave");
-      await page.getByRole("button", { name: "Leave session" }).first().click();
+      await page.getByRole("button", { name: "Can't make it? Leave this activity" }).first().click();
       await page.getByRole("alertdialog").getByRole("button", { name: "Leave session" }).click();
       await expect(page.getByRole("button", { name: "Join activity", exact: true })).toBeVisible();
       expect((await rows(f, "SELECT status FROM game_participants WHERE game_id = ? AND resident_id = ?", [game.id, personas.QA_USER.id]))).toEqual([{ status: "cancelled" }]);

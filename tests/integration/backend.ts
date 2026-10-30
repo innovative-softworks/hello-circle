@@ -2,7 +2,13 @@ import { randomUUID } from "node:crypto";
 import net from "node:net";
 import http from "node:http";
 import { connectedPreflight } from "./runtime";
-import { qaWebhookSecretOk } from "../support/integration-safety";
+import { qaPorts, qaWebhookSecretOk } from "../support/integration-safety";
+
+// The run's own ports (QA_PORT_OFFSET, 0 = 13306/4311). The run's DB_PORT and
+// PORT must agree with them, or the backend refuses to start.
+const QA_DB_PORT = qaPorts(process.env).db;
+const QA_API_PORT = qaPorts(process.env).api;
+if (process.env.DB_PORT !== String(QA_DB_PORT) || process.env.PORT !== String(QA_API_PORT)) throw new Error("QA SAFETY ABORT: Backend ports don't match the isolated run.");
 
 async function main() {
   const checked = await connectedPreflight();
@@ -21,7 +27,7 @@ async function main() {
       providerConnections++;
       return (connect as any).apply(this, args);
     }
-    if (typeof options !== "object" || options.host !== "127.0.0.1" || Number(options.port) !== 13306) {
+    if (typeof options !== "object" || options.host !== "127.0.0.1" || Number(options.port) !== QA_DB_PORT) {
       blockedOutboundAttempts++;
       throw new Error("QA SAFETY ABORT: Backend outbound connection blocked.");
     }
@@ -29,8 +35,8 @@ async function main() {
   };
   const listen = net.Server.prototype.listen;
   net.Server.prototype.listen = function (...args: any[]): any {
-    if (Number(args[0]) !== 4311) throw new Error("QA SAFETY ABORT: Unexpected backend listener.");
-    return (listen as any).call(this, 4311, "127.0.0.1", ...args.slice(1));
+    if (Number(args[0]) !== QA_API_PORT) throw new Error("QA SAFETY ABORT: Unexpected backend listener.");
+    return (listen as any).call(this, QA_API_PORT, "127.0.0.1", ...args.slice(1));
   };
   // Email's no-SMTP fallback logs token-bearing mail bodies. Never retain app logs in auth QA.
   console.log = console.info = console.warn = console.error = () => {};

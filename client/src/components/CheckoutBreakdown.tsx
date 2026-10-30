@@ -13,10 +13,22 @@ import { formatCents } from "./booking/quoteLines";
 const TEST_IDS: Partial<Record<CheckoutRowKey, string>> = { coupon: "breakdown-coupon", credit: "breakdown-credit", discount: "breakdown-coupon", total: "breakdown-card" };
 
 export function CheckoutBreakdown({ quote, unitPriceCents }: { quote: BookingQuote; unitPriceCents: number }) {
-  const rows = checkoutRows(quote, `Activity price (${quote.partySize} × ${formatCents(unitPriceCents)})`);
+  // Participation Phase 1 — with options, list what was chosen (server amounts), then the usual totals.
+  const lines = quote.lines ?? [];
+  const rows = checkoutRows(quote, lines.length ? "Your options" : `Activity price (${quote.partySize} × ${formatCents(unitPriceCents)})`);
   const credit = quote.creditCents ?? 0;
   return (
     <div style={{ marginTop: 14 }} aria-live="polite">
+      {lines.length > 0 && (
+        <dl style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: "2px 12px", fontSize: 13.5, margin: "0 0 6px", color: colors.muted }} data-testid="checkout-lines">
+          {lines.map((l) => (
+            <div key={l.optionId} style={{ display: "contents" }}>
+              <dt>{l.label} × {l.quantity}</dt>
+              <dd style={{ margin: 0, textAlign: "right" }}>{formatCents(l.totalMinor)}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
       <dl style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: "4px 12px", fontSize: 14, margin: 0 }} data-testid="checkout-breakdown">
         {rows.map((r) => {
           const strong = r.emphasis === "total";

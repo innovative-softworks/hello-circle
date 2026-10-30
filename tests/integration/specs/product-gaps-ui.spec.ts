@@ -10,16 +10,14 @@ import { bookableExperience, bookableProgram, experienceBody } from "../booking-
 // Phase 11B — resident self-cancel in My Life (experience bookings and
 // programme enrolments). Fail-before: My Life had no cancel control for either.
 
-// Booking rows (and their cancel controls, like the existing hall-booking
-// Cancel) live under "View full activity" — wait for it to load, then open it.
-async function openMyLife(page: Page) {
-  await page.goto("/my-life");
-  const toggle = page.getByRole("button", { name: /(View|Hide) full activity/ });
-  await expect(toggle).toBeVisible({ timeout: 20_000 });
-  if ((await toggle.getAttribute("aria-expanded")) !== "true") await toggle.click();
-  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+// My Life 3.0 (owner 2026-10-25/26): upcoming experience bookings are photo cards in
+// My Life → My Plans; each opens its booking page, where "Cancel booking" lives.
+// Programme enrolments stay rows on My Plans with their own cancel control.
+async function openMyPlans(page: Page) {
+  await page.goto("/my-life?tab=plans");
+  await expect(page.getByRole("heading", { level: 2, name: "Coming up" })).toBeVisible({ timeout: 20_000 });
 }
-const rowFor = (page: Page, title: string) => page.locator("div").filter({ has: page.getByText(title, { exact: true }) }).filter({ has: page.getByRole("button", { name: `Cancel booking for ${title}` }).or(page.getByRole("button", { name: `Cancel enrolment for ${title}` })) }).last();
+const upcomingCard = (page: Page, title: string) => page.locator("#mlx-plans-upcoming").getByRole("link").filter({ hasText: title });
 
 async function bookExperience(f: any, price: number) {
   const exp = await bookableExperience(f, { price, capacity: 4, payment: "cash" });
@@ -38,29 +36,40 @@ test("HC-GAP-UI-EXP: keyboard-only experience self-cancel — confirmation dialo
     const ui = await uiActor(browser, "QA_USER", "desktop");
     try {
       const { page } = ui;
-      await openMyLife(page);
-      await expect(page.getByText(title, { exact: true }).first()).toBeVisible();
-      await expect(page.getByRole("button", { name: `Cancel booking for ${title}`, exact: true }), "cancel control rendered with a contextual accessible name").toHaveCount(1);
+      await openMyPlans(page);
+      await expect(upcomingCard(page, title)).toHaveCount(1);
+      // Keyboard only: Tab to the booking's card, open it, Tab to "Cancel booking".
       await page.locator("body").focus();
-      const trigger = await tabTo(page, (x) => x.tag === "BUTTON" && x.name === `Cancel booking for ${title}` && !x.inDialog, { max: 200 });
+      const card = await tabTo(page, (x) => x.tag === "A" && x.name.includes(title), { max: 200 });
+      expect(card, "the booking card is reachable by keyboard").not.toBeNull();
+      expect(card!.focusVisible).toBe(true);
+      await page.keyboard.press("Enter");
+      await expect(page).toHaveURL(new RegExp(`/bookings/experience/${ref}$`));
+      await expect(page.getByRole("heading", { level: 1, name: "You're booked" })).toBeVisible();
+      const trigger = await tabTo(page, (x) => x.tag === "BUTTON" && x.name === "Cancel booking" && !x.inDialog, { max: 80 });
       expect(trigger, "Cancel booking reachable by keyboard").not.toBeNull();
       expect(trigger!.focusVisible).toBe(true);
       await page.keyboard.press("Enter");
       const dialog = page.getByRole("alertdialog").filter({ hasText: "Cancel this booking?" });
       await expect(dialog).toBeVisible();
       await expect(dialog).toContainText(title);
+      await expect(dialog).toContainText("Nothing was charged online.");
       await expect.poll(async () => (await focused(page)).inDialog, { message: "focus moves into the dialog" }).toBe(true);
       const confirmBtn = await tabTo(page, (x) => x.inDialog && x.name === "Cancel booking", { max: 6 });
       expect(confirmBtn, "confirm reachable inside the dialog").not.toBeNull();
       await page.keyboard.press("Enter");
-      await expect(page.getByRole("status").filter({ hasText: /^Cancellation confirmed$/ })).toBeVisible();
-      await expect(page.getByText("Refund processing")).toHaveCount(0);
+      // Honest outcome: the page says cancelled, never mentions a refund for a free booking.
+      await expect(page.getByRole("heading", { level: 1, name: "Cancelled" })).toBeVisible();
+      await expect(page.getByText("Done. We've updated this booking.")).toBeVisible();
+      await expect(page.getByText(/refund/i)).toHaveCount(0);
       const [row] = await rows(f, "SELECT status FROM experience_bookings WHERE ref = ?", [ref]);
       expect(row.status).toBe("cancelled");
       const [{ n }] = await rows(f, "SELECT COUNT(*) AS n FROM experience_bookings WHERE session_id = ? AND status != 'cancelled'", [exp.session]);
       expect(Number(n), "capacity released").toBe(0);
-      await expect(rowFor(page, title)).toHaveCount(0);
-      await evidence("hc-gap-ui-exp", { keyboard: true, dialogFocus: true, outcome: "Cancellation confirmed" });
+      // The card leaves "Coming up" in My Life.
+      await openMyPlans(page);
+      await expect(upcomingCard(page, title)).toHaveCount(0);
+      await evidence("hc-gap-ui-exp", { keyboard: true, dialogFocus: true, outcome: "Cancelled" });
     } finally { await ui.close(); }
   });
 });
@@ -72,31 +81,32 @@ test("HC-GAP-UI-EXP-PAID: mobile — network error recovers (no stuck spinner), 
     const ui = await uiActor(browser, "QA_USER", "mobile");
     try {
       const { page } = ui;
-      await openMyLife(page);
+      await openMyPlans(page);
+      await upcomingCard(page, title).click();
+      await expect(page).toHaveURL(new RegExp(`/bookings/experience/${ref}$`));
       let fail = true;
       await page.route((u) => u.pathname === `/api/experiences/bookings/${ref}/cancel`, (route) => (fail ? route.abort("failed") : route.continue()));
-      await page.getByRole("button", { name: `Cancel booking for ${title}`, exact: true }).click();
+      await page.getByRole("button", { name: "Cancel booking", exact: true }).click();
       const dialog = page.getByRole("alertdialog").filter({ hasText: "Cancel this booking?" });
-      await expect(dialog).toContainText("Your refund is issued by the host through HelloCircle");
+      await expect(dialog).toContainText("Any refund follows the cancellation terms shown on this page.");
       await dialog.getByRole("button", { name: "Cancel booking" }).click();
-      await expect(page.getByRole("alert").filter({ hasText: /check your connection/i })).toBeVisible();
-      const retry = page.getByRole("button", { name: `Cancel booking for ${title}`, exact: true });
-      await expect(retry, "button usable again, no indefinite spinner").toBeEnabled();
+      // A dropped connection: the dialog stays open, says so plainly, and can be used again.
+      await expect(dialog.getByRole("alert")).toHaveText("We couldn't reach HelloCircle — check your connection and try again.");
+      await expect(dialog.getByRole("button", { name: "Cancel booking" }), "button usable again, no indefinite spinner").toBeEnabled();
       expect((await rows(f, "SELECT status FROM experience_bookings WHERE ref = ?", [ref]))[0].status).toBe("confirmed");
       fail = false;
-      await retry.click();
-      await page.getByRole("alertdialog").getByRole("button", { name: "Cancel booking" }).click();
-      await expect(page.getByRole("status").filter({ hasText: "Cancellation confirmed — refund processing" })).toBeVisible();
-      await expect(page.getByText("Refunded", { exact: true }), "never claims 'Refunded' early").toHaveCount(0);
+      await dialog.getByRole("button", { name: "Cancel booking" }).click();
+      await expect(page.getByRole("heading", { level: 1, name: "Cancelled — refund on its way" })).toBeVisible();
+      await expect(page.getByText("Cancelled and refunded"), "never claims 'refunded' early").toHaveCount(0);
       await page.reload();
-      await openMyLife(page);
-      await expect(page.getByText("Refund processing").first(), "server state after refresh").toBeVisible();
+      await expect(page.getByRole("heading", { level: 1, name: "Cancelled — refund on its way" }), "server state after refresh").toBeVisible();
       await page.goto(`/experiences/${exp.id}`);
       await page.goBack();
-      await openMyLife(page);
-      await expect(page.getByText("Refund processing").first(), "after browser Back").toBeVisible();
-      await expect(rowFor(page, title)).toHaveCount(0);
-      await evidence("hc-gap-ui-exp-paid", { networkErrorRecovered: true, outcome: "Cancellation confirmed — refund processing", refresh: true, back: true });
+      await expect(page.getByRole("heading", { level: 1, name: "Cancelled — refund on its way" }), "after browser Back").toBeVisible();
+      expect((await rows(f, "SELECT status FROM experience_bookings WHERE ref = ?", [ref]))[0].status).toBe("cancelled");
+      await openMyPlans(page);
+      await expect(upcomingCard(page, title)).toHaveCount(0);
+      await evidence("hc-gap-ui-exp-paid", { networkErrorRecovered: true, outcome: "Cancelled — refund on its way", refresh: true, back: true });
     } finally { await ui.close(); }
   });
 });
@@ -112,7 +122,7 @@ test("HC-GAP-UI-PROG: programme self-cancel with the mouse — confirm, outcome,
     const ui = await uiActor(browser, "QA_USER", "desktop");
     try {
       const { page } = ui;
-      await openMyLife(page);
+      await openMyPlans(page);
       await page.getByRole("button", { name: `Cancel enrolment for ${title}`, exact: true }).click();
       const dialog = page.getByRole("alertdialog").filter({ hasText: "Cancel this enrolment?" });
       await expect(dialog).toBeVisible();

@@ -22,14 +22,17 @@ interface Option {
   label: string;
   hint: string;
   search: string;
+  /** Listed before anything is typed (top-level categories, and the subcategories of one that needs a subcategory). */
+  top: boolean;
 }
 
 function buildOptions(categories: PickerCategory[]): Option[] {
   const out: Option[] = [];
   for (const c of categories) {
-    out.push({ key: c.id, categoryId: c.id, subcategoryId: null, label: c.name, hint: c.description ?? "Any", search: `${c.name} ${c.description ?? ""}`.toLowerCase() });
+    // Phase E — when the organisation may only use some subcategories, the category itself isn't a choice.
+    if (!c.subcategoryRequired) out.push({ key: c.id, categoryId: c.id, subcategoryId: null, label: c.name, hint: c.description ?? "Any", search: `${c.name} ${c.description ?? ""}`.toLowerCase(), top: true });
     for (const s of c.subcategories) {
-      out.push({ key: `${c.id}/${s.id}`, categoryId: c.id, subcategoryId: s.id, label: s.name, hint: c.name, search: `${s.name} ${c.name}`.toLowerCase() });
+      out.push({ key: `${c.id}/${s.id}`, categoryId: c.id, subcategoryId: s.id, label: s.name, hint: c.name, search: `${s.name} ${c.name}`.toLowerCase(), top: !!c.subcategoryRequired });
     }
   }
   return out;
@@ -48,15 +51,16 @@ export function describeCategory(categories: PickerCategory[], value: CategoryVa
   return { name: value.categoryId, sub: value.subcategoryId, retired: true };
 }
 
-export function useCategoryOptions(family: CategoryFamily) {
+export function useCategoryOptions(family: CategoryFamily, scope?: "partner") {
   const [state, setState] = useState<{ enabled: boolean; categories: PickerCategory[]; loaded: boolean; failed: boolean }>({ enabled: true, categories: [], loaded: false, failed: false });
   const load = () => {
     setState((s) => ({ ...s, failed: false }));
-    fetchCategoryOptions(family)
+    fetchCategoryOptions(family, scope)
       .then((o) => setState({ enabled: o.enabled, categories: o.categories, loaded: true, failed: false }))
       .catch(() => setState((s) => ({ ...s, loaded: true, failed: true })));
   };
-  useEffect(load, [family]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(load, [family, scope]);
   return { ...state, reload: load };
 }
 
@@ -70,8 +74,11 @@ export function CategoryPicker({
   hint,
   id,
   error,
+  scope,
 }: {
   family: CategoryFamily;
+  /** Phase E — "partner" on partner listing forms: only the organisation's allowed categories. */
+  scope?: "partner";
   value: CategoryValue | null;
   onChange: (next: CategoryValue | null, picked?: { label: string; categoryName: string }) => void;
   /** The listing's saved classification, so a retired category still has a name. */
@@ -83,7 +90,7 @@ export function CategoryPicker({
   id?: string;
   error?: string;
 }) {
-  const fetched = useCategoryOptions(family);
+  const fetched = useCategoryOptions(family, scope);
   const categories = given ?? fetched.categories;
   const options = useMemo(() => buildOptions(categories), [categories]);
   const [query, setQuery] = useState("");
@@ -99,7 +106,7 @@ export function CategoryPicker({
   const errorId = `${baseId}-error`;
 
   const q = query.trim().toLowerCase();
-  const filtered = (q ? options.filter((o) => o.search.includes(q)) : options.filter((o) => o.subcategoryId === null)).slice(0, 40);
+  const filtered = (q ? options.filter((o) => o.search.includes(q)) : options.filter((o) => o.top)).slice(0, 40);
   const selected = describeCategory(categories, value, current);
 
   if (!given && !fetched.enabled) return null;

@@ -23,6 +23,7 @@ export const ROLE_DESCRIPTION: Record<string, string> = {
   finance: "Payments, refunds, payouts, coupons, plan and reports. Can see bookings.",
   communications: "Sends messages to participants and replies to reviews.",
   read_only_analyst: "Sees demand insights and the shared read-only views. Can't change anything.",
+  checkin_staff: "Checks people in at the door for the events or dates they're assigned to. Sees names and who has arrived, never payments or contact details.",
 };
 
 type Member = OrgProfile["staff"][number];

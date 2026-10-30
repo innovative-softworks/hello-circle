@@ -44,7 +44,7 @@ export function categoryWord(state: Pick<CategoryFilterState, "selected" | "sele
   return state.legacyLabel;
 }
 
-export function useCategoryFilter(family: CategoryFamily | "all" | null, opts: { param?: string; subParam?: string; experienceKind?: "adventure" | "experience" } = {}): CategoryFilterState {
+export function useCategoryFilter(family: CategoryFamily | "all" | null, opts: { param?: string; subParam?: string; experienceKind?: "adventure" | "experience" | "event" } = {}): CategoryFilterState {
   const param = opts.param ?? "category";
   const subParam = opts.subParam ?? "sub";
   const [params, setParams] = useSearchParams();

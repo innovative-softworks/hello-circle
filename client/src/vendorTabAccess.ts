@@ -17,6 +17,7 @@ import type { PLATFORM_ROLES } from "./types";
 //   offers — finance (coupons)
 //   earnings — finance (payments, payout account, plan are finance-only)
 //   demand — finance, read_only_analyst
+//   reports — the managers, finance and read_only_analyst (counts only)
 
 export type PlatformRole = (typeof PLATFORM_ROLES)[number];
 
@@ -33,7 +34,9 @@ export type VendorTabKey =
   | "reviews"
   | "offers"
   | "demand"
-  | "org";
+  | "reports"
+  | "org"
+  | "checkin";
 
 const MANAGERS: readonly PlatformRole[] = ["centre_manager", "facility_manager"];
 
@@ -52,11 +55,38 @@ export const VENDOR_TAB_ROLES: Record<VendorTabKey, "all" | readonly PlatformRol
   offers: ["finance"],
   earnings: ["finance"],
   demand: ["finance", "read_only_analyst"],
+  // Phase L — counts only (no personal data): managers, finance and the analyst.
+  reports: [...MANAGERS, "finance", "read_only_analyst"],
+  // Participation Phase 2 — door check-in: the two managers, and check-in-only
+  // staff (for the events or dates they're assigned to).
+  checkin: [...MANAGERS, "checkin_staff"],
 };
 
 export function vendorTabVisible(tab: VendorTabKey, user: { invitedStaff: boolean; platformRole: string | null }): boolean {
   if (!user.invitedStaff) return true;
+  // The check-in-only role has no other workspace pages (the server allows it the door API only).
+  if (user.platformRole === "checkin_staff") return tab === "checkin";
   const roles = VENDOR_TAB_ROLES[tab];
   if (roles === "all") return true;
   return !!user.platformRole && (roles as readonly string[]).includes(user.platformRole);
 }
+
+// Configuration framework Phase D — tabs that only make sense when the
+// organisation has a capability (any one of those listed). The server refuses
+// the module's actions anyway; this only keeps irrelevant modules out of the
+// navigation. Tabs not listed here don't depend on a capability.
+export const VENDOR_TAB_CAPABILITIES: Partial<Record<VendorTabKey, string[]>> = {
+  listings: ["venues", "clubs"],
+  programs: ["programs"],
+  experiences: ["experiences"],
+  checkin: ["checkin"],
+};
+
+/** Role AND capability: `capabilities` = the organisation's effective map (missing = not loaded yet → shown). */
+export function vendorTabAvailable(tab: VendorTabKey, user: { invitedStaff: boolean; platformRole: string | null }, capabilities?: Record<string, boolean> | null): boolean {
+  if (!vendorTabVisible(tab, user)) return false;
+  const needs = VENDOR_TAB_CAPABILITIES[tab];
+  if (!needs || !capabilities) return true;
+  return needs.some((k) => capabilities[k] !== false);
+}
+

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { VenueGetReady } from "../components/trust/VenueGetReady";
 import { AfterYourVisit, type VisitInfo } from "../components/trust/AfterYourVisit";
 import { ExperienceGetReady, GameGetReady, ProgrammeJourneyView } from "../components/experience/BookingPrep";
+import { BookingPeople } from "../components/experience/BookingPeople";
 import type { Game } from "../types";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import {
@@ -68,6 +69,8 @@ interface Rec {
   pass: { kind: PassKind; look: PassLook; who?: string | null; whoLabel?: string; date?: string | null; time?: string | null; where?: string | null; fields: [string, string][]; gameId?: string; progress?: { done: number; total: number } | null };
   /** Trust & Retention batch 1 — attendance, review and correction after the visit. */
   visit?: VisitInfo;
+  /** Participation Phase 1 — what was bought, frozen at purchase (experiences with options). */
+  lines?: { label: string; quantity: number; quantityPurchased: number; totalMinor: number }[];
   /** Experience 3.0 — what the preparation / journey sections need. */
   prep?: { kind: "experience"; experienceId: string } | { kind: "game"; game: Game } | { kind: "program" } | { kind: "venue"; centreId: string };
 }
@@ -141,19 +144,21 @@ async function load(kind: BookingKind, ref: string, lookupEmail?: string): Promi
     const e = (await fetchMyExperienceBookings()).find((x) => x.ref === ref);
     if (!e) return null;
     const active = e.status !== "cancelled" && !past(e.date);
-    const noun = e.kind === "adventure" ? "adventure" : "experience";
+    const noun = e.kind === "adventure" ? "adventure" : e.kind === "event" ? "event" : "experience";
+    const listingPath = `/${e.kind === "adventure" ? "adventures" : e.kind === "event" ? "events" : "experiences"}/${e.experienceId}`;
     return {
-      typeLabel: e.kind === "adventure" ? "Adventure booking" : "Experience booking", title: e.title, when: when(e.date, e.time), details: `${e.partySize} ${e.partySize === 1 ? "person" : "people"} · ${e.participantName}`, imageUrl: e.imageUrl || null,
+      typeLabel: e.kind === "adventure" ? "Adventure booking" : e.kind === "event" ? "Event registration" : "Experience booking", title: e.title, when: when(e.date, e.time), details: `${e.partySize} ${e.partySize === 1 ? "person" : "people"} · ${e.participantName}`, imageUrl: e.imageUrl || null,
       status: e.status, paymentStatus: e.paymentStatus, refundState: e.refundState ?? null, isPast: past(e.date),
       totalCents: e.totalCents, paidOnline: !!e.paidOnline, cancelDeadline: null, contact: "host",
       cancel: active && e.canCancel ? { label: "Cancel booking", title: "Cancel this booking?", message: `${e.title}, ${dateLabel(e.date)} at ${e.time}.${refundNote(!!e.paidOnline, e.totalCents)} This can't be undone.`, run: () => cancelExperienceBooking(e.ref) } : null,
-      listing: { label: `View the ${noun}`, href: `/${e.kind === "adventure" ? "adventures" : "experiences"}/${e.experienceId}` }, ics: active ? () => downloadExperienceBookingIcs(e.ref) : null, extra: null,
+      listing: { label: `View the ${noun}`, href: listingPath }, ics: active ? () => downloadExperienceBookingIcs(e.ref) : null, extra: null,
+      lines: e.lines && e.lines.length > 0 ? e.lines : undefined,
       pass: {
-        kind: e.kind === "adventure" ? "adventure" : e.kind === "volunteer" ? "volunteer" : "experience", look: e.kind === "volunteer" ? "lanyard" : "ticket",
+        kind: e.kind === "adventure" ? "adventure" : e.kind === "volunteer" ? "volunteer" : e.kind === "event" ? "event" : "experience", look: e.kind === "volunteer" ? "lanyard" : "ticket",
         who: e.participantName || null, date: passDate(e.date), time: e.time, fields: [["People", String(e.partySize)]],
       },
       prep: { kind: "experience", experienceId: e.experienceId },
-      visit: { placeKind: "experience", ref: e.ref, organiser: "organiser", review: { listingType: "experience", listingId: e.experienceId, href: `/${e.kind === "adventure" ? "adventures" : "experiences"}/${e.experienceId}` } },
+      visit: { placeKind: "experience", ref: e.ref, organiser: "organiser", review: { listingType: "experience", listingId: e.experienceId, href: listingPath } },
     };
   }
   if (kind === "game") {
@@ -333,6 +338,8 @@ export function BookingDetailPage() {
             {/* Experience 3.0 — preparation for a confirmed, upcoming booking; the
                 programme journey whenever there's a programme. */}
             {rec.prep?.kind === "experience" && going && !rec.isPast && <ExperienceGetReady experienceId={rec.prep.experienceId} />}
+            {/* Participation Phase 2 / Phase I — people, answers, attendance and what still needs an answer (any state, so a cancelled booking still shows who was on it). */}
+            {(kind === "experience" || kind === "registration" || kind === "program" || kind === "booking") && ref && <BookingPeople bookingRef={ref} source={kind} />}
             {rec.prep?.kind === "game" && going && !rec.isPast && <GameGetReady game={rec.prep.game} />}
             {rec.prep?.kind === "venue" && going && !rec.isPast && <VenueGetReady centreId={rec.prep.centreId} />}
             {rec.prep?.kind === "program" && ref && <ProgrammeJourneyView bookingRef={ref} />}
@@ -355,6 +362,21 @@ export function BookingDetailPage() {
                 <div>
                   <dt>Note</dt>
                   <dd>{rec.extra}</dd>
+                </div>
+              )}
+              {rec.lines && (
+                <div>
+                  <dt>What you booked</dt>
+                  <dd>
+                    <ul style={{ margin: 0, paddingLeft: 0, listStyle: "none" }} data-testid="booking-lines">
+                      {rec.lines.map((l, i) => (
+                        <li key={i}>
+                          {l.label} × {l.quantityPurchased}
+                          {l.quantity < l.quantityPurchased ? ` (${l.quantityPurchased - l.quantity} removed)` : ""}
+                        </li>
+                      ))}
+                    </ul>
+                  </dd>
                 </div>
               )}
             </dl>

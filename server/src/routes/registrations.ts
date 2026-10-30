@@ -15,6 +15,8 @@ import { computePricing, evaluateCoupon } from "../pricing.js";
 import { couponValidateLimiter, lookupLimiter } from "../rateLimit.js";
 import { registrationCancelBlock, refundStateOf } from "../selfCancel.js";
 import { recordOrderAcknowledgements } from "../orderAcknowledgements.js";
+import { checkFormAnswers, saveFormAnswers, type CheckedAnswers } from "../participation/formAnswers.js";
+import { QuestionError } from "../participation/questions.js";
 import { stripe } from "../stripe.js";
 import { BadRequestError, ConflictError, clientIdFrom, generateRef, isPlausibleDob, isValidEmail } from "../util.js";
 import { activeOfferedCount, claimWaitlistOffer, hasActiveOffer, promoteNextWaitlistEntry } from "../waitlist.js";
@@ -52,7 +54,13 @@ interface CreateRegistrationBody {
   ecName?: string;
   ecPhone?: string;
   ecRel?: string;
+  /** D-A4 — accepted for older clients but never stored. */
   medical?: string;
+  /** Phase H — answers to the club's registration form: { booking: {…}, attendees: [{…}] } (the registrant is the one attendee). */
+  answers?: unknown;
+  questionsVersion?: unknown;
+  /** Set by the server after checking answers — never read from the request. */
+  checkedForm?: CheckedAnswers;
   consent: boolean;
   trial: boolean;
   couponCode?: string;
@@ -114,7 +122,11 @@ async function insertRegistration(
     ecName: body.ecName ?? "",
     ecPhone: body.ecPhone ?? "",
     ecRel: body.ecRel ?? "",
-    medical: body.medical ?? "",
+    // Privacy decision D-A4 (2026-10-29, docs/participation-expansion/15): free-text
+    // health information is no longer collected. Anything sent by an older client
+    // is dropped here, never stored. Existing values stay untouched (column kept,
+    // read by no route) pending the privacy and retention review.
+    medical: "",
     consent: body.consent ? 1 : 0,
     trial: body.trial ? 1 : 0,
     subtotalCents: pricing.taxableCents,
@@ -212,6 +224,7 @@ async function reserveRegistration(
     }
     await insertRegistration(ref, clientId, residentId, body, pricing, status, passId, tx);
     await recordOrderAcknowledgements(tx, { sourceType: "registration", ref, clientId, residentId, terms: body.acceptedTerms === true });
+    await saveFormAnswers(tx, "club", ref, body.checkedForm);
   };
   if (existingTx) await run(existingTx);
   else await db.transaction(run);
@@ -320,6 +333,14 @@ registrationsRouter.post("/checkout", async (req, res) => {
   if (body.sessionId) {
     const session = await db.prepare(`SELECT id FROM club_sessions WHERE id = ? AND club_id = ? AND active = 1`).get(body.sessionId, body.clubId);
     if (!session) return res.status(400).json({ error: "That session is no longer available — please pick another" });
+  }
+
+  // Phase H — the club's registration form (nothing to check when it has no questions).
+  try {
+    body.checkedForm = await checkFormAnswers("club", club.id, clubOwner?.vendor_id, body, { name: `${body.childFirst} ${body.childLast}`.trim(), personType: body.registrantType === "adult" ? "adult" : "child" });
+  } catch (e) {
+    if (e instanceof QuestionError) return res.status(e.status).json({ error: e.message, code: e.code });
+    throw e;
   }
 
   // Capacity, duplicates and coupon use are decided inside reserveRegistration's

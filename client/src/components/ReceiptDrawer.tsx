@@ -53,6 +53,19 @@ export function ReceiptBody({ r }: { r: ReceiptDetail }) {
         </div>
       </div>
 
+      {/* Participation Phase 1 — what was bought, as frozen at purchase. */}
+      {r.lines && r.lines.length > 0 && (
+        <section aria-labelledby={`rc-lines-${r.ref}`}>
+          <h4 id={`rc-lines-${r.ref}`} style={sectionTitle}>What you booked</h4>
+          <dl style={{ margin: 0, display: "flex", flexDirection: "column", gap: 8 }} data-testid="receipt-lines">
+            {r.lines.map((l) => (
+              <Line key={l.lineNo} label={`${l.label} × ${l.quantityPurchased}${l.refundedQuantity ? ` (${l.refundedQuantity} removed)` : ""}`} value={formatCents(l.totalMinor)} />
+            ))}
+          </dl>
+          <p style={{ margin: "8px 0 0", fontSize: 13, color: colors.mutedLight }}>Prices before VAT and the platform fee, as they were when you booked.</p>
+        </section>
+      )}
+
       <section aria-labelledby={`rc-price-${r.ref}`}>
         <h4 id={`rc-price-${r.ref}`} style={sectionTitle}>What you paid</h4>
         {r.breakdown ? (

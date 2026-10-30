@@ -1,3 +1,4 @@
+import { hasLiveForm } from "../participation/formAnswers.js";
 import { Router } from "express";
 import { DEPOSIT_CENTS, MAX_OPEN_SPOTS, createBookingInternal, hireCost } from "./bookings.js";
 import { listCentres } from "../db/queries.js";
@@ -73,6 +74,11 @@ async function findCandidates(body: SearchBody): Promise<Candidate[]> {
     // can never actually be confirmed; excluded from candidates entirely
     // rather than surfaced and then failing at /confirm.
     if (!centre.openBookingEnabled) continue;
+    // Phase M — the Make It Happen screens (web and app) don't ask a venue's
+    // booking questions yet, so a venue with a live booking form isn't offered.
+    // /confirm validates and stores answers when a caller sends them, and
+    // refuses such a venue when it doesn't.
+    if (await hasLiveForm("centre", centre.id, centre.vendorId ?? null)) continue;
     const opensHour = parseInt(centre.opensAt.slice(0, 2), 10);
     const closesHour = parseInt(centre.closesAt.slice(0, 2), 10);
     if (startHour < opensHour || reqEnd > closesHour) continue;
@@ -146,6 +152,9 @@ interface ConfirmBody extends SearchBody {
   email?: string;
   phone?: string;
   notes?: string;
+  /** Phase M — the venue's booking form, when the caller can show it (validated and stored like the hall checkout). */
+  answers?: unknown;
+  questionsVersion?: unknown;
 }
 
 makeItHappenRouter.post("/confirm", requireResident, async (req, res) => {
@@ -185,7 +194,10 @@ makeItHappenRouter.post("/confirm", requireResident, async (req, res) => {
     minParticipants: openSpots,
     residentId: req.resident!.id,
     clientId,
+    // Phase M — with a form the answers are checked and stored exactly as at the
+    // hall checkout; without one, a venue that asks questions is refused (409).
+    ...(body.questionsVersion !== undefined ? { form: { answers: body.answers, questionsVersion: body.questionsVersion } } : {}),
   });
-  if (!result.ok) return res.status(result.status).json({ error: result.error });
+  if (!result.ok) return res.status(result.status).json({ error: result.error, ...(result.code ? { code: result.code } : {}) });
   res.status(201).json({ ref: result.ref, url: result.url, totalEuro: result.totalEuro });
 });

@@ -3,7 +3,7 @@ import { readFileSync, realpathSync, lstatSync, openSync, closeSync, unlinkSync,
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import mysql from "mysql2/promise";
-import { authIntegrationConfigIssues, qaWebhookSecretOk, stripeTestProfileIssues } from "../support/integration-safety";
+import { authIntegrationConfigIssues, qaPorts, qaWebhookSecretOk, stripeTestProfileIssues } from "../support/integration-safety";
 import { assertDatabaseIdentity, type DatabaseIdentity } from "./identity";
 
 export const repositoryRoot = fileURLToPath(new URL("../../", import.meta.url));
@@ -50,7 +50,8 @@ export function loadRun(): { manifest: Manifest; env: Record<string, string> } {
   return { manifest, env };
 }
 
-export function verifyContainer(manifest: Manifest): void {
+/** `dbPort` — the run's own published port (see qaPorts); defaults to this process's offset. */
+export function verifyContainer(manifest: Manifest, dbPort: number = qaPorts(process.env).db): void {
   const [container] = JSON.parse(docker(["inspect", manifest.containerId]));
   const [network] = JSON.parse(docker(["network", "inspect", manifest.networkId]));
   const port = container.NetworkSettings.Ports["3306/tcp"];
@@ -60,7 +61,7 @@ export function verifyContainer(manifest: Manifest): void {
     || network.Driver !== "bridge" || network.Labels?.["ie.hellocircle.qa.run"] !== manifest.runId
     || Object.keys(container.NetworkSettings.Networks).length !== 1
     || !Object.values(container.NetworkSettings.Networks).some((entry: any) => entry.NetworkID === manifest.networkId)
-    || !port || port.length !== 1 || port[0].HostIp !== "127.0.0.1" || port[0].HostPort !== "13306"
+    || !port || port.length !== 1 || port[0].HostIp !== "127.0.0.1" || port[0].HostPort !== String(dbPort)
     || !container.HostConfig.Tmpfs?.["/var/lib/mysql"]
     || container.Mounts.some((mount: any) => mount.Type !== "tmpfs" && !(mount.Type === "bind" && mount.Source === manifest.secretsDir && mount.Destination === "/run/qa" && !mount.RW))) {
     throw new Error("QA SAFETY ABORT: Container isolation or identity mismatch.");
@@ -69,7 +70,7 @@ export function verifyContainer(manifest: Manifest): void {
 
 export async function connectedPreflight() {
   const { manifest, env } = loadRun();
-  verifyContainer(manifest); // Must precede even connecting to the configured port.
+  verifyContainer(manifest, qaPorts(env).db); // Must precede even connecting to the configured port.
   const connection = await mysql.createConnection({ host: env.DB_HOST, port: Number(env.DB_PORT), user: env.DB_USER, password: env.DB_PASSWORD, database: env.DB_NAME, connectTimeout: 5000 });
   try {
     const [identity] = await connection.query<any[]>("SELECT DATABASE() AS databaseName, CURRENT_USER() AS account, @@server_uuid AS serverUuid");

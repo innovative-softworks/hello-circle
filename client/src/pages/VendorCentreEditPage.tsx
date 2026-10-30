@@ -1,4 +1,7 @@
 import { useEffect, useState } from "react";
+import { QuestionsEditor } from "../components/experience/QuestionsEditor";
+import { FormAnswersPanel } from "../components/experience/FormAnswersPanel";
+import { useParticipationFeatures } from "../circleFeatures";
 import { useNavigate, useParams } from "react-router-dom";
 import { fetchVendorCentre, fetchVendorListings, fetchVendorRooms, publishVendorCentre } from "../api";
 import { useAuth } from "../AuthContext";
@@ -30,7 +33,7 @@ import type { Centre, Room, VendorListingSummary } from "../types";
 // meaningful to summarize into SettingsSections. Once publish flips it to
 // 'pending'/'approved', this same route switches to the normal tabbed view.
 
-type CentreTab = "details" | "rooms" | "availability" | "hours" | "bookings" | "messages" | "performance";
+type CentreTab = "details" | "rooms" | "availability" | "hours" | "questions" | "bookings" | "messages" | "performance";
 
 export function VendorCentreEditPage() {
   const { id } = useParams<{ id: string }>();
@@ -38,6 +41,8 @@ export function VendorCentreEditPage() {
   const navigate = useNavigate();
   const { user, loading: authLoading } = useAuth();
   const [tab, setTab] = useState<CentreTab>("details");
+  // Phase H — the shared booking form builder (once-per-booking questions), while the participation switch is on.
+  const participation = useParticipationFeatures();
   const [centre, setCentre] = useState<Centre | null>(null);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [listingSummary, setListingSummary] = useState<VendorListingSummary | undefined>(undefined);
@@ -141,6 +146,7 @@ export function VendorCentreEditPage() {
                   { key: "rooms", label: "Rooms" },
                   { key: "availability", label: "Availability" },
                   { key: "hours", label: "Hours" },
+                  ...(participation["participation.attendees"] ? [{ key: "questions" as const, label: "Questions" }] : []),
                   { key: "bookings", label: "Bookings" },
                   { key: "messages", label: "Messages" },
                   { key: "performance", label: "Performance" },
@@ -152,6 +158,12 @@ export function VendorCentreEditPage() {
             {tab === "rooms" && <RoomsManager centreId={centreId} rooms={rooms} onChanged={reloadRooms} />}
             {tab === "availability" && <AvailabilityBlocksManager centreId={centreId} centreName={title} rooms={rooms} />}
             {tab === "hours" && <FacilityHoursEditor centreId={centreId} />}
+            {tab === "questions" && (
+              <>
+                <QuestionsEditor listing={{ listingType: "centre", id: centreId }} />
+                <FormAnswersPanel listing={{ listingType: "centre", id: centreId }} />
+              </>
+            )}
             {tab === "bookings" && <BookingsTab centreId={centreId} />}
             {tab === "messages" && centre && (
               <MessageComposer listings={{ centres: [], clubs: [] }} lockTo={{ listingType: "centre", listingId: centreId, name: centre.name }} />

@@ -1,4 +1,5 @@
 import { orgActiveSql, orgOfVendor } from "../orgStatus.js";
+import { hiddenEventsSql } from "../participation/eventsVisibility.js";
 import { Router } from "express";
 import { vendorLabels } from "../verification.js";
 import { db } from "../db/index.js";
@@ -39,7 +40,7 @@ providersRouter.get("/:id", async (req, res) => {
     .prepare(`SELECT id, name, sport, area, county, image_url as image, blurb, slug, lat, lng FROM clubs WHERE vendor_id = ? AND status = 'approved' ORDER BY name`)
     .all(vendorId)) as { id: string; name: string; sport: string; area: string; county: string; image: string; blurb: string; slug: string | null; lat: number | string | null; lng: number | string | null }[];
   const experiences = (await db
-    .prepare(`SELECT id, kind, title, area, county, image_url as image, blurb, slug FROM experiences WHERE vendor_id = ? AND status = 'approved' ORDER BY title`)
+    .prepare(`SELECT id, kind, title, area, county, image_url as image, blurb, slug FROM experiences WHERE vendor_id = ? AND status = 'approved'${await hiddenEventsSql()} ORDER BY title`)
     .all(vendorId)) as { id: string; kind: string; title: string; area: string; county: string; image: string; blurb: string; slug: string | null }[];
 
   const [policies, upcoming, participantCount, wentAheadPercent, amenities, reviewsSummary, followerCountRow, isFollowingRow] = await Promise.all([

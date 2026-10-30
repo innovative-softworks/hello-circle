@@ -1,4 +1,5 @@
 import { heldRefsFor, shortenReviewHolds } from "../payments/paymentReview.js";
+import { assertCapability } from "../capabilities.js";
 import { flagReviewsAfterAttendanceChange, isAbsence } from "../reviewAttendanceFlags.js";
 import { cancelProgramEnrollmentAsProvider } from "../hallBookingCancel.js";
 import { assertCreatorStillMember } from "../orgStatus.js";
@@ -10,7 +11,6 @@ import { assertPlatformRole, requirePlatformRole } from "../auth.js";
 import { writeAudit } from "../audit.js";
 import { refundPaidOnce } from "../checkoutService.js";
 import { db } from "../db/index.js";
-import { orgFeatureFlags } from "../db/queries.js";
 import { notifyRefund, notifyResident } from "../notifications.js";
 import { irelandTodayIso } from "../irelandTime.js";
 import { ROSTER_ROLES, inClause, ownsListing } from "./vendorHelpers.js";
@@ -68,9 +68,8 @@ vendorProgramsRouter.post("/programs", async (req, res) => {
   if (!assertPlatformRole(req, res, b.listingType === "centre" ? "centre_manager" : "facility_manager")) return;
   // Feature flags (implementation backlog #5) — admin can disable Programs
   // for an org; server-enforced, not just a hidden button client-side.
-  if (!(await orgFeatureFlags(req.user!.id)).programs) {
-    return res.status(403).json({ error: "Programs aren't enabled for your organisation" });
-  }
+  // Configuration framework Phase B: the same opt-out flag, now through the capability registry.
+  if (!(await assertCapability(req, res, "programs"))) return;
 
   const id = crypto.randomUUID();
   await db.transaction(async (tx) => {
@@ -273,13 +272,37 @@ async function notifySessionCancelled(programId: string, sessionId: string) {
 vendorProgramsRouter.get("/programs/:id/enrollments", requirePlatformRole(...ROSTER_ROLES), async (req, res) => {
   const { owns } = await programOwnership(req.vendorIds!, req.params.id);
   if (!owns) return res.status(403).json({ error: "Not your program" });
-  const rows = await db
+  const rows = (await db
     .prepare(
       `SELECT id, ref, participant_name as participantName, participant_dob as participantDob, email, phone, total_cents as totalCents, created_at as createdAt, status
        FROM program_enrollments WHERE program_id = ? AND payment_status = 'paid' ORDER BY created_at DESC`
     )
-    .all(req.params.id);
-  res.json(rows);
+    .all(req.params.id)) as { id: number; status: string }[];
+  // Phase O2 — each person's progress from the register: sessions so far,
+  // attended, missed, not recorded; and whether the programme has finished
+  // (all sessions past). No attendance threshold for "completed" is invented.
+  const today = irelandTodayIso();
+  const sessions = (await db.prepare(`SELECT id, date FROM program_sessions WHERE program_id = ? AND status <> 'cancelled'`).all(req.params.id)) as { id: string; date: string }[];
+  const past = new Set(sessions.filter((x) => x.date < today).map((x) => x.id));
+  const marks = (await db
+    .prepare(`SELECT a.ref, a.status FROM attendance a JOIN program_sessions ps ON a.ref LIKE CONCAT(ps.id, ':%') WHERE a.kind = 'program_session' AND ps.program_id = ?`)
+    .all(req.params.id)) as { ref: string; status: string }[];
+  const byEnrolment = new Map<number, { attended: number; missed: number }>();
+  for (const m of marks) {
+    const [sessionId, enrolmentId] = m.ref.split(":");
+    if (!past.has(sessionId)) continue;
+    const e = byEnrolment.get(Number(enrolmentId)) ?? { attended: 0, missed: 0 };
+    if (m.status === "present" || m.status === "late") e.attended++;
+    else if (m.status === "absent" || m.status === "no_show") e.missed++;
+    byEnrolment.set(Number(enrolmentId), e);
+  }
+  const finished = sessions.length > 0 && past.size === sessions.length;
+  res.json(
+    rows.map((r) => {
+      const p = byEnrolment.get(Number(r.id)) ?? { attended: 0, missed: 0 };
+      return { ...r, progress: { sessionsTotal: sessions.length, sessionsSoFar: past.size, attended: p.attended, missed: p.missed, notRecorded: Math.max(0, past.size - p.attended - p.missed), finished } };
+    })
+  );
 });
 
 // Per-session attendance (Phase B/Phase 10) — reuses the generic attendance

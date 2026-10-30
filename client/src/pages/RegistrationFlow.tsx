@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { PAID_CLOSED_MESSAGE, usePaidCheckoutOpen } from "../paidCheckout";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { FormQuestions, type AnswersDraft } from "../components/experience/AttendeeFields";
+import { missingAnswers, withDefaults } from "../components/experience/attendeeSlots";
 import { ApiError, createRegistrationCheckout, fetchClub, fetchClubSessions, fetchHousehold, fetchMyPasses, joinClubWaitlist, quoteRegistration } from "../api";
 import { openCheckout } from "../native";
 import {
@@ -26,6 +28,7 @@ import {
   type ContactValue,
 } from "../components/booking";
 import { PageSpinner } from "../components/ui";
+import { colors } from "../theme";
 import { Pass as PassCard } from "../components/pass/Pass";
 import { AGE_GROUPS } from "../constants";
 import { useGuest } from "../GuestContext";
@@ -114,8 +117,6 @@ export function RegistrationFlow() {
   const [club, setClub] = useState<Club | null>(null);
   const [loadError, setLoadError] = useState(false);
   const { value: draft, setValue: setDraft, clear: clearDraft } = useBookingDraft<RegDraft>(`club:${clubId ?? ""}`, blankDraft());
-  // Special-category data stays out of the stored draft (draft.ts).
-  const [coachNote, setCoachNote] = useState("");
   const [consent, setConsent] = useState(false);
   const [stepIndex, setStepIndex] = useState(0);
   const [attempted, setAttempted] = useState(false);
@@ -132,6 +133,13 @@ export function RegistrationFlow() {
 
   const set = <K extends keyof RegDraft>(k: K, v: RegDraft[K]) => setDraft((d) => ({ ...d, [k]: v }));
   const isAdult = draft.registrantType === "adult";
+  // Phase H — the club's own registration questions (none = the usual form, unchanged).
+  const [answers, setAnswers] = useState<AnswersDraft>({ booking: {}, attendees: [{}] });
+  const formQs = club?.registrationForm?.questions ?? [];
+  const formPerson = { name: `${draft.first} ${draft.last}`.trim(), personType: isAdult ? ("adult" as const) : ("child" as const) };
+  const formPeople = [{ ...formPerson, guardian: "" as const }];
+  const sendAnswers = withDefaults(formQs, formPeople, answers);
+  const missing = formQs.length ? missingAnswers(formQs, formPeople, sendAnswers) : [];
 
   useEffect(() => {
     if (!clubId) return;
@@ -184,6 +192,7 @@ export function RegistrationFlow() {
     if (k !== "review") return Object.values(errorsFor(k, draft)) as string[];
     const p: string[] = [];
     if (sessions.length > 0 && !draft.sessionId) p.push("Choose a session");
+    for (const m of missing) p.push(m.message);
     if (!consent) p.push("Tick the consent box to continue");
     if (!usingPass && !priced) p.push(quote.status === "error" ? "We couldn't price this registration — try again" : "Wait for the price to load");
     return p;
@@ -213,13 +222,13 @@ export function RegistrationFlow() {
         ecName: draft.ecName.trim() || undefined,
         ecPhone: draft.ecPhone.trim() || undefined,
         ecRel: draft.ecRel.trim() || undefined,
-        medical: coachNote.trim(),
         consent,
         trial: draft.option === "trial",
         couponCode: draft.option === "pay" ? draft.couponCode ?? undefined : undefined,
         sessionId: draft.sessionId ?? undefined,
         passId: usingPass ? usablePass!.id : undefined,
         acceptedTerms: consent,
+        ...(formQs.length ? { answers: sendAnswers, questionsVersion: club?.registrationForm?.questionsVersion } : {}),
       });
       clearDraft();
       if (res.url) {
@@ -232,6 +241,8 @@ export function RegistrationFlow() {
     } catch (e) {
       if (e instanceof ApiError && e.body.full) setClubFull(true);
       else setError(e instanceof Error ? e.message : fallbackCopy.generic);
+      // The club changed its questions since the page loaded: show the new ones.
+      if (e instanceof ApiError && (e.body.code === "questions_changed" || e.body.code === "form_required") && clubId) fetchClub(clubId).then(setClub).catch(() => {});
     } finally {
       setSubmitting(false);
     }
@@ -440,19 +451,29 @@ export function RegistrationFlow() {
                 <BkTextField label="Relationship" value={draft.ecRel} onChange={(v) => set("ecRel", v)} placeholder="e.g. Grandparent" />
               </div>
             </fieldset>
-            <BkTextField
-              label="Anything the coach should know?"
-              value={coachNote}
-              onChange={setCoachNote}
-              maxLength={500}
-              helper="Allergies, conditions or medication that matter during sessions. Only the club sees this."
-            />
+            {/* Privacy decision D-A4 — health information isn't collected here (no approved lawful basis yet). */}
+            <p style={{ margin: 0, fontSize: 13.5, color: colors.muted, lineHeight: 1.5 }}>
+              If {isAdult ? "you have" : "your child has"} a health need the club should know about to keep {isAdult ? "you" : "them"} safe, please tell the club directly. HelloCircle doesn't collect health information.
+            </p>
           </>
         )}
 
         {step === "review" && (
           <>
             {sessions.length > 0 && <ChoiceChips legend="Which session?" value={draft.sessionId} onChange={(id) => set("sessionId", id)} options={sessions.map((s) => ({ value: s.id, label: sessionLabel(s) }))} />}
+            {formQs.length > 0 && (
+              <FormQuestions
+                questions={formQs}
+                answers={answers}
+                onAnswers={setAnswers}
+                person={formPerson}
+                fe={{
+                  control: (id: string) => ({ id, "aria-invalid": attempted && missing.some((m) => m.fieldId === id) ? true : undefined }),
+                  messageFor: (id: string) => (attempted ? missing.find((m) => m.fieldId === id)?.message : undefined),
+                  clearField: () => undefined,
+                }}
+              />
+            )}
             {options.length > 1 && <ChoiceChips legend="How would you like to start?" value={draft.option} onChange={(v) => set("option", v)} options={options} />}
             {draft.option === "pay" && !usingPass && <CouponField applied={draft.couponCode} onApply={async (code) => { await quoteRegistration({ clubId: clubId!, couponCode: code }); set("couponCode", code); }} onRemove={() => set("couponCode", null)} />}
             <Acknowledgement checked={consent} onChange={setConsent} error={attempted && !consent ? "Tick this to continue" : undefined}>

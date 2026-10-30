@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { experienceKindWord, kindPath } from "../experienceKind";
 import { fetchExperiences } from "../api";
 import { TreeIconSmall } from "./icons";
 import { BrowseLayout, type BrowseConfig, type BrowseItem } from "./BrowseLayout";
@@ -11,9 +12,7 @@ import { cardWord } from "../cardWord";
 // BrowseLayout (also used by Programs); this file only maps an Experience
 // into a BrowseItem and supplies the per-kind wording.
 
-function kindPath(kind: ExperienceKind): string {
-  return kind === "adventure" ? "adventures" : "experiences";
-}
+export { kindPath, experienceKindWord };
 
 export function experienceToBrowseItem(e: Experience): BrowseItem {
   const session = e.sessions[0] ?? null;
@@ -27,19 +26,20 @@ export function experienceToBrowseItem(e: Experience): BrowseItem {
     lng: e.lng,
     locationSource: e.locationSource,
     priceCents: e.priceCents,
-    perPerson: true,
+    // An event priced by options shows its cheapest option as "from".
+    perPerson: e.registration?.mode !== "options",
     imageUrl: e.imageUrl,
     featured: !!e.featured,
     href: `/${kindPath(e.kind)}/${e.slug ?? e.id}`,
-    tone: e.kind === "adventure" ? "green" : "orange",
+    tone: e.kind === "adventure" || e.kind === "event" ? "green" : "orange",
     next: session ? { date: session.date, time: session.time, spotsLeft: session.spotsLeft } : null,
     tags: e.difficulty ? [e.difficulty] : [],
     filterTag: e.difficulty || null,
-    ctaLabel: e.kind === "volunteer" ? "Volunteer" : `View ${e.kind === "adventure" ? "adventure" : "experience"}`,
+    ctaLabel: e.kind === "volunteer" ? "Volunteer" : `View ${experienceKindWord(e.kind).toLowerCase()}`,
     save: { kind: "experience", id: e.id },
     durationMinutes: e.durationMinutes || null,
     skill: e.difficulty ? e.difficulty[0].toUpperCase() + e.difficulty.slice(1) : null,
-    word: cardWord(e.categoryLabel, e.kind === "adventure" ? "Adventure" : e.kind === "volunteer" ? "Volunteer" : "Experience"),
+    word: cardWord(e.categoryLabel, experienceKindWord(e.kind)),
   };
 }
 
@@ -49,15 +49,15 @@ export function ExperienceKindBrowse({ kind, title, subtitle }: { kind: Experien
       title,
       subtitle,
       featured: kind === "adventure" ? "experiences" : "adventures",
-      nounPlural: kind === "adventure" ? "adventures" : kind === "volunteer" ? "volunteer opportunities" : "experiences",
-      kindLabel: kind === "adventure" ? "Adventure" : kind === "volunteer" ? "Volunteering" : "Experience",
-      searchPlaceholder: kind === "adventure" ? "What kind of adventure? e.g. Kayaking" : "What do you feel like doing? e.g. Pottery",
+      nounPlural: kind === "adventure" ? "adventures" : kind === "volunteer" ? "volunteer opportunities" : kind === "event" ? "community events" : "experiences",
+      kindLabel: kind === "adventure" ? "Adventure" : kind === "volunteer" ? "Volunteering" : kind === "event" ? "Event" : "Experience",
+      searchPlaceholder: kind === "adventure" ? "What kind of adventure? e.g. Kayaking" : kind === "event" ? "What are you looking for? e.g. Diwali" : "What do you feel like doing? e.g. Pottery",
       icon: <TreeIconSmall size={24} />,
       load: (taxonomy) => fetchExperiences(kind, undefined, taxonomy).then((rows) => rows.map(experienceToBrowseItem)),
       resetKey: `experience:${kind}`,
       categoryFamily: kind === "volunteer" ? "volunteer" : "experience",
       categoryExperienceKind: kind === "volunteer" ? undefined : kind,
-      categoryBasePath: `/${kind === "adventure" ? "adventures" : kind === "volunteer" ? "volunteer" : "experiences"}`,
+      categoryBasePath: `/${kind === "volunteer" ? "volunteer" : kindPath(kind)}`,
       // Difficulty only means something for adventures.
       tagFilterLabel: kind === "adventure" ? "Difficulty" : undefined,
       mapSearchTypes: ["experience"],
@@ -65,18 +65,22 @@ export function ExperienceKindBrowse({ kind, title, subtitle }: { kind: Experien
       // Featured adventures/experiences use the Adventure card (owner plan, 2026-10-23).
       featureStyle: "adventure",
       closing: {
-        label: kind === "adventure" ? "Outdoors." : kind === "volunteer" ? "Give back." : "Try it.",
+        label: kind === "adventure" ? "Outdoors." : kind === "volunteer" ? "Give back." : kind === "event" ? "Celebrate." : "Try it.",
         lines:
           kind === "adventure"
             ? ["Get", "outside", "together."]
             : kind === "volunteer"
             ? ["Give", "a few", "hours."]
+            : kind === "event"
+            ? ["Celebrate", "with your", "community."]
             : ["Learn", "something", "new."],
         text:
           kind === "adventure"
             ? "Browse workshops and classes, or just join a session happening nearby."
             : kind === "volunteer"
             ? "Try an adventure instead, or ask for the kind of volunteering you'd like to see."
+            : kind === "event"
+            ? "Browse experiences and workshops, or join a Circle that runs its own gatherings."
             : "Browse guided outdoor trips, or just join a session happening nearby.",
         primary: kind === "adventure" ? { label: "Browse Experiences", to: "/experiences" } : { label: "Browse Adventures", to: "/adventures" },
         secondary: { label: "Join a Game instead", to: "/games" },

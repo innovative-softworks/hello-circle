@@ -13,7 +13,8 @@ test("PUB-21/22/23: Saved copy, credit tab only when enabled, profile email row 
   try {
     const { page } = phone;
     await page.goto("/profile?tab=account");
-    const row = page.locator(".settings-row--stack", { hasText: "Used to sign in" });
+    // Account redesign (2026-10-24): settings rows are .acct-row (stacked on phones).
+    const row = page.locator(".acct-row--stack", { hasText: "Used to sign in" });
     const email = row.getByText(env.QA_USER_EMAIL, { exact: true });
     await expect(email).toBeVisible();
     clipped = await email.evaluate((el) => {
@@ -34,10 +35,16 @@ test("PUB-21/22/23: Saved copy, credit tab only when enabled, profile email row 
   try {
     const { page, context } = desk;
     const credits = await (await context.request.get("/api/credits/me")).json() as { enabled: boolean };
+    // Saved moved into My Life (sidebar merge 2026-10-24); the old account link redirects there.
     await page.goto("/profile?tab=favourites");
-    await expect(page.getByRole("heading", { name: "Saved" }).first()).toBeVisible();
-    // The section menu offers HelloCircle credit only when the server says credits are on.
-    await expect(page.getByRole("button", { name: "HelloCircle credit" }).or(page.getByRole("link", { name: "HelloCircle credit" }))).toHaveCount(credits.enabled ? 1 : 0);
+    await expect(page).toHaveURL(/\/bookings\?tab=saved/);
+    await expect(page.getByRole("heading", { level: 2, name: /^Saved · \d+$/ })).toBeVisible();
+    // Credit is a view of Payments, offered only when the server says credits are on.
+    await page.goto("/profile?tab=payment");
+    const views = page.getByRole("group", { name: "Payments" });
+    await expect(views.getByRole("button", { name: "Cards" })).toBeVisible();
+    await expect(views.getByRole("button", { name: "Credit" })).toHaveCount(credits.enabled ? 1 : 0);
+    await page.goto("/bookings?tab=saved");
     await expect(page.getByText("Tap the heart on a centre or club to save it here.")).toHaveCount(0);
     const saved = await (await context.request.get("/api/favourites")).json() as unknown[];
     if (saved.length === 0) await expect(page.getByText("Nothing saved yet")).toBeVisible();

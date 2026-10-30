@@ -21,7 +21,7 @@ import { CardAction, CardArrow, CardAvailability, CardGrid, CardPrice, ListingCa
 import { CardDate, gameCardLabel } from "../components/CardDate";
 import { dateLabel } from "../euro";
 import { formatAvailability, formatDateTime, formatPrice, formatTime12h } from "../formatters";
-import { gameState, isMinAgeRefusal, primaryCtaLabel } from "../gameCta";
+import { gameState, isMinAgeRefusal, needsJoinPage, primaryCtaLabel } from "../gameCta";
 import { useGuest } from "../GuestContext";
 import { colors, fonts, maxWidth, placeholderStripes, radius } from "../theme";
 import { SKILL_LEVELS } from "../constants";
@@ -765,7 +765,7 @@ export function Games() {
       setMyGameIds((prev) => new Set(prev).add(id));
       load();
     } catch (e) {
-      if (isMinAgeRefusal(e)) return void navigate(`/games/${id}`);
+      if (needsJoinPage(e)) return void navigate(`/games/${id}`);
       toast.error(e instanceof Error ? e.message : "Couldn't join this session");
     } finally {
       setJoiningId(null);

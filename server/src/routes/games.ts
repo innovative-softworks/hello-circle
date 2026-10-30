@@ -1,3 +1,5 @@
+import { checkGameAnswers, deleteGameAnswers, gameAnswersByResident, HOST_LIBRARY, hostQuestionsOn, MAX_HOST_QUESTIONS, publicGameQuestions, saveGameAnswers, setGameQuestions, type CheckedGameAnswers } from "../participation/gameQuestions.js";
+import { QuestionError, activeQuestions as activeFormQuestions, questionsVersion as formQuestionsVersion } from "../participation/questions.js";
 import { viewerGameState } from "../gameCardFacts.js";
 import { scheduleReviewInvitation } from "../myLifePlans.js";
 import { parseNewcomerWelcome } from "../newcomerWelcome.js";
@@ -723,7 +725,7 @@ gamesRouter.get("/:id", async (req, res) => {
     ? (((await db.prepare(`SELECT status FROM game_join_requests WHERE game_id = ? AND resident_id = ?`).get(row.id, req.resident.id)) as { status: string } | undefined)?.status ?? null)
     : null;
   const otherDates = await seriesOtherDates(row, req.resident?.id ?? null);
-  res.json({ ...json, joinedByMe, waitlistedByMe, myJoin, familiarCount, checkedInAt, attended, meetingInstructions, participationAttributes, firstTimerCount, joinRequestByMe, otherDates, ...(await taxonomyFields("game", row.id)) });
+  res.json({ ...json, joinedByMe, waitlistedByMe, myJoin, familiarCount, checkedInAt, attended, meetingInstructions, participationAttributes, firstTimerCount, joinRequestByMe, otherDates, ...(await taxonomyFields("game", row.id)), participationQuestions: await publicGameQuestions(row.id) });
 });
 
 /** Detail-page audit DP-15 (2026-10-22) — the upcoming dates of the same
@@ -836,6 +838,63 @@ gamesRouter.get("/:id/participants", async (req, res) => {
 // the public preview above (which stays capped/names-only for the consumer
 // page). Surfaces the operational detail a host needs to actually manage
 // their own game: join/payment status, when they joined, check-in/attendance.
+// Phase N — the host's participation questions: chosen from an approved
+// library only (never free wording), at most three; answers are the host's
+// to read. Behind participation.host_questions.
+gamesRouter.get("/:id/questions", requireResident, async (req, res) => {
+  const row = (await db.prepare(`SELECT host_resident_id FROM games WHERE id = ?`).get(req.params.id)) as { host_resident_id: string } | undefined;
+  if (!row) return res.status(404).json({ error: "Session not found" });
+  if (row.host_resident_id !== req.resident!.id) return res.status(403).json({ error: "Only the host can change the questions" });
+  const current = await activeFormQuestions("game", req.params.id);
+  res.json({
+    enabled: await hostQuestionsOn(),
+    max: MAX_HOST_QUESTIONS,
+    library: HOST_LIBRARY.map((l) => ({ key: l.key, label: l.label, purpose: l.purpose, inputType: l.inputType, choices: "choices" in l ? l.choices : [] })),
+    picks: current.map((q) => ({ key: q.key, required: q.required })),
+    version: await formQuestionsVersion(req.params.id, db, "game"),
+  });
+});
+
+gamesRouter.put("/:id/questions", requireResident, async (req, res) => {
+  const row = (await db.prepare(`SELECT host_resident_id, status FROM games WHERE id = ?`).get(req.params.id)) as { host_resident_id: string; status: string } | undefined;
+  if (!row) return res.status(404).json({ error: "Session not found" });
+  if (row.host_resident_id !== req.resident!.id) return res.status(403).json({ error: "Only the host can change the questions" });
+  if (!(await hostQuestionsOn())) return res.status(404).json({ error: "This isn't available yet" });
+  if (row.status === "cancelled") return res.status(409).json({ error: "This activity is cancelled" });
+  try {
+    const r = await setGameQuestions(req.params.id, req.resident!.id, (req.body ?? {}).picks);
+    res.json({ ok: true, version: r.version });
+  } catch (e) {
+    if (e instanceof QuestionError) return res.status(e.status).json({ error: e.message, code: e.code });
+    throw e;
+  }
+});
+
+// Phase N — the host marks someone as not attended (the counterpart of the host
+// check-in below); repeating it changes nothing. A later check-in overrides it.
+gamesRouter.post("/:id/participants/:residentId/no-show", requireResident, async (req, res) => {
+  const row = (await db.prepare(`SELECT host_resident_id, date FROM games WHERE id = ?`).get(req.params.id)) as { host_resident_id: string; date: string } | undefined;
+  if (!row) return res.status(404).json({ error: "Session not found" });
+  if (row.host_resident_id !== req.resident!.id) return res.status(403).json({ error: "Only the host can record attendance" });
+  // Role-activity validation (2026-10-30, RAV-DEF-01) — you can't miss
+  // something in advance: a no-show blocks the person's review and shows as
+  // "missed" in My Life, so it waits for the activity day, the same rule as
+  // partner attendance (vendorExperiences.ts).
+  if (row.date > irelandTodayIso()) return res.status(409).json({ error: "You can mark attendance once the activity has started" });
+  const info = await db.prepare(`UPDATE game_participants SET attended = 0, checked_in_at = NULL WHERE game_id = ? AND resident_id = ? AND status = 'joined'`).run(req.params.id, req.params.residentId);
+  if (info.changes === 0) {
+    const joined = await db.prepare(`SELECT id FROM game_participants WHERE game_id = ? AND resident_id = ? AND status = 'joined'`).get(req.params.id, req.params.residentId);
+    if (!joined) return res.status(404).json({ error: "That participant isn't joined to this session" });
+  }
+  await db
+    .prepare(
+      `INSERT INTO attendance (kind, ref, checked_in_by, status, source) VALUES ('game', ?, ?, 'no_show', 'host_manual')
+       ON DUPLICATE KEY UPDATE checked_in_by = VALUES(checked_in_by), status = 'no_show', source = 'host_manual'`
+    )
+    .run(`${req.params.id}:${req.params.residentId}`, req.resident!.id);
+  res.json({ ok: true });
+});
+
 gamesRouter.get("/:id/participants/manage", requireResident, async (req, res) => {
   const row = (await db.prepare(`SELECT host_resident_id FROM games WHERE id = ?`).get(req.params.id)) as { host_resident_id: string } | undefined;
   if (!row) return res.status(404).json({ error: "Session not found" });
@@ -849,7 +908,9 @@ gamesRouter.get("/:id/participants/manage", requireResident, async (req, res) =>
        WHERE gp.game_id = ? ORDER BY gp.joined_at ASC`
     )
     .all(req.params.id)) as { residentId: string; name: string; status: string; paymentStatus: string; joinedAt: string; checkedInAt: string | null; attended: number | null }[];
-  res.json(rows.map((r) => ({ ...r, attended: r.attended === null || r.attended === undefined ? null : !!r.attended })));
+  // Phase N — each participant's answers to the host's questions (host only).
+  const answers = await gameAnswersByResident(req.params.id, rows.map((r) => r.residentId));
+  res.json(rows.map((r) => ({ ...r, attended: r.attended === null || r.attended === undefined ? null : !!r.attended, answers: answers.get(r.residentId) ?? [] })));
 });
 
 // Host removes one participant (e.g. a no-show). Platform Pre-Launch Polish
@@ -872,6 +933,7 @@ gamesRouter.post("/:id/participants/:residentId/remove", requireResident, async 
     .prepare(`UPDATE game_participants SET status = 'cancelled' WHERE game_id = ? AND resident_id = ? AND status = 'joined'`)
     .run(req.params.id, req.params.residentId);
   if (info.changes === 0) return res.status(404).json({ error: "That participant isn't joined to this session" });
+  await deleteGameAnswers(req.params.id, req.params.residentId);
 
   promoteNextWaitlistEntry("game", req.params.id, row.activity_label);
 
@@ -1942,6 +2004,14 @@ gamesRouter.post("/:id/join", requireResident, async (req, res) => {
   // actually offered to, during their 48h claim window. Exclude this
   // joiner's own offer (if any) — it's their spot to claim, not competing
   // demand against itself.
+  // Phase N — the host's questions are checked before any place is taken.
+  let gameAnswers: CheckedGameAnswers | null = null;
+  try {
+    gameAnswers = await checkGameAnswers(req.params.id, req.body ?? {}, "You");
+  } catch (e) {
+    if (e instanceof QuestionError) return res.status(e.status).json({ error: e.message, code: e.code });
+    throw e;
+  }
   const offeredCount = await activeOfferedCount("game", req.params.id);
   const ownsOffer = await hasActiveOffer("game", req.params.id, null, req.resident!.id);
   const reservedCount = offeredCount - (ownsOffer ? 1 : 0);
@@ -2068,6 +2138,8 @@ gamesRouter.post("/:id/join", requireResident, async (req, res) => {
     if (e instanceof ConflictError) return res.status(409).json({ error: e.message });
     throw e;
   }
+  // Joined, requested or waiting for payment: the answers go with the place (or request).
+  await saveGameAnswers(req.params.id, req.resident!.id, gameAnswers);
 
   if (requestedRow) {
     const r = requestedRow as GameRow;
@@ -2258,6 +2330,7 @@ gamesRouter.delete("/:id/join", requireResident, async (req, res) => {
   // HC-QA-046 — concurrent leaves: only the one that flips the row promotes/notifies.
   const left = await db.prepare(`UPDATE game_participants SET status = 'cancelled' WHERE game_id = ? AND resident_id = ? AND status = 'joined'`).run(req.params.id, req.resident!.id);
   if (left.changes !== 1) return res.status(404).json({ error: "You haven't joined this session" });
+  await deleteGameAnswers(req.params.id, req.resident!.id);
 
   promoteNextWaitlistEntry("game", req.params.id, row.activity_label);
 
@@ -2358,6 +2431,8 @@ gamesRouter.post("/:id/join-requests/:residentId/:decision", requireResident, as
     if (e instanceof ConflictError) return res.status(409).json({ error: e.message });
     throw e;
   }
+  // Phase N — a declined request takes its answers with it.
+  if (decision === "decline") await deleteGameAnswers(req.params.id, residentId);
   const g = game as unknown as GameRow;
   if (decision === "approve") {
     await checkMinParticipantsThreshold(g.id);
@@ -2379,6 +2454,7 @@ gamesRouter.post("/:id/join-requests/:residentId/:decision", requireResident, as
 gamesRouter.delete("/:id/join-request", requireResident, async (req, res) => {
   const r = await db.prepare(`UPDATE game_join_requests SET status = 'withdrawn', decided_at = NOW() WHERE game_id = ? AND resident_id = ? AND status = 'requested'`).run(req.params.id, req.resident!.id);
   if (r.changes !== 1) return res.status(404).json({ error: "You don't have a pending request for this activity" });
+  await deleteGameAnswers(req.params.id, req.resident!.id);
   res.json({ ok: true });
 });
 

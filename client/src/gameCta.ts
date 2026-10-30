@@ -37,3 +37,9 @@ export function primaryCtaLabel(game: Game): string {
 export function isMinAgeRefusal(e: unknown): boolean {
   return e instanceof ApiError && typeof e.body.minAge === "number";
 }
+
+/** Phase N — a quick join that has to happen on the activity's own page: an age
+ * check, or the host's questions (sent missing or out of date). */
+export function needsJoinPage(e: unknown): boolean {
+  return isMinAgeRefusal(e) || (e instanceof ApiError && (e.body.code === "form_required" || e.body.code === "questions_changed"));
+}

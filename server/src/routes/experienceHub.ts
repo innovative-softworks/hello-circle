@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { experienceHref } from "../participation/eventsVisibility.js";
 import { Router } from "express";
 import { requireFeature } from "../circleFeatures.js";
 import { planDay, MAX_STOPS, ROAD_FACTOR, TRAVEL_KMH, BUFFER_MINUTES } from "../dayPlanner.js";
@@ -102,7 +103,7 @@ experienceHubRouter.get("/passport", requireResident, requireFeature("experience
       kind: (e.kind === "adventure" ? "adventure" : e.kind === "volunteer" ? "volunteering" : "experience") as PassportEntry["kind"],
       title: e.title,
       date: e.date,
-      href: `/${e.kind === "adventure" ? "adventures" : "experiences"}/${e.slug ?? e.id}`,
+      href: experienceHref(e.kind, e.slug ?? e.id),
       evidence: "organiser" as const,
     })),
     ...programmes.map((p) => ({ kind: "programme" as const, title: p.title, date: p.date, href: `/programs/${p.id}`, evidence: "organiser" as const })),

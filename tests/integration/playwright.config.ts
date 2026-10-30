@@ -1,6 +1,8 @@
 import { defineConfig } from "@playwright/test";
 import { loadRun } from "./runtime";
+import { qaPorts } from "../support/integration-safety";
 const { env } = loadRun();
+const ports = qaPorts(env);
 export default defineConfig({
   // Firefox/WebKit (Phase 10A cross-browser runs) compile the cold dev
   // server more slowly on each batch's first page load — longer time
@@ -19,7 +21,7 @@ export default defineConfig({
     // once by run.ts with the same isolated config) via `vite preview`, with
     // the same /api proxy, instead of the on-demand dev server.
     process.env.QA_PROD_BUILD === "1"
-      ? { command: "node node_modules/vite/bin/vite.js preview --config tests/integration/vite.config.ts --outDir ../.qa-data/prod-build --port 4178 --strictPort --host 127.0.0.1", cwd: "../..", url: env.E2E_BASE_URL, reuseExistingServer: false, timeout: 30_000 }
+      ? { command: `node node_modules/vite/bin/vite.js preview --config tests/integration/vite.config.ts --outDir ../.qa-data/prod-build --port ${ports.web} --strictPort --host 127.0.0.1`, cwd: "../..", url: env.E2E_BASE_URL, reuseExistingServer: false, timeout: 30_000 }
       : { command: "node node_modules/vite/bin/vite.js --config tests/integration/vite.config.ts", cwd: "../..", url: env.E2E_BASE_URL, reuseExistingServer: false, timeout: 30_000 },
   ],
 });

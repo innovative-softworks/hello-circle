@@ -2257,11 +2257,30 @@ export async function initSchema() {
 
   await initCommerceSchema(ensureColumn, ensureIndex);
 
+  // Participation Expansion Phase 1 — registration options and purchased
+  // lines (participation/schema.ts). Dynamic import for the same reason as
+  // taxonomy below. After the commerce tables (it extends commerce_quotes).
+  const { initParticipationSchema } = await import("../participation/schema.js");
+  await initParticipationSchema(ensureColumn, ensureIndex);
+
   // Category system (approved 2026-10-22) — three additive tables, seed and a
   // once-per-database backfill. Dynamic import: taxonomy.ts imports this
   // module, so a static import would be circular.
   const { initTaxonomySchema } = await import("../taxonomy.js");
   await initTaxonomySchema();
+  // Configuration framework Phase E (categoryPolicy.ts) — additive category governance.
+  await ensureColumn("taxonomy_categories", "moderation_policy", "moderation_policy VARCHAR(20) NOT NULL DEFAULT 'standard'");
+  await ensureColumn("taxonomy_categories", "suggested_form", "suggested_form VARCHAR(40) NULL");
+  await ensureColumn("listing_taxonomy", "needs_review", "needs_review TINYINT NOT NULL DEFAULT 0");
+  await ensureColumn("organisations", "category_mode", "category_mode VARCHAR(12) NOT NULL DEFAULT 'all'");
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS org_category_access (
+      org_id VARCHAR(191) NOT NULL,
+      category_id VARCHAR(64) NOT NULL,
+      subcategory_id VARCHAR(64) NOT NULL DEFAULT '*',
+      PRIMARY KEY (org_id, category_id, subcategory_id)
+    );
+  `);
 }
 
 /** Commerce Engine Phase 1 — versioned commercial rules (commerce/rules.ts,

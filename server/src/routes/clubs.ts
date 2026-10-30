@@ -1,3 +1,4 @@
+import { publicForm } from "../participation/formAnswers.js";
 import { taxonomyFields } from "../taxonomy.js";
 import { unavailableListing } from "../orgStatus.js";
 import { Router } from "express";
@@ -28,7 +29,7 @@ clubsRouter.get("/:id", async (req, res) => {
     return res.status(404).json({ error: "Club not found" });
   }
   logView("place_viewed", req, { kind: "club", id: club.id });
-  res.json({ ...club, participationAttributes: await getListingAttributes("club", club.id), ...(await officialCircleSummary("clubs", club.id)), ...(await taxonomyFields("club", club.id)) });
+  res.json({ ...club, participationAttributes: await getListingAttributes("club", club.id), ...(await officialCircleSummary("clubs", club.id)), ...(await taxonomyFields("club", club.id)), registrationForm: await publicForm("club", club.id, club.vendorId) });
 });
 
 // --- waitlist (MVP) --------------------------------------------------------

@@ -176,7 +176,9 @@ test("COMPLETE-REVIEW-STATE: a parked paid checkout shows the customer 'needs a 
       const { page } = user;
       await page.goto(`/payment/success?ref=${ref}`);
       await expect(page.getByRole("heading", { name: "Your payment needs a quick check" })).toBeVisible();
-      await expect(page.getByText("Please don't pay again")).toBeVisible();
+      // Said twice on purpose since the booking-box pass (2026-10-27): in the page's status lead and on the pass.
+      await expect(page.getByRole("status").filter({ hasText: "Please don't pay again" })).toBeVisible();
+      await expect(page.locator(".hc-pass-note").filter({ hasText: "Please don't pay again" })).toBeVisible();
       await expect(page.getByText("You're all set!")).toHaveCount(0);
       await shot(page, "customer-payment-review");
       // A failed status check is "couldn't check", not "not found" (UI interception: one request).

@@ -1,8 +1,14 @@
+import { governanceSummary } from "../governance.js";
 import { adminCategoriesRouter, categoriesConfigRouter } from "./adminCategories.js";
+import { answersPastRetention, CLASS_LABELS, cleanPolicy, DATA_CLASSES, fieldPolicy, FieldPolicyError, INPUT_TYPES, LIBRARY, PLATFORM_LOCKED, TYPE_LABELS } from "../fieldRegistry.js";
+import { specialCategoryQuestionsOn } from "../participation/options.js";
+import { familiesOf, loadTaxonomy } from "../taxonomy.js";
+import { CategoryAccessError, cleanAccess, orgCategoryAccess, orgCategoryUsage, policyOf } from "../categoryPolicy.js";
+import { CAPABILITIES, CapabilityChangeError, TEMPLATES, capability, capabilityUsage, isTemplateKey, orgSettings, planChange, platformStates, resolveStates, templateChange, type CapabilityState } from "../capabilities.js";
 import { verifiedSql } from "../reviewEligibility.js";
 import { adminVerificationRouter } from "./verificationChecks.js";
 import { adminAttendanceRouter } from "./attendanceCorrections.js";
-import { FEATURE_SWITCHES, allFeatureStates, featureOn, isFeatureKey, setFeature } from "../circleFeatures.js";
+import { FEATURE_SWITCHES, LockedFeatureError, allFeatureStates, featureOn, isFeatureKey, setFeature } from "../circleFeatures.js";
 import crypto from "node:crypto";
 import { matchExperienceSupply } from "../participationIntents.js";
 import { DEFAULT_WEIGHTS, getRecommendationWeights, setRecommendationWeights, validateWeights } from "../recommendationWeights.js";
@@ -1160,6 +1166,217 @@ adminRouter.put("/organisations/:id/flags/:key", requireAdminPermission("orgs.ma
   res.json({ ok: true });
 });
 
+// Configuration framework Phase B/C (docs/participation-expansion/14) — the
+// organisation capability registry on top of the same feature_flags table the
+// two routes above use (their 3 keys keep working). Read: orgs.view. Save:
+// orgs.manage, optimistic (organisations.config_version), one audit row with
+// before and after. A capability never opens a commercial gate, and switching
+// one off never deletes or hides existing listings or bookings.
+async function capabilityView(orgId: string) {
+  const org = (await db.prepare(`SELECT id, template, config_version AS configVersion FROM organisations WHERE id = ?`).get(orgId)) as
+    | { id: string; template: string | null; configVersion: number }
+    | undefined;
+  if (!org) return null;
+  const { enabled, limits } = await orgSettings(orgId);
+  const platform = await platformStates();
+  return {
+    template: org.template,
+    configVersion: Number(org.configVersion),
+    capabilities: CAPABILITIES,
+    templates: TEMPLATES,
+    states: resolveStates(enabled, limits, platform),
+    usage: await capabilityUsage(orgId),
+  };
+}
+
+adminRouter.get("/organisations/:id/capabilities", requireAdminPermission("orgs.view"), async (req, res) => {
+  const view = await capabilityView(req.params.id);
+  if (!view) return res.status(404).json({ error: "Organisation not found" });
+  res.json(view);
+});
+
+/** Body: { template?, enabled?: {key: bool}, limits?: {"cap.limit": n} }. A template
+ * gives the starting set; `enabled` then overrides individual capabilities. */
+function changeBody(raw: unknown): { template: string | null; enabled: Record<string, unknown>; limits: Record<string, unknown> } {
+  const b = (raw ?? {}) as { template?: unknown; enabled?: unknown; limits?: unknown };
+  if (b.template !== undefined && b.template !== null && !isTemplateKey(b.template)) throw new CapabilityChangeError("Unknown template");
+  const template = isTemplateKey(b.template) ? b.template : null;
+  const enabled = { ...(template ? templateChange(template) : {}), ...((b.enabled && typeof b.enabled === "object" ? b.enabled : {}) as Record<string, unknown>) };
+  return { template, enabled, limits: (b.limits && typeof b.limits === "object" ? b.limits : {}) as Record<string, unknown> };
+}
+
+function impactOf(before: CapabilityState[], after: CapabilityState[], usage: Record<string, number>) {
+  return after
+    .filter((a) => before.find((b) => b.key === a.key)?.effective && !a.effective)
+    .map((a) => ({ key: a.key, label: capability(a.key)!.label, existing: usage[a.key] ?? 0, whenOff: capability(a.key)!.whenOff }));
+}
+
+adminRouter.post("/organisations/:id/capabilities/preview", requireAdminPermission("orgs.view"), async (req, res) => {
+  const view = await capabilityView(req.params.id);
+  if (!view) return res.status(404).json({ error: "Organisation not found" });
+  try {
+    const body = changeBody(req.body);
+    const current = await orgSettings(req.params.id);
+    const plan = planChange(current, { enabled: body.enabled, limits: body.limits });
+    const after = resolveStates(plan.enabled, plan.limits, await platformStates());
+    res.json({ ok: true, states: after, impact: impactOf(view.states, after, view.usage) });
+  } catch (e) {
+    if (e instanceof CapabilityChangeError) return res.status(e.status).json({ ok: false, error: e.message, details: e.details });
+    throw e;
+  }
+});
+
+adminRouter.put("/organisations/:id/capabilities", requireAdminPermission("orgs.manage"), async (req, res) => {
+  const { configVersion, reason } = (req.body ?? {}) as { configVersion?: unknown; reason?: unknown };
+  if (typeof configVersion !== "number") return res.status(400).json({ error: "Send the configuration version you edited" });
+  try {
+    const body = changeBody(req.body);
+    const result = await db.transaction(async (tx) => {
+      const org = (await tx.prepare(`SELECT config_version AS v, template FROM organisations WHERE id = ? FOR UPDATE`).get(req.params.id)) as { v: number; template: string | null } | undefined;
+      if (!org) throw new CapabilityChangeError("Organisation not found", 404);
+      if (Number(org.v) !== configVersion) throw new CapabilityChangeError("Someone changed this organisation's configuration since you opened it — reload to see the latest", 409);
+      const current = await orgSettings(req.params.id, tx);
+      const plan = planChange(current, { enabled: body.enabled, limits: body.limits });
+      const platform = await platformStates();
+      const before = resolveStates(current.enabled, current.limits, platform);
+      for (const [key, on] of Object.entries(plan.change.enabled)) {
+        await tx.prepare(`INSERT INTO feature_flags (org_id, flag_key, enabled) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE enabled = VALUES(enabled)`).run(req.params.id, key, on ? 1 : 0);
+      }
+      for (const [key, value] of Object.entries(plan.change.limits)) {
+        await tx.prepare(`INSERT INTO org_capability_limits (org_id, limit_key, value) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value)`).run(req.params.id, key, value);
+      }
+      const template = body.template ?? org.template;
+      await tx.prepare(`UPDATE organisations SET config_version = config_version + 1, template = ? WHERE id = ?`).run(template, req.params.id);
+      const after = resolveStates(plan.enabled, plan.limits, platform);
+      return { before, after, change: plan.change, previousTemplate: org.template, template };
+    });
+    await writeAudit({
+      actorUserId: req.user!.id,
+      action: "org.capabilities_changed",
+      objectType: "organisation",
+      objectId: req.params.id,
+      previousValue: { template: result.previousTemplate, effective: Object.fromEntries(result.before.map((s) => [s.key, s.effective])) },
+      newValue: { template: result.template, changed: result.change, effective: Object.fromEntries(result.after.map((s) => [s.key, s.effective])) },
+      reason: typeof reason === "string" && reason.trim() ? reason.trim().slice(0, 500) : undefined,
+    });
+    res.json(await capabilityView(req.params.id));
+  } catch (e) {
+    if (e instanceof CapabilityChangeError) return res.status(e.status).json({ error: e.message, details: e.details });
+    throw e;
+  }
+});
+
+// Configuration framework Phase E — which categories an organisation's
+// partners may choose (organisations.category_mode + org_category_access).
+// Existing listings keep their category whatever is changed here.
+async function categoryAccessView(orgId: string) {
+  const org = (await db.prepare(`SELECT id, template, config_version AS configVersion FROM organisations WHERE id = ?`).get(orgId)) as { id: string; template: string | null; configVersion: number } | undefined;
+  if (!org) return null;
+  const index = await loadTaxonomy();
+  const access = await orgCategoryAccess(orgId);
+  const rows = [...index.byId.values()];
+  return {
+    configVersion: Number(org.configVersion),
+    mode: access.mode,
+    grants: [...access.grants.entries()].map(([categoryId, subs]) => ({ categoryId, subcategoryIds: subs.has("*") ? "*" : [...subs] })),
+    usage: await orgCategoryUsage(orgId),
+    templateCategories: TEMPLATES.find((t) => t.key === org.template)?.categories ?? [],
+    categories: rows
+      .filter((r) => !r.parent_id && !r.archived_at)
+      .map((c) => ({
+        id: c.id,
+        name: c.name,
+        families: familiesOf(c),
+        active: Number(c.active) === 1,
+        moderationPolicy: policyOf(c),
+        subcategories: rows.filter((x) => x.parent_id === c.id && !x.archived_at).map((x) => ({ id: x.id, name: x.name })),
+      })),
+  };
+}
+
+adminRouter.get("/organisations/:id/categories", requireAdminPermission("orgs.view"), async (req, res) => {
+  const view = await categoryAccessView(req.params.id);
+  if (!view) return res.status(404).json({ error: "Organisation not found" });
+  res.json(view);
+});
+
+adminRouter.put("/organisations/:id/categories", requireAdminPermission("orgs.manage"), async (req, res) => {
+  const { configVersion, reason } = (req.body ?? {}) as { configVersion?: unknown; reason?: unknown };
+  if (typeof configVersion !== "number") return res.status(400).json({ error: "Send the configuration version you edited" });
+  try {
+    const plan = cleanAccess(req.body, await loadTaxonomy());
+    const before = await categoryAccessView(req.params.id);
+    if (!before) return res.status(404).json({ error: "Organisation not found" });
+    await db.transaction(async (tx) => {
+      const org = (await tx.prepare(`SELECT config_version AS v FROM organisations WHERE id = ? FOR UPDATE`).get(req.params.id)) as { v: number };
+      if (Number(org.v) !== configVersion) throw new CategoryAccessError("Someone changed this organisation's configuration since you opened it — reload to see the latest", 409);
+      await tx.prepare(`DELETE FROM org_category_access WHERE org_id = ?`).run(req.params.id);
+      for (const r of plan.rows) await tx.prepare(`INSERT INTO org_category_access (org_id, category_id, subcategory_id) VALUES (?, ?, ?)`).run(req.params.id, r.categoryId, r.subcategoryId);
+      await tx.prepare(`UPDATE organisations SET category_mode = ?, config_version = config_version + 1 WHERE id = ?`).run(plan.mode, req.params.id);
+    });
+    const after = await categoryAccessView(req.params.id);
+    await writeAudit({
+      actorUserId: req.user!.id,
+      action: "org.categories_changed",
+      objectType: "organisation",
+      objectId: req.params.id,
+      previousValue: { mode: before.mode, grants: before.grants },
+      newValue: { mode: after!.mode, grants: after!.grants },
+      reason: typeof reason === "string" && reason.trim() ? reason.trim().slice(0, 500) : undefined,
+    });
+    res.json(after);
+  } catch (e) {
+    if (e instanceof CategoryAccessError) return res.status(e.status).json({ error: e.message });
+    throw e;
+  }
+});
+
+// Configuration framework Phase F — the field registry and the admin field
+// policy (which ready-made fields and custom answer types partners may use,
+// retention and export per data class). Read: every admin. Change: Super or
+// Legal (policies.manage), versioned, audited with before and after.
+adminRouter.get("/fields", requireAdminPermission("workspace.view"), async (_req, res) => {
+  const policy = await fieldPolicy();
+  res.json({
+    policy,
+    platformLocked: PLATFORM_LOCKED,
+    library: LIBRARY,
+    types: INPUT_TYPES.map((t) => ({ key: t, label: TYPE_LABELS[t] })),
+    classes: DATA_CLASSES.map((c) => ({ key: c, label: CLASS_LABELS[c] })),
+    specialCategoryQuestions: await specialCategoryQuestionsOn(),
+    pastRetention: await answersPastRetention(policy),
+  });
+});
+
+adminRouter.put("/fields/policy", requireAdminPermission("policies.manage"), async (req, res) => {
+  const { version, reason } = (req.body ?? {}) as { version?: unknown; reason?: unknown };
+  if (typeof version !== "number") return res.status(400).json({ error: "Send the policy version you edited" });
+  try {
+    const result = await db.transaction(async (tx) => {
+      await tx.prepare(`INSERT IGNORE INTO field_policies (id, version, policy_json) VALUES (1, 0, NULL)`).run();
+      const row = (await tx.prepare(`SELECT version FROM field_policies WHERE id = 1 FOR UPDATE`).get()) as { version: number };
+      if (Number(row.version) !== version) throw new FieldPolicyError("Someone changed the field policy since you opened it — reload to see the latest", 409);
+      const before = await fieldPolicy(tx);
+      const next = cleanPolicy(req.body, before);
+      await tx.prepare(`UPDATE field_policies SET version = version + 1, policy_json = ?, updated_by = ? WHERE id = 1`).run(JSON.stringify(next), req.user!.id);
+      return { before, after: { ...next, version: version + 1 } };
+    });
+    await writeAudit({
+      actorUserId: req.user!.id,
+      action: "fields.policy_changed",
+      objectType: "field_policy",
+      objectId: "1",
+      previousValue: result.before,
+      newValue: result.after,
+      reason: typeof reason === "string" && reason.trim() ? reason.trim().slice(0, 500) : undefined,
+    });
+    res.json({ policy: result.after });
+  } catch (e) {
+    if (e instanceof FieldPolicyError) return res.status(e.status).json({ error: e.message });
+    throw e;
+  }
+});
+
 adminRouter.put("/centres/:id/organisation", requireAdminPermission("orgs.manage"), async (req, res) => {
   const { organisationId } = req.body as { organisationId: string | null };
   const before = (await db.prepare(`SELECT org_id AS orgId FROM centres WHERE id = ?`).get(req.params.id)) as { orgId: string | null } | undefined;
@@ -1180,7 +1397,7 @@ adminRouter.put("/clubs/:id/organisation", requireAdminPermission("orgs.manage")
 
 // --- RBAC + marketplace-tier scaffolding (FUTURE, best-effort) -------------
 
-const PLATFORM_ROLES = ["centre_manager", "facility_manager", "finance", "communications", "read_only_analyst"];
+const PLATFORM_ROLES = ["centre_manager", "facility_manager", "finance", "communications", "read_only_analyst", "checkin_staff"];
 
 adminRouter.put("/vendors/:id/platform-role", requireAdminPermission("partners.platform_role"), async (req, res) => {
   const { platformRole } = req.body as { platformRole: string | null };
@@ -1443,6 +1660,12 @@ adminRouter.post("/moderation/chat-messages/:id/unhide", requireAdminPermission(
 });
 
 // --- audit log (moved from platformAdmin.ts) ----------------------------
+
+// Phase L — governance summary over the audit log, retention counts and open privacy decisions (read only).
+adminRouter.get("/governance", requireAdminPermission("audit.view"), async (req, res) => {
+  const days = [7, 30, 90, 365].includes(Number(req.query.days)) ? Number(req.query.days) : 30;
+  res.json(await governanceSummary(days));
+});
 
 adminRouter.get("/audit", requireAdminPermission("audit.view"), async (req, res) => {
   const actorUserId = typeof req.query.actorUserId === "string" ? req.query.actorUserId : undefined;
@@ -1813,7 +2036,12 @@ adminRouter.put("/config/feature-switches/:key", requireAdminPermission("platfor
   if (!isFeatureKey(req.params.key)) return res.status(404).json({ error: "Unknown feature switch" });
   if (typeof enabled !== "boolean") return res.status(400).json({ error: "enabled must be a boolean" });
   const before = await featureOn(req.params.key);
-  await setFeature(req.params.key, enabled);
+  try {
+    await setFeature(req.params.key, enabled);
+  } catch (e) {
+    if (e instanceof LockedFeatureError) return res.status(409).json({ error: e.message, locked: true });
+    throw e;
+  }
   await writeAudit({
     actorUserId: req.user!.id,
     action: "config.feature_switch_changed",

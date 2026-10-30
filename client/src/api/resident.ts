@@ -601,8 +601,27 @@ export function postGameUpdate(id: string, message: string): Promise<GameUpdate>
 /** Free/cash games resolve `{ ok: true }` immediately; a priced game
  * (NEXT) instead returns a Stripe `url` to redirect to. */
 /** `meetsMinAge` — Booking UX Phase 4: required (true) when the activity has a minimum age. */
-export function joinGame(id: string, couponCode?: string, meetsMinAge?: boolean, message?: string): Promise<{ ok?: boolean; ref?: string; url?: string; totalEuro?: number; requested?: boolean }> {
-  return request(`/games/${id}/join`, { method: "POST", body: JSON.stringify({ couponCode, meetsMinAge, message }) });
+export function joinGame(id: string, couponCode?: string, meetsMinAge?: boolean, message?: string, form?: { answers: import("../types").RegistrationAnswersInput; questionsVersion: number }): Promise<{ ok?: boolean; ref?: string; url?: string; totalEuro?: number; requested?: boolean }> {
+  return request(`/games/${id}/join`, { method: "POST", body: JSON.stringify({ couponCode, meetsMinAge, message, ...(form ?? {}) }) });
+}
+
+// --- Phase N: the host's participation questions and attendance ---------------------
+export interface HostQuestionSetup {
+  enabled: boolean;
+  max: number;
+  library: { key: string; label: string; purpose: string; inputType: string; choices: string[] }[];
+  picks: { key: string; required: boolean }[];
+  version: number;
+}
+export function fetchGameQuestionSetup(id: string): Promise<HostQuestionSetup> {
+  return request(`/games/${id}/questions`);
+}
+export function saveGameQuestions(id: string, picks: { key: string; required: boolean }[]): Promise<{ ok: boolean; version: number }> {
+  return request(`/games/${id}/questions`, { method: "PUT", body: JSON.stringify({ picks }) });
+}
+/** Host marks someone as not attended (a later check-in overrides it). */
+export function markGameNoShow(id: string, residentId: string): Promise<{ ok: boolean }> {
+  return request(`/games/${id}/participants/${residentId}/no-show`, { method: "POST" });
 }
 
 /** OG-27 — withdraw your own pending request to join an approval activity. */

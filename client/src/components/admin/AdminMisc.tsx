@@ -1,7 +1,9 @@
 import { useAdminCan } from "./adminPermissions";
+import { OrgCapabilities } from "./OrgCapabilities";
+import { OrgCategories } from "./OrgCategories";
 import { OrganisationRecord } from "./AdminOrganisationRecord";
 import { useRecordParam, useUrlParam } from "../../useUrlTab";
-import { useEffect, useId, useState } from "react";
+import { useId, useState } from "react";
 import { Bell, Building2, Mail, Activity, TrendingUp, Landmark } from "lucide-react";
 import {
   createAdminOrganisation,
@@ -13,14 +15,11 @@ import {
   fetchAnalyticsFunnel,
   fetchMarketplaceHealth,
   fetchNotificationTemplates,
-  fetchOrgFeatureFlags,
   notifyIntentCluster,
   resetNotificationTemplate,
   setNotificationTemplate,
-  setOrgFeatureFlag,
 } from "../../api";
-import { FEATURE_FLAG_KEYS, FEATURE_FLAG_LABELS } from "../../types";
-import type { FeatureFlagKey, FeatureFlags, NotificationTemplateInfo } from "../../types";
+import type { NotificationTemplateInfo } from "../../types";
 import { useConfirm } from "../ConfirmProvider";
 import { DemandSignalsView, IntentClusterView } from "../DemandSignals";
 import { MarketplaceHealthView } from "../MarketplaceHealth";
@@ -30,38 +29,6 @@ import { AdminButton, Badge, Box, EmptyMessage, ErrorMessage, FormField, Loaded,
 // (admin redesign 2026-10-14) — same endpoints and rules as before.
 
 // --- organisations -------------------------------------------------------------
-
-function OrgFlags({ orgId, orgName }: { orgId: string; orgName: string }) {
-  const canManage = useAdminCan()("orgs.manage");
-  const [flags, setFlags] = useState<FeatureFlags | null>(null);
-  const [error, setError] = useState<unknown>(null);
-  const { run, busy } = useAdminAction();
-  useEffect(() => {
-    fetchOrgFeatureFlags(orgId).then(setFlags).catch(setError);
-  }, [orgId]);
-  if (error) return <ErrorMessage error={error} title="Couldn't load feature flags" />;
-  if (!flags) return <p className="adm-note" role="status">Loading feature flags…</p>;
-  const toggle = (key: FeatureFlagKey) => {
-    const next = !flags[key];
-    run(key, () => setOrgFeatureFlag(orgId, key, next), { success: `${FEATURE_FLAG_LABELS[key]} ${next ? "on" : "off"} for ${orgName}` }).then((ok) => ok && setFlags({ ...flags, [key]: next }));
-  };
-  return (
-    <fieldset style={{ border: "none", margin: 0, padding: 0 }}>
-      <legend className="adm-section-label" style={{ marginTop: 0 }}>
-        Feature flags
-      </legend>
-      <div style={{ display: "flex", gap: 18, flexWrap: "wrap" }}>
-        {FEATURE_FLAG_KEYS.map((key) => (
-          <label key={key} style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 13.5, cursor: "pointer" }}>
-            <input type="checkbox" checked={flags[key]} disabled={!!busy || !canManage} onChange={() => toggle(key)} style={{ accentColor: "var(--color-green)", width: 16, height: 16 }} />
-            {FEATURE_FLAG_LABELS[key]}
-          </label>
-        ))}
-      </div>
-      <p className="adm-note" style={{ marginTop: 8 }}>Changes apply immediately and are enforced by the server for this organisation.</p>
-    </fieldset>
-  );
-}
 
 export function AdminOrganisationsPage({ onOpenVendor }: { onOpenVendor: (vendorId: string) => void }) {
   const canManage = useAdminCan()("orgs.manage");
@@ -105,7 +72,8 @@ export function AdminOrganisationsPage({ onOpenVendor }: { onOpenVendor: (vendor
         onBack={closeRecord}
         onOpenVendor={onOpenVendor}
         onChanged={orgs.reload}
-        flags={<OrgFlags orgId={openOrg} orgName={name} />}
+        flags={<OrgCapabilities orgId={openOrg} orgName={name} />}
+        categories={<OrgCategories orgId={openOrg} orgName={name} />}
       />
     );
   }

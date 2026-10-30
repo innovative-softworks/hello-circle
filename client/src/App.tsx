@@ -59,6 +59,7 @@ const ClubDetail = lazy(() => import("./pages/ClubDetail").then((m) => ({ defaul
 const BookingFlow = lazy(() => import("./pages/BookingFlow").then((m) => ({ default: m.BookingFlow })));
 const CookiePolicy = lazy(() => import("./pages/CookiePolicy").then((m) => ({ default: m.CookiePolicy })));
 const Adventures = lazy(() => import("./pages/Adventures").then((m) => ({ default: m.Adventures })));
+const Events = lazy(() => import("./pages/Events").then((m) => ({ default: m.Events })));
 const Volunteer = lazy(() => import("./pages/Volunteer").then((m) => ({ default: m.Volunteer })));
 const Programs = lazy(() => import("./pages/Programs").then((m) => ({ default: m.Programs })));
 const ExperienceDetail = lazy(() => import("./pages/ExperienceDetail").then((m) => ({ default: m.ExperienceDetail })));
@@ -116,6 +117,8 @@ const VendorCentreEditPage = lazy(() => import("./pages/VendorCentreEditPage").t
 const VendorClubEditPage = lazy(() => import("./pages/VendorClubEditPage").then((m) => ({ default: m.VendorClubEditPage })));
 const VendorProgramEditPage = lazy(() => import("./pages/VendorProgramEditPage").then((m) => ({ default: m.VendorProgramEditPage })));
 const VendorExperienceEditPage = lazy(() => import("./pages/VendorExperienceEditPage").then((m) => ({ default: m.VendorExperienceEditPage })));
+const VendorDoorHome = lazy(() => import("./pages/VendorDoor").then((m) => ({ default: m.VendorDoorHome })));
+const VendorDoorScreen = lazy(() => import("./pages/VendorDoor").then((m) => ({ default: m.VendorDoorScreen })));
 const HostGamePage = lazy(() => import("./pages/HostGamePage").then((m) => ({ default: m.HostGamePage })));
 // Stage 5f — Pro details and reward history (one shared page per concept, scope by route).
 const VendorProPage = lazy(() => import("./pages/ProDetailsPage").then((m) => ({ default: m.VendorProPage })));
@@ -125,6 +128,7 @@ const HostRewardsPage = lazy(() => import("./pages/RewardsHistoryPage").then((m)
 const ManageCircle = lazy(() => import("./pages/ManageCircle").then((m) => ({ default: m.ManageCircle })));
 const ManageHome = lazy(() => import("./pages/ManageHome").then((m) => ({ default: m.ManageHome })));
 const ReceiptPage = lazy(() => import("./pages/ReceiptPage").then((m) => ({ default: m.ReceiptPage })));
+const VendorOrderPage = lazy(() => import("./pages/VendorOrderPage").then((m) => ({ default: m.VendorOrderPage })));
 const BookingDetailPage = lazy(() => import("./pages/BookingDetailPage").then((m) => ({ default: m.BookingDetailPage })));
 const StartCirclePage = lazy(() => import("./pages/StartCirclePage").then((m) => ({ default: m.StartCirclePage })));
 
@@ -398,6 +402,9 @@ export function App() {
                 <Route path="/adventures/:id" element={<ExperienceDetail />} />
                 <Route path="/experiences" element={<Experiences />} />
                 <Route path="/experiences/:id" element={<ExperienceDetail />} />
+                {/* Participation Phase 1 — community events (same detail page). */}
+                <Route path="/events" element={<Events />} />
+                <Route path="/events/:id" element={<ExperienceDetail />} />
                 {/* Search merged into Explore's Results Mode — preserve old
                     /search?q=... links/bookmarks (see SearchRedirect.tsx). */}
                 <Route path="/search" element={<SearchRedirect />} />
@@ -422,6 +429,9 @@ export function App() {
                 <Route path="/vendor/clubs/:id" element={<PartnerOrgGate><VendorClubEditPage /></PartnerOrgGate>} />
                 <Route path="/vendor/programs/:id" element={<PartnerOrgGate><VendorProgramEditPage /></PartnerOrgGate>} />
                 <Route path="/vendor/experiences/:id" element={<PartnerOrgGate><VendorExperienceEditPage /></PartnerOrgGate>} />
+                <Route path="/vendor/orders/:source/:ref" element={<PartnerOrgGate><VendorOrderPage /></PartnerOrgGate>} />
+                <Route path="/vendor/door" element={<PartnerOrgGate><VendorDoorHome /></PartnerOrgGate>} />
+                <Route path="/vendor/door/:sessionId" element={<PartnerOrgGate><VendorDoorScreen /></PartnerOrgGate>} />
                 {/* HelloCircle Manage — /manage is the resident (Host)
                     dashboard (Overview/Activities/Circles tabs, one page,
                     same shape as VendorDashboard.tsx; ManageHome.tsx

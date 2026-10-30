@@ -1,3 +1,5 @@
+import { Link } from "react-router-dom";
+import { OrderRegistrationSection } from "./workspace/OrderRecord";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { VendorAllOrders } from "./VendorAllOrders";
 import { BookingChangeHistory, ProposeChangeDialog } from "./workspace/BookingChangeParts";
@@ -437,6 +439,8 @@ function BookingRecord({ booking, onBack, onCancelled, onRefunded }: { booking: 
       <p className="adm-note" style={{ marginTop: 6 }}>
         Settlement and payout to your bank are shown under Earnings; they aren't tracked per booking.
       </p>
+      {/* Phase J — the hall's booking-form answers (managers only) and their history. */}
+      <OrderRegistrationSection source="booking" bookingRef={booking.ref} />
       <div style={{ marginTop: 20 }}>
         <BookingChangeHistory bookingRef={booking.ref} refreshKey={changesKey} canWithdraw={booking.status !== "cancelled"} />
       </div>
@@ -958,7 +962,8 @@ export function BookingsTab({ centreId, clubId }: { centreId?: string; clubId?: 
                           <td data-label="Registrant">
                             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                               <Avatar name={name} size={24} />
-                              <strong style={{ fontWeight: 600 }}>{name}</strong>
+                              {/* Phase J — the registration's record page (people, answers, history). */}
+                              <Link to={`/vendor/orders/registration/${encodeURIComponent(r.ref)}`} style={{ fontWeight: 600, color: "inherit" }}>{name}</Link>
                             </div>
                           </td>
                           <td data-label="Club">{r.clubName}</td>

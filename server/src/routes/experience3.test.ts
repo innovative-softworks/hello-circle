@@ -44,7 +44,9 @@ const as = (who: string | null, path: string, init: { method?: string; body?: un
   });
 
 async function switches(on: boolean) {
-  for (const f of FEATURE_SWITCHES) await setFeature(f.key, on);
+  // Only this suite's own switches (Circles / Experience 3.0) — the
+  // participation.* group is Phase 1's, and one of its switches is locked.
+  for (const f of FEATURE_SWITCHES.filter((x) => x.group !== "participation")) await setFeature(f.key, on);
 }
 
 beforeAll(async () => {

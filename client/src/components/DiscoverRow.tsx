@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { priceState } from "../exploreFilters";
 import { joinGameConfirm, joinWaitlistConfirm } from "../confirmCopy";
-import { isMinAgeRefusal } from "../gameCta";
+import { isMinAgeRefusal, needsJoinPage } from "../gameCta";
 import { useConfirm } from "./ConfirmProvider";
 import { useNavigate } from "react-router-dom";
 import { joinGame, joinGameWaitlist } from "../api";
@@ -124,7 +124,7 @@ function JoinControl({ item }: { item: ActivitySummary }) {
       setJoined(true);
       setSpotsLeft((s) => Math.max(0, s - 1));
     } catch (e) {
-      if (isMinAgeRefusal(e)) return void navigate(`/games/${item.id}`);
+      if (needsJoinPage(e)) return void navigate(`/games/${item.id}`);
       setError(e instanceof Error ? e.message : full ? "Couldn't join the waitlist" : "Couldn't join");
     } finally {
       setJoining(false);

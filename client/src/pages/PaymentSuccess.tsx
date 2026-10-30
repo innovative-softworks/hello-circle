@@ -222,7 +222,7 @@ function passFor(ref: string, d: AnyConfirmation, review: boolean): PassProps {
   }
   if (ref.startsWith("EX-")) {
     const e = d as ExperienceBookingConfirmation;
-    return { ...base, kind: "experience", status: status("Booked"), title: e.title, date: passDate(e.date), time: e.time, where: e.meetingPoint || null, fields: [["People", String(e.partySize)], [paidLabel, paid]], note };
+    return { ...base, kind: e.kind === "adventure" ? "adventure" : e.kind === "volunteer" ? "volunteer" : e.kind === "event" ? "event" : "experience", status: status("Booked"), title: e.title, date: passDate(e.date), time: e.time, where: e.meetingPoint || null, fields: [["People", String(e.partySize)], [paidLabel, paid]], note };
   }
   if (ref.startsWith("PR-")) {
     const p = d as ProgramEnrollmentConfirmation;

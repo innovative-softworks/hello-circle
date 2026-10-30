@@ -16,6 +16,8 @@ export interface Centre {
   newcomerWelcome?: string | null;
   /** Category system (2026-10-22) — present on public detail responses. */
   taxonomy?: ListingTaxonomy | null;
+  /** Phase H — the organiser's live registration form (detail response; empty when none). */
+  registrationForm?: ListingRegistrationForm;
   tags?: string[];
   /** DP-07 — the organisation's cancellation window in hours (detail response only). */
   cancellationHours?: number;
@@ -98,6 +100,8 @@ export interface Club {
   newcomerWelcome?: string | null;
   /** Category system (2026-10-22) — present on public detail responses. */
   taxonomy?: ListingTaxonomy | null;
+  /** Phase H — the organiser's live registration form (detail response; empty when none). */
+  registrationForm?: ListingRegistrationForm;
   tags?: string[];
   /** Release 2 — public detail fetch only. */
   participationAttributes?: string[];
@@ -234,11 +238,15 @@ export interface ExperienceBookingConfirmation {
   /** Booking UX Phase 3 — ISO instant after which it can't be cancelled online (server rule). Optional: older servers don't send it. */
   cancelDeadline?: string;
   experienceId: string;
+  /** Participation Phase 1 — so the confirmation pass says Event/Adventure correctly. */
+  kind?: ExperienceKind;
   title: string;
   meetingPoint: string;
   date: string;
   time: string;
   partySize: number;
+  /** Participation Phase 1 — what was bought (empty for a single-price booking). */
+  lines?: OrderLine[];
 }
 
 export interface ProgramEnrollmentConfirmation {
@@ -561,7 +569,7 @@ export interface Favourite {
 
 export interface ResidentNotification {
   id: number;
-  kind: "booking" | "registration" | "program" | "experience" | "waitlist" | "game" | "intent_match" | "circle" | "invite" | "invite_withdrawn" | "moderation" | "review_invite";
+  kind: "booking" | "registration" | "program" | "experience" | "waitlist" | "game" | "intent_match" | "circle" | "invite" | "invite_withdrawn" | "moderation" | "review_invite" | "reminder" | "organiser_message";
   title: string;
   body: string;
   /** Platform Pre-Launch Polish — Changeset 2. Widened to match the
@@ -632,6 +640,8 @@ export interface MyIntent {
 // --- Join a Game (MVP) / paid games (NEXT) ---------------------------------
 
 export interface Game {
+  /** Phase N — the host's participation questions (empty when none or switched off). */
+  participationQuestions?: ListingRegistrationForm;
   /** Trust & Retention — who welcomes newcomers (a role or first name, where to find them); null = not provided. */
   newcomerWelcome?: string | null;
   /** Card word source (list endpoints only). See CategoryLabel. */
@@ -759,6 +769,8 @@ export interface GameParticipantSummary {
 /** Host-only, uncapped participant view (HelloCircle Manage /manage/activities)
  * — distinct from GameParticipantSummary's public names-only preview. */
 export interface ManageParticipant {
+  /** Phase N — answers to the host's questions (host only). */
+  answers?: StoredAnswer[];
   residentId: string;
   name: string;
   status: string;
@@ -2100,6 +2112,8 @@ export interface Program {
   newcomerWelcome?: string | null;
   /** Category system (2026-10-22) — present on public detail responses. */
   taxonomy?: ListingTaxonomy | null;
+  /** Phase H — the organiser's live registration form (detail response; empty when none). */
+  registrationForm?: ListingRegistrationForm;
   tags?: string[];
   id: string;
   listingType: "centre" | "club";
@@ -2161,8 +2175,9 @@ export interface VendorProgramSummary {
 // experience_bookings comments. Booked per-session (a single departure),
 // not a multi-session enrollment the way a Program is.
 
-/** Release 5 — "volunteer" is an experience kind, not a separate module. */
-export type ExperienceKind = "adventure" | "experience" | "volunteer";
+/** Release 5 — "volunteer" is an experience kind, not a separate module.
+ * Participation Phase 1 — "event" (community events) is one too. */
+export type ExperienceKind = "adventure" | "experience" | "volunteer" | "event";
 
 export interface ExperienceSessionSlot {
   id: string;
@@ -2170,6 +2185,332 @@ export interface ExperienceSessionSlot {
   time: string;
   capacity: number;
   spotsLeft: number;
+  /** Participation Phase 1 — places left per option with its own limit (null = no own limit). */
+  optionsLeft?: Record<string, number | null>;
+}
+
+// --- Participation Phase 1: registration options and purchased lines ----------
+
+export type OptionKind = "option" | "addon" | "bundle";
+export type PriceBasis = "per_person" | "per_booking";
+export type AgeBand = "adult" | "child" | "infant" | "senior" | "any";
+
+/** One option as the public booking box sees it. */
+export interface RegistrationOption {
+  id: string;
+  kind: OptionKind;
+  label: string;
+  description: string;
+  priceMinor: number;
+  priceBasis: PriceBasis;
+  /** People one unit includes (a family Pooja = 5); 0 for an add-on. */
+  headsPerUnit: number;
+  ageBand: AgeBand | null;
+  maxPerOrder: number | null;
+  onSale: boolean;
+  saleEndsAt: string | null;
+}
+
+/** "single" = one price × party (as always); "options" = choose options. `open`
+ * is false while registration is paused (the options switch is off). */
+export interface ExperienceRegistration {
+  mode: "single" | "options";
+  open: boolean;
+  options: RegistrationOption[];
+  /** Participation Phase 2 — null while attendee details are switched off. */
+  attendeeDetails?: { questions: RegistrationQuestion[]; questionsVersion: number } | null;
+}
+
+// --- Participation Phase 2: attendees, questions, check-in -------------------
+
+export type QuestionInputType = "text" | "long_text" | "number" | "email" | "tel" | "date" | "select" | "multi_select" | "radio" | "checkbox" | "info";
+export type QuestionCategory = "general" | "logistics" | "dietary_preference" | "contact" | "personal" | "health" | "religion" | "ethnicity" | "other_special";
+
+/** A registration question as the person booking sees it. */
+/** Phase H — a club's, programme's or hall's live form, as its public page gets it. */
+export interface ListingRegistrationForm {
+  questions: RegistrationQuestion[];
+  questionsVersion: number;
+}
+
+export interface RegistrationQuestion {
+  key: string;
+  scope: "booking" | "attendee";
+  inputType: QuestionInputType;
+  label: string;
+  help: string;
+  /** "Why we ask" — shown before answering. */
+  purpose: string;
+  required: boolean;
+  choices: string[];
+  min: number | null;
+  max: number | null;
+  appliesTo: "all" | "adult" | "child";
+  /** Door staff see this answer at check-in. */
+  doorVisible: boolean;
+  /** Configuration Phase F. */
+  placeholder?: string;
+  defaultValue?: string | null;
+  minLength?: number | null;
+  maxLength?: number | null;
+  /** "locked" = can't be changed after booking. */
+  editability?: "until_start" | "locked";
+  /** Configuration Phase G — section heading, and shown only when an earlier answer is one of `values`. */
+  section?: string | null;
+  showIf?: { key: string; values: string[] } | null;
+}
+
+/** A question as the partner edits it. */
+export interface VendorRegistrationQuestion extends RegistrationQuestion {
+  id?: string;
+  category: QuestionCategory;
+  /** Phase F — a ready-made library field (its wording is HelloCircle's), or null for the partner's own. */
+  fieldKey?: string | null;
+  /** Included in the attendee export (also needs the platform to allow the data class). */
+  exportable?: boolean;
+}
+
+/** Phase F — what the question builder may offer (GET /vendor/experiences/:id/questions). */
+/** Phase G — a draft form (never seen by anyone booking until published). */
+export interface FormDraft {
+  questions: VendorRegistrationQuestion[];
+  baseVersion: number;
+  updatedAt: string;
+  issues: string[];
+}
+export interface FormTemplate {
+  id: string;
+  scope: "platform" | "organisation";
+  formType: string;
+  name: string;
+  description: string;
+  status: "active" | "archived";
+  questions: VendorRegistrationQuestion[];
+  updatedAt: string | null;
+}
+export interface FormVersion {
+  version: number;
+  questions: number;
+  publishedAt: string;
+  publishedBy: string | null;
+  live: boolean;
+}
+
+export interface QuestionBuilderOptions {
+  library: { key: string; fieldClass: string; label: string; purpose: string; help: string; scope: "booking" | "attendee"; inputType: QuestionInputType; choices: string[]; appliesTo: "all" | "adult" | "child"; dataClass: string }[];
+  allowedTypes: QuestionInputType[];
+  classes: { key: string; label: string; exportable: boolean; retentionDays: number | null }[];
+}
+
+export type AnswerValue = string | number | boolean | string[];
+export interface RegistrationAnswersInput {
+  booking: Record<string, AnswerValue>;
+  attendees: Record<string, AnswerValue>[];
+}
+
+export interface AttendeeInput {
+  name: string;
+  personType?: "adult" | "child";
+  /** For a child: "contact" (the booker) or the attendee number of an adult in the booking. */
+  guardian?: "contact" | number;
+}
+
+export interface BookingAttendee {
+  attendeeNo: number;
+  lineNo: number | null;
+  lineLabel: string | null;
+  personType: "adult" | "child";
+  name: string;
+  guardianKind: "contact" | "attendee" | null;
+  guardianAttendeeNo: number | null;
+  guardianName: string | null;
+  status: "active" | "removed";
+  /** false = from the party size and seat names (bookings before attendee details). */
+  recorded: boolean;
+  checkedInAt: string | null;
+}
+
+export interface StoredAnswer {
+  attendeeNo: number;
+  key: string;
+  label: string;
+  inputType: QuestionInputType;
+  value: string;
+  /** Configuration Phase F — the answer as it reads to a person. */
+  display?: string;
+  version: number;
+  doorVisible: boolean;
+  updatedAt: string;
+}
+
+/** GET /experiences/bookings/:ref/details — the booker's own view. */
+export interface BookingPeopleDetails {
+  ref: string;
+  title: string;
+  kind: string;
+  date: string;
+  time: string;
+  status: string;
+  paymentStatus: string;
+  contactName: string;
+  partySize: number;
+  attendees: BookingAttendee[];
+  answers: StoredAnswer[];
+  questions: RegistrationQuestion[];
+  questionsVersion: number;
+  canEditAnswers: boolean;
+  missingAnswers: string[];
+}
+
+/** Phases I–J — the four participation order types that carry a registration. */
+export type OrderSource = "experience" | "registration" | "program" | "booking";
+
+export interface OrderAttendance {
+  /** door: per person at the door (experiences); order: one check-in per booking; sessions: programme sessions. */
+  kind: "door" | "order" | "sessions" | "none";
+  status: string | null;
+  checkedInAt: string | null;
+  sessionsAttended?: number;
+  sessionsMarked?: number;
+  sessionsTotal?: number;
+}
+
+/** GET /orders/:source/:ref/registration — the booker's own registration, any type. */
+export interface OrderRegistration extends Omit<BookingPeopleDetails, "date" | "time"> {
+  source: OrderSource;
+  date: string | null;
+  time: string | null;
+  attendance: OrderAttendance;
+  /** The form versions the answers were given on. */
+  answeredVersions: number[];
+  /** Why answers can't be changed now (null when they can, or there's no form). */
+  editNote: string | null;
+  /** Answers kept as given ("can't be changed after booking"). */
+  lockedAnswers: { key: string; attendeeNo: number }[];
+}
+
+/** One booking on the partner attendee list. */
+export interface VendorAttendeeBooking {
+  ref: string;
+  sessionId: string;
+  participantName: string;
+  email: string;
+  phone: string;
+  partySize: number;
+  status: string;
+  paymentStatus: string;
+  createdAt: string;
+  date: string;
+  time: string;
+  lines: { lineNo: number; kind: "option" | "addon"; label: string; quantity: number; heads: number }[];
+  attendees: (BookingAttendee & { checkinMethod: string | null })[];
+  answers: StoredAnswer[];
+  issues: string[];
+}
+
+export interface AttendanceSummaryRow {
+  sessionId: string;
+  date: string;
+  time: string;
+  status: string;
+  bookings: number;
+  people: number;
+  adults: number;
+  children: number;
+  checkedIn: number;
+}
+
+export interface CheckinStaffAssignment {
+  id: number;
+  userId: string;
+  name: string;
+  email: string;
+  sessionId: string | null;
+  date: string | null;
+  time: string | null;
+  createdAt: string;
+}
+
+export type AdmitReason = "ok" | "cancelled" | "not_paid" | "refunded" | "session_cancelled" | "wrong_date" | "other_session";
+
+export interface DoorPerson {
+  attendeeNo: number;
+  name: string;
+  personType: "adult" | "child";
+  lineLabel: string | null;
+  guardianName: string | null;
+  checkedInAt: string | null;
+  answers: { label: string; value: string }[];
+}
+
+/** A booking as the door sees it — no amounts, email or phone. */
+export interface DoorBooking {
+  ref: string;
+  contactName: string;
+  partySize: number;
+  admit: { ok: boolean; reason: AdmitReason; message: string };
+  people: DoorPerson[];
+  bookingAnswers: { label: string; value: string }[];
+  checkedIn: number;
+}
+
+export interface DoorSessionInfo {
+  sessionId: string;
+  experienceId: string;
+  title: string;
+  kind: string;
+  date: string;
+  time: string;
+  status: string;
+  isToday: boolean;
+}
+
+/** An option as the partner edits it (GET/PUT /vendor/experiences/:id/options). */
+export interface VendorOfferingOption {
+  id?: string;
+  kind: OptionKind;
+  label: string;
+  description: string;
+  priceMinor: number;
+  priceBasis: PriceBasis;
+  headsPerUnit: number;
+  ageBand: AgeBand | null;
+  capacity: number | null;
+  maxPerOrder: number | null;
+  saleStartsAt: string | null;
+  saleEndsAt: string | null;
+  taxTreatment?: "standard";
+  sortOrder?: number;
+  active: boolean;
+}
+
+/** What a booking bought, frozen at purchase. */
+export interface OrderLine {
+  lineNo: number;
+  kind: "option" | "addon";
+  label: string;
+  description: string;
+  priceBasis: string;
+  ageBand: string | null;
+  unitMinor: number;
+  quantity: number;
+  quantityPurchased: number;
+  heads: number;
+  totalMinor: number;
+  refundedQuantity: number;
+  refundedMinor: number;
+}
+
+/** A priced line in a quote (server amounts). */
+export interface QuotedLine {
+  optionId: string;
+  label: string;
+  kind: OptionKind;
+  priceBasis: PriceBasis;
+  quantity: number;
+  heads: number;
+  unitMinor: number;
+  totalMinor: number;
 }
 
 export interface Experience {
@@ -2223,6 +2564,8 @@ export interface Experience {
   imageUrl: string;
   images: string[];
   sessions: ExperienceSessionSlot[];
+  /** Participation Phase 1 — public detail/list responses only. */
+  registration?: ExperienceRegistration;
   /** Bounded "featured" flag (IA spec §16) — admin-toggled promotion. */
   featured: boolean;
   /** Slugs (master-prompt punch list #1) — null until backfilled/generated. */
@@ -2293,6 +2636,9 @@ export interface MyExperienceBooking {
   time: string;
   /** Release 3 — host-recorded attendance ("present"/"no_show"), null when none. */
   attendance?: string | null;
+  /** Participation Phase 1 — what was bought (empty for a single-price booking). */
+  lines?: OrderLine[];
+  linesSummary?: string | null;
 }
 
 export interface VendorExperienceBooking {
@@ -2311,6 +2657,8 @@ export interface VendorExperienceBooking {
   attendance?: string | null;
   /** OG-19 — the departure this booking is on. */
   sessionId?: string;
+  /** Participation Phase 1 — what was bought (empty for a single-price booking). */
+  lines?: OrderLine[];
 }
 
 export interface ScheduleEntry {
@@ -2347,6 +2695,8 @@ export interface OrgProfile {
   locations: { id: string; name: string; type: "centre" | "club" }[];
   isOwner: boolean;
   flags: FeatureFlags;
+  /** Configuration framework — effective capabilities (docs/participation-expansion/14). */
+  capabilities?: Record<string, boolean>;
   /** The org owner's own uploaded business logo — shown on the public
    * provider profile hero. null until they upload one. */
   logo: string | null;
@@ -2369,7 +2719,7 @@ export const FEATURE_FLAG_LABELS: Record<FeatureFlagKey, string> = {
   experiences: "Adventures & Experiences",
 };
 
-export const PLATFORM_ROLES = ["centre_manager", "facility_manager", "finance", "communications", "read_only_analyst"] as const;
+export const PLATFORM_ROLES = ["centre_manager", "facility_manager", "finance", "communications", "read_only_analyst", "checkin_staff"] as const;
 
 /** Host Manage spec §27/§28 — display labels only, keeping the 5 real
  * `platform_role` values (and every requirePlatformRole/assertPlatformRole
@@ -2382,6 +2732,9 @@ export const PLATFORM_ROLE_LABELS: Record<(typeof PLATFORM_ROLES)[number], strin
   finance: "Finance",
   communications: "Communications",
   read_only_analyst: "Read-only Analyst",
+  // Participation Phase 2 — check people in at the door, only for the events
+  // or dates the organisation assigns; nothing else in the workspace.
+  checkin_staff: "Check-in only",
 };
 
 export interface Participant {
@@ -2570,3 +2923,54 @@ export interface ListingTaxonomy {
   subcategorySlug: string | null;
   active: boolean;
 }
+
+// --- Configuration framework (docs/participation-expansion/13, 14) -----------------
+
+export type CapabilityGroup = "listing" | "operations" | "commercial";
+export interface CapabilityDefinition {
+  key: string;
+  label: string;
+  description: string;
+  group: CapabilityGroup;
+  status: "available" | "unavailable";
+  unavailableReason?: string;
+  dependsOn: string[];
+  operatedBy: string[];
+  platformSwitch?: { key: string; kind: "feature" | "commerce"; label: string };
+  limits?: { key: string; label: string; max: number }[];
+  whenOff: string;
+}
+export interface CapabilityState {
+  key: string;
+  orgEnabled: boolean;
+  platformOn: boolean;
+  dependenciesOn: boolean;
+  effective: boolean;
+  limits: Record<string, number>;
+}
+export interface OrgTemplateDefinition {
+  key: string;
+  label: string;
+  description: string;
+  capabilities: string[];
+}
+export interface OrgCapabilityView {
+  template: string | null;
+  configVersion: number;
+  capabilities: CapabilityDefinition[];
+  templates: OrgTemplateDefinition[];
+  states: CapabilityState[];
+  usage: Record<string, number>;
+}
+export interface CapabilityChangeInput {
+  template?: string | null;
+  enabled?: Record<string, boolean>;
+  limits?: Record<string, number>;
+}
+export interface CapabilityPreview {
+  ok: boolean;
+  error?: string;
+  states?: CapabilityState[];
+  impact?: { key: string; label: string; existing: number; whenOff: string }[];
+}
+
