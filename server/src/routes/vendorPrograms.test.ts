@@ -99,3 +99,25 @@ describe("POST /programs/:programId/enrollments/:enrollmentId/refund — idempot
     expect(res.status).toBe(409);
   });
 });
+
+describe("Phase O2 — enrolment progress", () => {
+  it("counts sessions so far, attended, missed and not recorded per person; finished only when every session is past", async () => {
+    const ids = ["o2a", "o2b", "o2c"].map((k) => `${k}-${testProgramId}`);
+    const day = (d: number) => new Date(Date.now() + d * 86_400_000).toISOString().slice(0, 10);
+    await db.prepare(`INSERT INTO program_sessions (id, program_id, date, time) VALUES (?, ?, ?, '10:00'), (?, ?, ?, '10:00'), (?, ?, ?, '10:00')`).run(ids[0], testProgramId, day(-3), ids[1], testProgramId, day(-2), ids[2], testProgramId, day(5));
+    // Two fresh paid enrolments (the ones above were cancelled and refunded by earlier tests).
+    const refs = [`PR-O2A-${crypto.randomUUID().slice(0, 6)}`, `PR-O2B-${crypto.randomUUID().slice(0, 6)}`];
+    for (const ref of refs) await db.prepare(`INSERT INTO program_enrollments (ref, program_id, client_id, participant_name, email, payment_status) VALUES (?, ?, 'c', 'O2 Learner', 'o2@example.test', 'paid')`).run(ref, testProgramId);
+    const [e1, e2] = await Promise.all(refs.map(async (ref) => ((await db.prepare(`SELECT id FROM program_enrollments WHERE ref = ?`).get(ref)) as { id: number }).id));
+    await db.prepare(`INSERT INTO attendance (kind, ref, status) VALUES ('program_session', ?, 'present'), ('program_session', ?, 'absent')`).run(`${ids[0]}:${e1}`, `${ids[1]}:${e1}`);
+    try {
+      const rows = (await (await fetch(`${baseUrl}/programs/${testProgramId}/enrollments`)).json()) as { id: number; progress: Record<string, unknown> }[];
+      expect(rows.find((r) => Number(r.id) === Number(e1))!.progress).toEqual({ sessionsTotal: 3, sessionsSoFar: 2, attended: 1, missed: 1, notRecorded: 0, finished: false });
+      expect(rows.find((r) => Number(r.id) === Number(e2))!.progress).toMatchObject({ attended: 0, missed: 0, notRecorded: 2 });
+    } finally {
+      await db.prepare(`DELETE FROM program_enrollments WHERE ref IN (?, ?)`).run(...refs);
+      await db.prepare(`DELETE FROM attendance WHERE kind = 'program_session' AND ref LIKE ?`).run(`%-${testProgramId}:%`);
+      await db.prepare(`DELETE FROM program_sessions WHERE program_id = ?`).run(testProgramId);
+    }
+  });
+});

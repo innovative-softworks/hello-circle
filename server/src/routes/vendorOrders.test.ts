@@ -26,8 +26,8 @@ const progRef = `PR-VO-${run}`;
 let server: Server;
 let base: string;
 
-const as = async (path: string, who: { vendorIds: string[]; role: string | null }) => {
-  const r = await fetch(`${base}${path}`, { headers: { "X-Test": JSON.stringify(who) } });
+const as = async (path: string, who: { vendorIds: string[]; role: string | null }, body?: unknown) => {
+  const r = await fetch(`${base}${path}`, { method: body === undefined ? "GET" : "POST", headers: { "Content-Type": "application/json", "X-Test": JSON.stringify(who) }, body: body === undefined ? undefined : JSON.stringify(body) });
   return { status: r.status, body: (await r.json()) as any };
 };
 const OWNER_A = { vendorIds: [vendorA], role: null };
@@ -79,6 +79,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await new Promise<void>((r) => server.close(() => r()));
   await setSetting("participation.attendees", "false");
+  await db.prepare(`DELETE FROM order_notes WHERE order_ref = ?`).run(regRef);
   for (const r of [regRef, cancelledRef, expRef, progRef]) {
     await db.prepare(`DELETE FROM registration_answers WHERE source_ref = ?`).run(r);
     await db.prepare(`DELETE FROM audit_log WHERE object_id = ?`).run(r);
@@ -155,5 +156,20 @@ describe("Phase J — the partner record", () => {
     const p = (await as(`/vendor/orders/program/${progRef}`, OWNER_A)).body;
     expect(p.attendance).toMatchObject({ kind: "sessions", sessionsAttended: 1, sessionsMarked: 2, sessionsTotal: 3 });
     expect(p.orderId).toEqual(expect.any(Number));
+  });
+
+  it("O3 — the team's notes: managers add and read them, finance and other organisations can't", async () => {
+    expect((await as(`/vendor/orders/registration/${regRef}/notes`, staffA("finance"), { body: "Nope" })).status).toBe(403);
+    expect((await as(`/vendor/orders/registration/${regRef}/notes`, OWNER_B, { body: "Nope" })).status).toBe(404);
+    expect((await as(`/vendor/orders/registration/${regRef}/notes`, OWNER_A, { body: "  " })).status).toBe(400);
+    const added = await as(`/vendor/orders/registration/${regRef}/notes`, staffA("facility_manager"), { body: "Parent asked for a call before the first session." });
+    expect(added.status).toBe(201);
+    expect(added.body.notes).toMatchObject([{ body: "Parent asked for a call before the first session." }]);
+    const rec = (await as(`/vendor/orders/registration/${regRef}`, OWNER_A)).body;
+    expect(rec.notes_internal).toHaveLength(1);
+    expect(rec.history.map((h: { label: string }) => h.label)).toContain("Team note added");
+    expect((await as(`/vendor/orders/registration/${regRef}`, staffA("finance"))).body.notes_internal).toBeNull();
+    const audit = (await db.prepare(`SELECT new_value AS v FROM audit_log WHERE object_id = ? AND action = 'registration.note_added'`).get(regRef)) as { v: string | null };
+    expect(String(audit.v ?? "")).not.toContain("call");
   });
 });

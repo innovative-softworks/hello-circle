@@ -514,6 +514,8 @@ export function removeProgramSession(programId: string, sessionId: string): Prom
 }
 
 export interface ProgramEnrollment {
+  /** Phase O2 — progress from the register. */
+  progress?: { sessionsTotal: number; sessionsSoFar: number; attended: number; missed: number; notRecorded: number; finished: boolean };
   id: number;
   ref: string;
   participantName: string;
@@ -1136,7 +1138,12 @@ export interface VendorOrderRecord {
   questionsVersion: number;
   missingAnswers: string[];
   actions: { cancel: boolean; refund: boolean };
+  /** Phase O3 — the team's own notes (managers only; null for other roles). */
+  notes_internal: { id: number; body: string; author: string; at: string }[] | null;
   history: { label: string; at: string }[];
+}
+export function addVendorOrderNote(source: import("../types").OrderSource, ref: string, body: string): Promise<{ notes: NonNullable<VendorOrderRecord["notes_internal"]> }> {
+  return request(`/vendor/orders/${source}/${encodeURIComponent(ref)}/notes`, { method: "POST", body: JSON.stringify({ body }) });
 }
 export function fetchVendorOrder(source: import("../types").OrderSource, ref: string): Promise<VendorOrderRecord> {
   return request(`/vendor/orders/${source}/${encodeURIComponent(ref)}`);

@@ -258,6 +258,15 @@ async function initParticipationPhase2Schema(ensureColumn: EnsureColumn, ensureI
       UNIQUE KEY uq_message_delivery (message_id, recipient_key, channel),
       KEY idx_message_delivery_status (status, attempts)
     );
+    CREATE TABLE IF NOT EXISTS order_notes (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      source_type VARCHAR(20) NOT NULL,
+      order_ref VARCHAR(191) NOT NULL,
+      author_user_id VARCHAR(191) NOT NULL,
+      body VARCHAR(2000) NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      KEY idx_order_notes_ref (source_type, order_ref)
+    );
     CREATE TABLE IF NOT EXISTS vendor_message_requests (
       vendor_id VARCHAR(191) NOT NULL,
       idem_key VARCHAR(80) NOT NULL,

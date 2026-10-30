@@ -281,6 +281,7 @@ export function ProgramManager({ programId, onChanged }: { programId: string; on
                   <tr>
                     <th scope="col">Participant</th>
                     <th scope="col">Email</th>
+                    <th scope="col">Attendance</th>
                     <th scope="col" className="adm-num">
                       Paid
                     </th>
@@ -295,6 +296,12 @@ export function ProgramManager({ programId, onChanged }: { programId: string; on
                       </td>
                       <td data-label="Email" style={{ color: "var(--adm-muted)" }}>
                         {e.email}
+                      </td>
+                      <td data-label="Attendance">
+                        {/* Phase O2 — from the register; "finished" means every session is past (no attendance threshold). */}
+                        {e.progress
+                          ? `${e.progress.attended} of ${e.progress.sessionsSoFar} attended${e.progress.missed ? ` · ${e.progress.missed} missed` : ""}${e.progress.notRecorded ? ` · ${e.progress.notRecorded} not recorded` : ""}${e.progress.finished ? " · finished" : ""}`
+                          : "—"}
                       </td>
                       <td data-label="Paid" className="adm-num" style={{ fontWeight: 700 }}>
                         €{(e.totalCents / 100).toFixed(2)}

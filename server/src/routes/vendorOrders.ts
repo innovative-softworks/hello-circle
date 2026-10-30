@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { hasPlatformRole } from "../auth.js";
 import { db } from "../db/index.js";
+import { writeAudit } from "../audit.js";
 import { formQuestionsOn } from "../participation/formAnswers.js";
 import { ANSWER_SOURCE } from "../participation/formListings.js";
 import { isOrderSource, missingRequired, orderAttendance, orderPeople, orgOrder, type OrderCore } from "../participation/orderRecords.js";
@@ -40,6 +41,7 @@ const HISTORY_LABELS: Record<string, string> = {
   checked_in: "Checked in",
   no_show: "Marked as not attended",
   change_proposed: "New time proposed",
+  note_added: "Team note added",
 };
 
 vendorOrdersRouter.get("/orders/:source/:ref", async (req, res) => {
@@ -89,9 +91,37 @@ vendorOrdersRouter.get("/orders/:source/:ref", async (req, res) => {
       cancel: open && runsListing && order.source !== "booking",
       refund: order.paymentStatus === "paid" && hasPlatformRole(user, "finance") && order.source !== "booking",
     },
+    // Phase O3 — the team's own notes (never shown to the person who booked); managers only.
+    notes_internal: runsListing ? await internalNotes(order.source, order.ref) : null,
     history: [
       { label: "Booked", at: order.createdAt },
       ...history.map((h) => ({ label: HISTORY_LABELS[h.action.split(".").slice(1).join(".")] ?? h.action.split(".").slice(1).join(" ").replace(/_/g, " "), at: h.at instanceof Date ? h.at.toISOString() : String(h.at) })),
     ],
   });
+});
+
+// --- Phase O3: the team's operational notes on a booking ---------------------------
+// Append-only (a correction is a new note), for the people who run the listing;
+// never shown to the person who booked or in exports. Each note is audited
+// (who and which booking — not the text).
+
+async function internalNotes(source: string, ref: string) {
+  const rows = (await db
+    .prepare(`SELECT n.id, n.body, n.created_at AS at, u.name AS author FROM order_notes n LEFT JOIN users u ON u.id = n.author_user_id WHERE n.source_type = ? AND n.order_ref = ? ORDER BY n.id`)
+    .all(source, ref)) as { id: number; body: string; at: Date | string; author: string | null }[];
+  return rows.map((r) => ({ id: Number(r.id), body: r.body, author: r.author ?? "A team member", at: r.at instanceof Date ? r.at.toISOString() : String(r.at) }));
+}
+
+vendorOrdersRouter.post("/orders/:source/:ref/notes", async (req, res) => {
+  const source = req.params.source;
+  if (!isOrderSource(source)) return res.status(404).json({ error: "Not found" });
+  const order = await orgOrder(source, req.params.ref, req.vendorIds!);
+  if (!order) return res.status(404).json({ error: "Not found" });
+  if (!hasPlatformRole(req.user!, ...(await listingRoles(order)))) return res.status(403).json({ error: "Only the managers who run this listing can add notes" });
+  const body = typeof (req.body ?? {}).body === "string" ? req.body.body.trim() : "";
+  if (!body) return res.status(400).json({ error: "Write the note" });
+  if (body.length > 2000) return res.status(400).json({ error: "Keep the note under 2,000 characters" });
+  await db.prepare(`INSERT INTO order_notes (source_type, order_ref, author_user_id, body) VALUES (?, ?, ?, ?)`).run(source, order.ref, req.user!.id, body);
+  await writeAudit({ actorUserId: req.user!.id, action: `${source}.note_added`, objectType: source, objectId: order.ref });
+  res.status(201).json({ notes: await internalNotes(source, order.ref) });
 });

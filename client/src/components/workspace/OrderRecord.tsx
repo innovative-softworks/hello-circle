@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   ApiError,
+  addVendorOrderNote,
   cancelVendorEnrollment,
   cancelVendorExperienceBooking,
   cancelVendorRegistration,
@@ -38,6 +39,50 @@ function attendanceLine(a: OrderAttendance, people: VendorOrderRecord["people"])
 }
 
 const show = (a: { inputType: string; value: string; display?: string }) => a.display ?? (a.inputType === "checkbox" ? "Yes" : a.value);
+
+/** Phase O3 — the team's own notes on a booking: never shown to the person who booked. */
+function TeamNotes({ record: r }: { record: VendorOrderRecord }) {
+  const [notes, setNotes] = useState(r.notes_internal ?? []);
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  if (r.notes_internal === null) return null;
+  const add = async () => {
+    if (!text.trim()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      setNotes((await addVendorOrderNote(r.source, r.ref, text.trim())).notes);
+      setText("");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't add the note");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <>
+      <SectionLabel>Team notes</SectionLabel>
+      <p className="adm-note" style={{ marginTop: 0 }}>Only your team sees these — not the person who booked. Setup, equipment or anything to prepare.</p>
+      {notes.length > 0 && (
+        <ul style={{ listStyle: "none", margin: "0 0 10px", padding: 0, display: "grid", gap: 6 }}>
+          {notes.map((n) => (
+            <li key={n.id} className="adm-box" style={{ padding: "8px 12px", fontSize: 13.5 }}>
+              <div style={{ whiteSpace: "pre-wrap" }}>{n.body}</div>
+              <div style={{ color: "var(--adm-muted)", fontSize: 12 }}>{n.author} · {formatDate(n.at, true)}</div>
+            </li>
+          ))}
+        </ul>
+      )}
+      <label htmlFor={`note-${r.ref}`} className="adm-visually-hidden">Add a team note</label>
+      <textarea id={`note-${r.ref}`} className="adm-input" rows={2} maxLength={2000} value={text} onChange={(e) => setText(e.target.value)} placeholder="Add a note for the team" style={{ width: "100%", resize: "vertical" }} />
+      {error && <p role="alert" className="adm-field-error" style={{ margin: "4px 0 0" }}>{error}</p>}
+      <div style={{ marginTop: 6 }}>
+        <AdminButton size="sm" onClick={add} disabled={busy || !text.trim()}>{busy ? "Adding…" : "Add note"}</AdminButton>
+      </div>
+    </>
+  );
+}
 
 /** People, answers and history — the body of the record, also embedded in the hall booking record. */
 export function OrderRegistrationBody({ record: r }: { record: VendorOrderRecord }) {
@@ -98,6 +143,7 @@ export function OrderRegistrationBody({ record: r }: { record: VendorOrderRecord
           Waiting for: {r.missingAnswers.join("; ")}.
         </p>
       )}
+      <TeamNotes record={r} />
     </>
   );
 }
@@ -126,7 +172,7 @@ export function OrderRegistrationSection({ source, bookingRef }: { source: Order
   }, [source, bookingRef]);
   if (failed) return <p className="adm-note">Couldn't load the registration answers.</p>;
   if (!r) return null;
-  if (!r.answersVisible && r.answerCount === 0 && !r.questionsVersion) return null;
+  if (!r.answersVisible && r.answerCount === 0 && !r.questionsVersion && r.notes_internal === null) return null;
   return (
     <div style={{ marginTop: 20 }}>
       <OrderRegistrationBody record={r} />
