@@ -83,6 +83,7 @@ export function deliveryLine(m: Pick<SentMessage, "recipientCount" | "delivery">
 /** Listing (unless locked), audience, template, subject, message, preview, test and send. */
 function ComposerFields({ options, locked, onSent }: { options: ListingOption[]; locked: boolean; onSent: (summary: string) => void }) {
   const [extra, setExtra] = useState<ListingOption[]>([]);
+  const [extraLoaded, setExtraLoaded] = useState(locked);
   const all = useMemo(() => [...options, ...extra], [options, extra]);
   const [target, setTarget] = useState(options[0] ? `${options[0].listingType}:${options[0].listingId}` : "");
   const [templates, setTemplates] = useState<MessageTemplate[]>([]);
@@ -105,13 +106,18 @@ function ComposerFields({ options, locked, onSent }: { options: ListingOption[];
   // The organisation's programmes and experiences/events (the dashboard list holds halls and clubs only).
   useEffect(() => {
     if (locked) return;
-    Promise.all([fetchVendorPrograms().catch(() => []), fetchVendorExperiences().catch(() => [])]).then(([programs, experiences]) =>
+    Promise.all([fetchVendorPrograms().catch(() => []), fetchVendorExperiences().catch(() => [])]).then(([programs, experiences]) => {
       setExtra([
         ...programs.filter((p) => p.status !== "archived").map((p) => ({ listingType: "program" as const, listingId: p.id, name: p.title })),
         ...experiences.filter((e) => e.status !== "deleted").map((e) => ({ listingType: "experience" as const, listingId: e.id, name: e.title })),
-      ])
-    );
+      ]);
+      setExtraLoaded(true);
+    });
   }, [locked]);
+  // With no hall or club, start on the first programme or event once they load.
+  useEffect(() => {
+    if (!target && all[0]) setTarget(`${all[0].listingType}:${all[0].listingId}`);
+  }, [all, target]);
   useEffect(() => {
     fetchMessageTemplates().then((r) => setTemplates(r.templates)).catch(() => setTemplates([]));
   }, []);
@@ -174,6 +180,7 @@ function ComposerFields({ options, locked, onSent }: { options: ListingOption[];
   };
 
   const ready = !!targetOption && subject.trim() && body.trim();
+  if (extraLoaded && all.length === 0) return <p className="adm-note">You need an approved listing before you can message participants.</p>;
   const listingName = targetOption?.name ?? "";
   return (
     <form
@@ -534,19 +541,17 @@ export function MessagesTab({
       )}
 
       <AdminModal open={composeOpen} onClose={onCloseCompose} title="New message" subtitle="Goes to the people booked on the listing you choose — in the app for signed-in residents, and by email." wide>
-        {options.length === 0 ? (
-          <p className="adm-note">You need an approved listing before you can message participants.</p>
-        ) : (
-          <ComposerFields
-            options={options}
-            locked={false}
-            onSent={(summary) => {
-              toast.success(summary);
-              loadSent();
-              onCloseCompose();
-            }}
-          />
-        )}
+        {/* Final validation: halls and clubs come from the dashboard; programmes and
+            events/experiences load inside the composer, so it renders either way. */}
+        <ComposerFields
+          options={options}
+          locked={false}
+          onSent={(summary) => {
+            toast.success(summary);
+            loadSent();
+            onCloseCompose();
+          }}
+        />
       </AdminModal>
     </div>
   );
